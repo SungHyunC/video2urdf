@@ -76,6 +76,8 @@ Built solo for the Meta Global AI Developer Hackathon (Cerebral Valley, Indie tr
   - Never run greedy (temperature 0).
 
 ## Schedule (KST)
+The detailed plan lives in `docs/ROADMAP.md`: daily done criteria, decision points, techniques, risks and the cut list. Follow it, and update it when the plan changes.
+
 | Date | Work |
 |---|---|
 | 10/27 | Repo skeleton, synthetic video generator, Glimmer server up |
