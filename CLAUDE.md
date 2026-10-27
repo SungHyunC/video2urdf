@@ -59,14 +59,21 @@ Built solo for the Meta Global AI Developer Hackathon (Cerebral Valley, Indie tr
   Reach it with `ssh -L 8000:localhost:8000 <host>`.
 - Every model sits behind one OpenAI-compatible base URL. Switching between the Meta API and local open weights is a config change.
 
-## Model notes (check against current docs)
-- Muse Spark 1.3 (`muse-spark-1.3`): takes image, video and document input, supports tool calling, and works with the OpenAI SDK.
-- SAM 3.1 API (`sam-3-1`): $0.20 per 1k video frames. Input limits and the response schema are undocumented, so test them first.
-- SAM 3.1 open weights: on Hugging Face (reportedly `facebook/sam3.1`, gated, SAM license).
-- Muse Glimmer (`meta-models/Muse-Glimmer-30B`):
-  - Dense 29.6B with a vision encoder, Apache-2.0.
-  - Needs ≥24 GB VRAM even at 4-bit, so it doesn't fit the 16 GB desktop.
-  - No Ollama tag. Use vLLM, SGLang, llama.cpp or LM Studio.
+## Model notes (checked against dev.meta.ai docs on 10/27)
+- Meta Model API: base URL `https://api.meta.ai/v1`, key in `MODEL_API_KEY`, OpenAI SDK (Chat Completions and Responses).
+- Muse Spark 1.3 (`muse-spark-1.3`): text, image, video (MP4, inline ≤ 50 MB), audio, PDF; tool calling; 1M context.
+  - Video part: `{"type":"video_url","video_url":{"url":...,"fps":2}}`.
+- SAM 3.1 API (`sam-3.1`, not `sam-3-1`): $0.20 per 1k frames, 50-frame minimum.
+  - Responses API with streaming, one text concept per request.
+  - Object IDs are stable only within one response. To track several parts under shared IDs, use box/point prompts (≤ 16 objects).
+  - Masks are base85; decode them with `meta-sam-parser`. Limit: ≤ 15,000 frames.
+  - Max resolution is undocumented, so test it.
+- SAM 3.1 open weights: `facebook/sam3.1` (`sam3.1_multiplex.pt`), SAM License, gated with manual approval. Code at `facebookresearch/sam3`; pass `use_fa3=False` on A100.
+- Muse Glimmer (`meta-models/Muse-Glimmer-30B`, served as `muse-glimmer`): 29.6B dense with vision, Apache-2.0, vLLM ≥ 0.28.
+  - Input is text and images only; video is processed as frames.
+  - Memory: bf16 needs 72 GB (A100 80GB). The FP8 build (`RedHatAI/Muse-Glimmer-30B-FP8-block`) is for 40 GB. The GGUF Q4 (`meta-models/Muse-Glimmer-30B-GGUF`) is ~19 GB with vision, so it doesn't fit the 16 GB desktop.
+  - An Ollama tag exists: `ollama run muse-glimmer`.
+  - Never run greedy (temperature 0).
 
 ## Schedule (KST)
 | Date | Work |
