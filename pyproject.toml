@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "video2urdf"
+version = "0.1.0"
+description = "Turn a phone video of an articulated object into a measured URDF/MJCF, then prove it in MuJoCo."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "numpy>=1.26",
+    "mujoco>=3.2",
+    "opencv-python-headless>=4.9",
+    "imageio>=2.34",
+    "imageio-ffmpeg>=0.5",
+    "python-dotenv>=1.0",
+    "openai>=1.40",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+v2u = "video2urdf.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/video2urdf"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
