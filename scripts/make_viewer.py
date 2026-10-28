@@ -61,6 +61,11 @@ def log_html(log: str, base: str) -> str:
 
 def joints_text(run: Path) -> str:
     f = run / "joints.json"
+    if (run / "model3d.json").exists():
+        m = json.loads((run / "model3d.json").read_text())
+        lo, hi = m["hinge_range_deg"]
+        return (f"3D (iPhone LiDAR): plate {m['plate_size_mm'][0]:.0f} x {m['plate_size_mm'][1]:.0f} mm, "
+                f"base {m['base_thickness_mm']:.0f} mm thick, hinge {lo:.0f}..{hi:.0f} deg")
     if not f.exists():
         return ""
     j = json.loads(f.read_text())
@@ -83,14 +88,19 @@ def main():
     ap.add_argument("--open", action="store_true")
     args = ap.parse_args()
 
-    runs = sorted((d for d in args.tracks.iterdir() if (d / "replay.mp4").exists()),
+    def replay_of(d):
+        return next((f for f in ("replay3d.mp4", "replay.mp4") if (d / f).exists()), None)
+
+    runs = sorted((d for d in args.tracks.iterdir() if d.is_dir() and replay_of(d)),
                   key=lambda d: (not (d / "agent" / "report.md").exists(), d.name))
     sections = []
     for run in runs:
         report = run / "agent" / "report.md"
         log = run / "agent" / "log.md"
         body = [f'<section id="{run.name}"><h2>{html.escape(run.name)}</h2><div class="top">',
-                f'<video controls loop muted playsinline src="{run.name}/replay.mp4"></video>',
+                f'<video controls loop muted playsinline src="{run.name}/{replay_of(run)}"></video>',
+                *([f'<video controls loop muted playsinline src="{run.name}/robot_demo.mp4"></video>']
+                  if (run / "robot_demo.mp4").exists() else []),
                 '<div class="report">']
         if report.exists():
             body.append(f"<b>Spark report</b>\n{html.escape(report.read_text())}")

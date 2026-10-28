@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 from openai import OpenAI
 
+from . import lidar
 from .pipeline import CARD_LONG_SIDE, Fit, fit, long_side_px, read_frame, slug, video_info
 from .sam import Detection, SamClient, parse
 
@@ -74,8 +75,13 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {"candidate": {"type": "string"}}, "required": ["candidate"]}},
     {"name": "track", "description": "Track parts through the video. First part is the fixed root.",
      "parameters": {"type": "object", "properties": {"parts": {"type": "array", "items": {
-         "type": "object", "properties": {"name": {"type": "string"}, "candidate": {"type": "string"}},
-         "required": ["name", "candidate"]}}}, "required": ["parts"]}},
+         "type": "object", "properties": {
+             "name": {"type": "string"},
+             "candidate": {"type": "string"},
+             "candidates": {"type": "array", "items": {"type": "string"},
+                            "description": "Several candidates of the same part on different frames, so "
+                                           "tracking re-acquires it after it disappears (one per frame)."}},
+         "required": ["name"]}}}, "required": ["parts"]}},
     {"name": "fit", "description": "Fit joints and replay in MuJoCo.",
      "parameters": {"type": "object", "properties": {
          "parents": {"type": "object", "additionalProperties": {"type": "string"},
@@ -87,9 +93,36 @@ TOOLS = [
          "thickness": {"type": "object", "additionalProperties": {"type": "number"},
                        "description": "Optional {part: metres}: a part's true thickness when the view is "
                                       "oblique and its silhouette shows faces (a laptop lid is ~0.006)."}}}},
+    {"name": "fit_lidar", "description": "LiDAR captures only: fit one hinged plate in 3D and replay it.",
+     "parameters": {"type": "object", "properties": {
+         "floor": {"type": "string", "description": "tracked part: the static surface the object stands on"},
+         "base": {"type": "string", "description": "tracked part the plate hinges on, as seen on frame 0"},
+         "plate": {"type": "string", "description": "tracked part: the plate's inner face (e.g. a screen)"},
+         "plate_closed": {"type": "string", "description": "tracked part covering the object when closed"},
+         "open_indicator": {"type": "string", "description": "tracked part seen only while open"}},
+         "required": ["floor", "base", "plate"]}},
     {"name": "finish", "description": "End with a report.",
      "parameters": {"type": "object", "properties": {"report": {"type": "string"}}, "required": ["report"]}},
 ]
+
+
+LIDAR = """
+
+This is an iPhone LiDAR capture: every frame has metric depth and the phone's own camera
+pose, so the view may be oblique and no card is needed (skip measure_scale). For a hinged
+plate (laptop lid, door, flap) use fit_lidar, not fit. Track, in one track call:
+- the floor or table the object stands on (static scene),
+- the base the plate hinges on, as seen on frame 0,
+- the plate's inner face (e.g. "laptop screen"),
+- what covers the object when closed (segment it on a closed frame; for a laptop the
+  whole closed laptop, which may be the same tracked part as the base),
+- a part seen only while open (e.g. "laptop keyboard"), so closed frames can be told apart.
+Look at frames across the video first to see when it is open and closed. A part that
+disappears and comes back (a screen that closes and reopens) needs candidates on several
+frames, at least one before and one after it disappears. Then call fit_lidar with the
+tracked part names in their roles. Judge the result: the hinge line should sit on the real
+hinge, the opening over time should follow the video, and the replayed model should stay
+on the object. Report sizes in mm; say which numbers are clipped or unmeasured."""
 
 
 def jpeg_url(img: np.ndarray, width: int = VIEW_WIDTH) -> str:
@@ -109,6 +142,7 @@ def label(img: np.ndarray, text: str) -> np.ndarray:
 class Agent:
     video: Path
     track_dir: Path
+    capture: Path | None = None  # iPhone LiDAR capture (Stray Scanner): depth and camera poses
     client: OpenAI = None
     sam: SamClient = None
     candidates: dict[str, tuple[str, Detection, int]] = field(default_factory=dict)  # id -> prompt, det, frame
@@ -187,20 +221,26 @@ class Agent:
                 "the object is nearer the camera than the motion plane, so sizes come out a little small.")
 
     def tool_track(self, parts: list[dict]) -> str:
-        chosen = []
+        chosen = []  # (name, prompt, best detection, its frame, all anchors)
         for p in parts:
-            if p.get("candidate") not in self.candidates:
-                return f"unknown candidate {p.get('candidate')}; segment first"
-            chosen.append((slug(p["name"]), *self.candidates[p["candidate"]]))
+            ids = p.get("candidates") or [p.get("candidate")]
+            missing = [i for i in ids if i not in self.candidates]
+            if missing:
+                return f"unknown candidate(s) {missing}; segment first"
+            anchors = sorted({self.candidates[i][2]: self.candidates[i][1].box for i in ids}.items())
+            if len(anchors) < len(ids):
+                return f"{p['name']}: give at most one candidate per frame"
+            prompt, det, frame = self.candidates[ids[0]]
+            chosen.append((slug(p["name"]), prompt, det, frame, anchors))
         if len({c[0] for c in chosen}) != len(chosen):
             return "part names must be unique"
-        boxes = {oid: (frame, d.box) for oid, (_, _, d, frame) in enumerate(chosen)}
-        raw = self.sam.track_boxes(self.video, self.size, boxes)
+        raw = self.sam.track_boxes(self.video, self.size, {oid: c[4] for oid, c in enumerate(chosen)})
         (self.track_dir / "tracks.sam.npz").unlink(missing_ok=True)
         (self.track_dir / "tracks.sam.txt").write_text(raw)
         (self.track_dir / "parts.json").write_text(json.dumps({
-            oid: {"name": name, "prompt": prompt, "frame": frame, "box": list(d.box), "confidence": d.confidence}
-            for oid, (name, prompt, d, frame) in enumerate(chosen)}, indent=2))
+            oid: {"name": name, "prompt": prompt, "frame": frame, "box": list(d.box), "confidence": d.confidence,
+                  "anchors": [[f, list(b)] for f, b in anchors]}
+            for oid, (name, prompt, d, frame, anchors) in enumerate(chosen)}, indent=2))
         counts = {}
         for det in parse(raw):
             counts[det.obj_id] = counts.get(det.obj_id, 0) + 1
@@ -245,6 +285,44 @@ class Agent:
             t += 1
         return cv2.hconcat(imgs)
 
+    def tool_fit_lidar(self, floor: str, base: str, plate: str, plate_closed: str | None = None,
+                       open_indicator: str | None = None) -> str:
+        if self.capture is None:
+            return "fit_lidar needs a LiDAR capture; use fit"
+        if not self.tracked:
+            return "track parts first"
+        roles = lidar.Roles(slug(floor), slug(base), slug(plate), plate_closed and slug(plate_closed),
+                            open_indicator and slug(open_indicator))
+        c = lidar.Capture(self.video, self.capture, self.track_dir)
+        missing = [r for r in vars(roles).values() if r and r not in c.names]
+        if missing:
+            return f"not tracked: {missing}; tracked parts are {c.names}"
+        lines = []
+        lidar.fit_hinge(c, roles, log=lines.append)
+        summary = lidar.build_model(c, roles, log=lines.append)
+        hinge_img = cv2.imread(str(self.track_dir / "hinge.jpg"))
+        self.show(hinge_img, "fit_lidar: measured hinge and opening over time", width=VIEW_WIDTH * 2)
+        frames = sorted(set(summary["worst_frames"].values()) | {int(f) for f in np.linspace(0, self.n - 1, 3)})[:4]
+        sheet = self.video_sheet(self.track_dir / "replay3d.mp4", frames)
+        self.show(sheet, "fit_lidar: 3D replay from the phone's camera", width=sheet.shape[1])
+        self.last_fit = summary
+        return ("\n".join(lines) + "\nImages: the hinge drawn on the reference frame with the opening over time, "
+                "then the replayed model (colored) over the video at its worst frames and a few others.")
+
+    def video_sheet(self, path: Path, frames: list[int]) -> np.ndarray:
+        cap = cv2.VideoCapture(str(path))
+        imgs, t, want = [], 0, sorted(set(frames))
+        while want:
+            ok, img = cap.read()
+            if not ok:
+                break
+            if t == want[0]:
+                imgs.append(label(cv2.resize(img, (VIEW_WIDTH, round(img.shape[0] * VIEW_WIDTH / img.shape[1]))),
+                                  f"frame {t}"))
+                want.pop(0)
+            t += 1
+        return cv2.hconcat(imgs)
+
     def tool_finish(self, report: str) -> str:
         self.report = report
         return "done"
@@ -256,7 +334,7 @@ class Agent:
                  "Build its kinematic model. Frames below are spread over the video.")
         self.log(f"# Video2URDF agent: {self.video.name}\n\nmodel {MODEL}")
         self.tool_look([0, self.n // 3, 2 * self.n // 3, self.n - 1])
-        messages = [{"role": "system", "content": SYSTEM},
+        messages = [{"role": "system", "content": SYSTEM + (LIDAR if self.capture else "")},
                     {"role": "user", "content": [{"type": "text", "text": intro}] + self._take_images()}]
         tools = [{"type": "function", "function": t} for t in TOOLS]
         for step in range(MAX_STEPS):

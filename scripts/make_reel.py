@@ -51,7 +51,8 @@ def main():
         lo, hi = np.rad2deg(m["hinge_limits_rad"])
         summary = (f"hinge {abs(hi - lo):.0f} deg, base {1000 * m['base_thickness_m']:.0f} mm, "
                    f"lid {1000 * m['lid_thickness_m']:.0f} mm thick, no card")
-        source = "SAM 3.1 + iPhone LiDAR"
+        source = ("Muse Spark + SAM 3.1 + iPhone LiDAR" if (args.run / "agent" / "report.md").exists()
+                  else "SAM 3.1 + iPhone LiDAR")
     else:
         joints = json.loads((args.run / "joints.json").read_text())["joints"]
         summary = ""

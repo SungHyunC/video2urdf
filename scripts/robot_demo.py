@@ -27,6 +27,7 @@ PEDESTAL_TOP = 0.30
 HINGE_X = 0.50  # where the pushed joint sits in front of the robot
 W, H, FPS = 1920, 1080, 30
 LIFT = np.array([-0.05, 0, 0.15])
+MAX_JOINT_STEP = 0.06  # rad per frame (~1.8 rad/s)
 
 
 def object_xml(model_xml: Path, pos, yaw: float) -> tuple[str, str, str, str]:
@@ -127,9 +128,10 @@ class Ik:
             e = np.concatenate([err_p, 0.3 * err_r])
             dq = j.T @ np.linalg.solve(j @ j.T + 1e-4 * np.eye(6), e)
             dq += 0.05 * (np.eye(7) - np.linalg.pinv(j) @ j) @ (HOME - q)  # stay near home
-            q = np.clip(q + dq, self.lo, self.hi)
+            q = np.clip(q + np.clip(dq, -0.1, 0.1), self.lo, self.hi)  # small steps: stay on one solution branch
             if np.linalg.norm(err_p) < 5e-4:
                 break
+        self.error = float(np.linalg.norm(err_p))
         return q
 
 
@@ -226,7 +228,7 @@ def main():
     steps_per_frame = round(1 / FPS / model.opt.timestep)
 
     start_tip, start_axis = None, None
-    lid_q = []
+    lid_q, ik_errors = [], []
     for f in range(int(total * FPS)):
         t = f / FPS
         acc, name, u = 0.0, phases[-1][0], 1.0
@@ -262,7 +264,9 @@ def main():
         else:
             target = None
         if target is not None:
-            arm_q = ik.solve(arm_q, target[0], target[1])
+            # Rate-limit the joint targets so a jump in the IK solution can't whip the arm.
+            arm_q = arm_q + np.clip(ik.solve(arm_q, target[0], target[1]) - arm_q, -MAX_JOINT_STEP, MAX_JOINT_STEP)
+            ik_errors.append(ik.error)
         data.ctrl[:7] = arm_q
         for _ in range(steps_per_frame):
             mujoco.mj_step(model, data)
@@ -277,7 +281,7 @@ def main():
     writer.release()
     renderer.close()
     print(f"lid {joint_name}: {np.rad2deg(lid_q[0] - q_open):.1f} -> {np.rad2deg(lid_q[-1] - q_open):.1f} deg "
-          f"(target {np.rad2deg(q_closed - q_open):.1f}); video -> {out}")
+          f"(target {np.rad2deg(q_closed - q_open):.1f}); IK error max {1000 * max(ik_errors):.0f} mm; video -> {out}")
 
 
 if __name__ == "__main__":
