@@ -334,7 +334,7 @@ class PlanarHinge:
 
 
 def fit_planar_hinge(clouds: dict[int, np.ndarray], n_frames: int, ref: int, pin: np.ndarray,
-                     min_inliers: float = 0.6) -> PlanarHinge:
+                     min_inliers: float = 0.6, base_normal: np.ndarray | None = None) -> PlanarHinge:
     """Hinge of a flat plate (a laptop lid) from depth alone, no texture needed.
 
     Fit the plate's plane in every frame (``clouds``, in the reference frame). A plate
@@ -357,6 +357,19 @@ def fit_planar_hinge(clouds: dict[int, np.ndarray], n_frames: int, ref: int, pin
     normals = np.array([planes[t][0] for t in frames])
     offsets = np.array([planes[t][1] for t in frames])
     axis = np.linalg.eigh(normals.T @ normals)[1][:, 0]
+    if base_normal is not None:
+        # The hinge is where the plate meets the base: the line where their planes cross.
+        # From the frames where the plate stands well clear of the base (30-150 deg) that
+        # direction is sharp, and it doesn't depend on every frame's plane being right.
+        crossings = []
+        for n in normals:
+            v = np.cross(n, base_normal)
+            if np.linalg.norm(v) > np.sin(np.deg2rad(30)):
+                v /= np.linalg.norm(v)
+                crossings.append(v if v @ axis >= 0 else -v)
+        if len(crossings) >= 5:
+            axis = np.median(crossings, axis=0)
+            axis /= np.linalg.norm(axis)
     a = np.vstack([normals, axis[None]])
     b = np.append(offsets, axis @ pin)
     point = np.linalg.lstsq(a, b, rcond=None)[0]
@@ -433,3 +446,35 @@ def fit_slide(clouds: dict[int, np.ndarray], n_frames: int, ref: int, sample: in
     out[ts] = q
     off = xs - np.outer(q, axis)
     return Slide(axis, clouds[start].mean(axis=0), out, float(np.sqrt(np.mean(np.sum((off - off.mean(axis=0)) ** 2, axis=1)))))
+
+
+def track_rigid(clouds: dict[int, np.ndarray], n_frames: int, ref: int, sample: int = 2000) -> np.ndarray:
+    """(n, 4, 4) motion of a rigid part from depth alone: each frame's cloud of the part
+    (in that frame's camera coordinates) registered to the reference cloud by trimmed
+    point-to-point ICP, warm-started from the neighbouring frame. Maps reference coordinates
+    to frame-t coordinates; NaN where the part has too few points."""
+    rng = np.random.default_rng(0)
+
+    def thin(c):
+        return c[rng.choice(len(c), sample, replace=False)] if len(c) > sample else c
+
+    frames = sorted(t for t, c in clouds.items() if len(c) >= 50)
+    start = min(frames, key=lambda t: abs(t - ref))
+    target = thin(clouds[start])
+    tree = cKDTree(target)
+    poses = np.full((n_frames, 4, 4), np.nan)
+    poses[start] = np.eye(4)
+    for seq in (frames[frames.index(start) + 1:], frames[frames.index(start) - 1::-1]):
+        inv = np.eye(4)  # frame-t coordinates -> reference coordinates
+        for t in seq:
+            c = thin(clouds[t])
+            for _ in range(30):
+                moved = c @ inv[:3, :3].T + inv[:3, 3]
+                d, idx = tree.query(moved)
+                keep = d < max(3 * np.median(d), 0.004)
+                step = kabsch(moved[keep], target[idx[keep]])
+                inv = step @ inv
+                if np.linalg.norm(step[:3, 3]) < 1e-5 and np.allclose(step[:3, :3], np.eye(3), atol=1e-5):
+                    break
+            poses[t] = np.linalg.inv(inv)
+    return poses

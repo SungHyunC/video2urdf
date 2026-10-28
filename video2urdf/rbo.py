@@ -86,6 +86,28 @@ def prepare(root: Path, out: Path) -> Path:
     return video
 
 
+def _tf_bodies(seq: Path) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Motion-captured rigid bodies in /map from tf.csv: {name: (times, (n, 4, 4) poses)}.
+    These are proper body frames; rb_poses_array.csv's orientations don't compose into
+    consistent relative motion, its positions do."""
+    h, rows = _rows(seq / "tf.csv")
+    out: dict[str, list] = {}
+    for r in rows:
+        for i in range(8):
+            try:
+                fi = h.index(f"field.transforms{i}.header.frame_id")
+            except ValueError:
+                break
+            if fi >= len(r) or r[fi].lstrip("/") != "map":
+                continue
+            p = f"field.transforms{i}.transform."
+            pose = _pose([float(r[h.index(p + f"translation.{a}")]) for a in "xyz"],
+                         [float(r[h.index(p + f"rotation.{a}")]) for a in "xyzw"])
+            stamp = float(r[h.index(f"field.transforms{i}.header.stamp")]) * 1e-9
+            out.setdefault(r[h.index(f"field.transforms{i}.child_frame_id")], []).append((stamp, pose))
+    return {k: (np.array([t for t, _ in v]), np.array([m for _, m in v])) for k, v in out.items()}
+
+
 def _camera_in_map(seq: Path) -> tuple[np.ndarray, np.ndarray]:
     """Times and (n, 4, 4) poses of the RGB optical frame in /map: the motion-captured camera
     body, then the camera's fixed internal chain down to the optical frame."""
@@ -123,8 +145,9 @@ def _interp_poses(times: np.ndarray, at: np.ndarray, poses: np.ndarray) -> np.nd
 
 
 def truth(root: Path) -> dict:
-    """Per RGB frame: joint values {joint: (n,)} and marker-body poses {id: (n, 4, 4)} in the
-    RGB optical frame. The camera's own marker body is left out."""
+    """Per RGB frame, in the RGB optical frame: joint values {joint: (n,)}, marker-body poses
+    {id: (n, 4, 4)} from rb_poses_array (positions reliable) and rigid-body frames
+    {name: (n, 4, 4)} from tf (full poses). The camera's own body is left out."""
     seq = sequence_dir(root)
     _, times = rgb_frames(seq)
     cam_t, cam = _camera_in_map(seq)
@@ -155,4 +178,6 @@ def truth(root: Path) -> dict:
         if in_cam[:, 2, 3].max() < 0.2:
             continue  # the camera's own marker body, at (not in front of) the camera
         bodies[rows[0][h.index(p + "id")]] = in_cam
-    return {"times": times, "joints": joints, "bodies": bodies}
+    frames = {name: np.linalg.inv(cam) @ _interp_poses(t, times, poses)
+              for name, (t, poses) in _tf_bodies(seq).items() if name != "AsusXtionCameraFrame"}
+    return {"times": times, "joints": joints, "bodies": bodies, "frames": frames}

@@ -12,9 +12,10 @@ Or let the agent track and pick the roles, then score what it chose:
   .venv/bin/python scripts/run_agent.py data/rbo/prep/laptop02 --out data/rbo/agent
   .venv/bin/python scripts/rbo_eval.py laptop02 --tracks data/rbo/agent
 
-Ground truth: the plate's marker body (the one that moves most) traces a circle about the
-true hinge, and how far it has swept about it is the true angle. The dataset's own joint
-values (from a fitted model) are scored as well. Writes data/rbo/results/<name>.json and <name>.jpg (our hinge red, truth green).
+Ground truth: the plate's motion relative to the base, from the two motion-captured rigid
+bodies (tf frames), fitted as a hinge; its angle is the true joint value. Our side follows
+the base by ICP too, so moving the whole object doesn't count against either. The dataset's
+own joint values (from a fitted model) are scored as well. Writes data/rbo/results/<name>.json and <name>.jpg (our hinge red, truth green).
 """
 
 import argparse
@@ -29,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from video2urdf import lidar, rbo  # noqa: E402
-from video2urdf.lift3d import Intrinsics  # noqa: E402
+from video2urdf.lift3d import Intrinsics, fit_joint_3d  # noqa: E402
 from video2urdf.pipeline import read_frame  # noqa: E402
 
 
@@ -83,6 +84,9 @@ def main():
     else:  # the roles the agent chose
         roles = lidar.Roles(**json.loads((c.track_dir / "roles.json").read_text()))
     c.set_ref(c.ref_with(roles.base, roles.plate))
+    followed = c.follow(roles.base, exclude=(roles.plate,))  # the object may be moved as a whole
+    print(f"base followed on {followed['frames']} frames: moved up to {followed.get('moved_mm_max', 0):.0f} mm, "
+          f"turned {followed.get('turned_deg_max', 0):.1f} deg")
     ours = lidar.fit_hinge(c, roles)
     hinge = json.loads((c.track_dir / "hinge.json").read_text())
     axis, point = np.array(hinge["axis"]), np.array(hinge["point"])
@@ -90,15 +94,22 @@ def main():
 
     # Truth: hinge from the marker bodies, joint values from the dataset.
     gt = rbo.truth(args.data / "x" / args.name)
-    bodies = sorted(gt["bodies"].values(), key=lambda p: np.ptp(p[:, :3, 3], axis=0).sum())
-    plate_gt = bodies[-1]
-    true_axis, true_point, true_res = circle_axis(plate_gt[:, :3, 3])
-    # True angle: how far the marker has swept about the true hinge (the dataset's own joint
-    # values come from a fitted model and read ~4% short of this on laptop01; scored too).
-    v = plate_gt[: c.n, :3, 3] - true_point
-    v -= np.outer(v @ true_axis, true_axis)
-    v /= np.linalg.norm(v, axis=1, keepdims=True)
-    q_true = np.unwrap(np.arctan2(np.cross(v[c.ref], v) @ true_axis, v @ v[c.ref]))
+    # The base can be moved too (a hand shoves the laptop), so the truth is the plate's motion
+    # relative to the base: from the two mocap rigid-body frames, the base being the one that
+    # moves least in the camera.
+    frames = sorted(gt["frames"].values(), key=lambda p: np.ptp(p[: c.n, :3, 3], axis=0).sum())
+    base_f, plate_f = frames[0][: c.n], frames[-1][: c.n]
+    rel = np.linalg.inv(base_f) @ plate_f  # plate in the base's frame
+    motion = rel @ np.linalg.inv(rel[c.ref])  # base-frame points of the plate: reference -> t
+    j = fit_joint_3d(np.tile(np.eye(4), (c.n, 1, 1)), motion, rel[c.ref][:3, 3])
+    to_cam = base_f[c.ref]  # base frame -> reference camera
+    true_axis, true_point = to_cam[:3, :3] @ j.axis, to_cam[:3, :3] @ j.point + to_cam[:3, 3]
+    true_res = j.residual
+    plate_gt = plate_f
+    # True angle: the plate's rotation relative to the base about the true hinge (the
+    # dataset's own joint values come from a fitted model and read ~4% short on laptop01;
+    # scored too).
+    q_true = j.q
     joint_name, q_dataset = next(iter(gt["joints"].items()))
     q_dataset = q_dataset[: c.n] - q_dataset[c.ref]
 

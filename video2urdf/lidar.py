@@ -26,7 +26,8 @@ from scipy.ndimage import median_filter
 from scipy.spatial.transform import Rotation
 
 from . import emit3d, stray
-from .lift3d import clean_angles, fit_plane, fit_planar_hinge, fit_slide, mask_cloud
+from .lift3d import clean_angles, fit_plane, fit_planar_hinge, fit_slide, mask_cloud, part_poses_3d
+from .motion import load_gray
 from .pipeline import load_parts, read_frame, video_info
 from .replay import replay3d
 from .shape import part_color, prism, write_stl
@@ -142,6 +143,31 @@ class Capture:
                 "shift_mm_max": float(1000 * np.abs(height).max()),
                 "shift_mm_median": float(1000 * np.median(np.abs(height)))}
 
+    def follow(self, part: str, exclude: tuple[str, ...] = ()) -> dict:
+        """Measure everything relative to ``part`` (the base) instead of the static scene, for
+        when the whole object gets moved (a hand shoves the laptop while opening it). The
+        part's motion comes from KLT points on its surface lifted with depth (depth-only ICP
+        slides along a flat base); ``exclude`` parts (the plate) are masked out of it. Fixed
+        camera only: the motion is in camera coordinates. Returns how far the part moved."""
+        assert not self.moving_camera, "follow() needs a fixed camera"
+        grays, k = load_gray(self.video)
+        others: dict[int, list] = {}
+        for o in exclude:
+            for t, det in self.by.get(o, {}).items():
+                others.setdefault(t, []).append(det)
+        motion = part_poses_3d(grays[: self.n], k, self.cap.depth, self.cap.intrinsics, self.by[part], others,
+                               self.ref, (self.w, self.h))
+        gap = np.isnan(motion).any(axis=(1, 2))
+        if gap.all():
+            return {"frames": 0}
+        idx = np.flatnonzero(~gap)
+        nearest = idx[np.abs(idx[None] - np.arange(self.n)[:, None]).argmin(axis=1)]
+        motion = motion[nearest]  # hold the nearest measured pose where the part is hidden
+        self.world = self.world @ motion
+        moved = np.linalg.norm(motion[:, :3, 3], axis=1)
+        turned = np.rad2deg(np.arccos(np.clip((np.trace(motion[:, :3, :3], axis1=1, axis2=2) - 1) / 2, -1, 1)))
+        return {"frames": int((~gap).sum()), "moved_mm_max": float(1000 * moved.max()), "turned_deg_max": float(turned.max())}
+
     def has(self, part: str | None, t: int) -> bool:
         return part is not None and part in self.by and t in self.by[part]
 
@@ -187,7 +213,7 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
             else:
                 plate[t] = whole
                 used_closed += 1
-    hinge = fit_planar_hinge(plate, c.n, c.ref, pin=base.mean(axis=0))
+    hinge = fit_planar_hinge(plate, c.n, c.ref, pin=base.mean(axis=0), base_normal=nb)
     raw = int((~np.isnan(hinge.q)).sum())
     hinge.q = clean_angles(hinge.q)
     valid = ~np.isnan(hinge.q)
