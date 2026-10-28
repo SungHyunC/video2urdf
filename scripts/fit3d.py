@@ -68,6 +68,7 @@ def main():
     ap.add_argument("--depth", type=Path, help="npz with depth (n, H, W) in metres (synthetic)")
     ap.add_argument("--gt", type=Path, help="synthetic gt3d.json: intrinsics, and errors against it")
     ap.add_argument("--stray", type=Path, help="Stray Scanner capture folder (depth and intrinsics)")
+    ap.add_argument("--intrinsics", type=Path, help="intrinsics.json with f, cx, cy (an RGB-D folder, as rbo_eval prepares)")
     ap.add_argument("--pairs", default="", help="parent:child,... (default: chain in prompt order)")
     ap.add_argument("--map", default="", help="part=gt_body,... for evaluation")
     ap.add_argument("--tracks", type=Path, default=ROOT / "data" / "tracks")
@@ -81,6 +82,9 @@ def main():
     if args.stray:
         cap = stray.load(args.stray)
         depth, intr = cap.depth, cap.intrinsics
+    elif args.intrinsics:
+        kk = json.loads(args.intrinsics.read_text())
+        depth, intr = np.load(args.depth)["depth"].astype(np.float32), Intrinsics(kk["f"], kk["cx"], kk["cy"])
     else:
         depth, intr = np.load(args.depth)["depth"].astype(np.float32), Intrinsics(**gt["intrinsics"])
     n = min(n, len(depth))
