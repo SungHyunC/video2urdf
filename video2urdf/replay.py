@@ -96,3 +96,62 @@ def _hold_poses(poses: np.ndarray) -> np.ndarray:
         if np.isnan(poses[i]).any():
             poses[i] = poses[i - 1]
     return poses
+
+
+def replay3d(model_xml: Path, cam_to_world: np.ndarray, intr, joint_q: dict[str, np.ndarray],
+             masks: dict[str, dict[int, Detection]], video: Path, out_video: Path,
+             only_when: dict | None = None) -> dict[str, np.ndarray]:
+    """Render a 3D model from the phone's own camera pose on every frame, over the video.
+
+    ``cam_to_world`` (n, 4, 4) maps camera coordinates (x right, y down, z forward) to the
+    model's world; ``joint_q`` gives each joint's value per frame. Returns, per body in
+    ``masks``, the fraction of its SAM mask the rendered body covers (NaN where not scored;
+    ``only_when[body](t)`` can skip frames).
+    """
+    model = mujoco.MjModel.from_xml_path(str(model_xml))
+    data = mujoco.MjData(model)
+    cam = model.camera("video").id
+    cap = cv2.VideoCapture(str(video))
+    w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    model.cam_fovy[cam] = np.rad2deg(2 * np.arctan(h / 2 / intr.f))
+    renderer = mujoco.Renderer(model, h, w)
+    renderer.enable_segmentation_rendering()
+    qs = {j: _hold(q) for j, q in joint_q.items()}
+    body_ids = {b: model.body(b).id for b in masks}
+    n = len(cam_to_world)
+    cover = {b: np.full(n, np.nan) for b in masks}
+    writer = cv2.VideoWriter(str(out_video), cv2.VideoWriter_fourcc(*"avc1"), cap.get(cv2.CAP_PROP_FPS) or 30, (w, h))
+    flip = np.diag([1.0, -1.0, -1.0])  # camera axes: OpenCV -> MuJoCo (y up, looking along -z)
+    for t in range(n):
+        ok, img = cap.read()
+        if not ok:
+            break
+        quat = np.zeros(4)
+        mujoco.mju_mat2Quat(quat, (cam_to_world[t][:3, :3] @ flip).flatten())
+        model.cam_pos[cam], model.cam_quat[cam] = cam_to_world[t][:3, 3], quat
+        for j, q in qs.items():
+            data.joint(j).qpos[0] = q[t]
+        mujoco.mj_forward(model, data)
+        renderer.update_scene(data, camera="video")
+        seg = renderer.render()
+        geom = np.where(seg[..., 1] == int(mujoco.mjtObj.mjOBJ_GEOM), seg[..., 0], -1)
+        body = np.where(geom >= 0, model.geom_bodyid[np.maximum(geom, 0)], -1)
+        for i, (b, bid) in enumerate(body_ids.items()):
+            pred = body == bid
+            det = masks[b].get(t)
+            if det is not None and (not only_when or b not in only_when or only_when[b](t)):
+                m = det.full_mask(h, w)
+                if m.any():
+                    cover[b][t] = (pred & m).sum() / m.sum()
+            color = np.array(COLORS[i % len(COLORS)])
+            img[pred] = (0.5 * img[pred] + 0.5 * color).astype(np.uint8)
+            contours, _ = cv2.findContours(pred.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(img, contours, -1, color.tolist(), 3)
+        label = "MuJoCo replay of the LiDAR-measured model  " + "  ".join(
+            f"{j} {np.rad2deg(q[t]):.0f} deg" for j, q in qs.items())
+        cv2.putText(img, label, (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (0, 0, 0), 6)
+        cv2.putText(img, label, (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (255, 255, 255), 2)
+        writer.write(img)
+    writer.release()
+    renderer.close()
+    return cover

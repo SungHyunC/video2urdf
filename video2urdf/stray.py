@@ -10,6 +10,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from .lift3d import Intrinsics
 
@@ -43,3 +44,14 @@ def load(path: Path, min_confidence: int = 2) -> Capture:
         np.savez_compressed(cache, depth=depth)
     k = np.loadtxt(root / "camera_matrix.csv", delimiter=",")
     return Capture(root / "rgb.mp4", depth, Intrinsics(f=float(k[0, 0]), cx=float(k[0, 2]), cy=float(k[1, 2])))
+
+
+def ref_to_frame_poses(path: Path, n: int, ref: int) -> np.ndarray:
+    """(n, 4, 4) mapping reference-camera coordinates to frame-t camera coordinates for the
+    static scene, from ARKit odometry. Stray Scanner's poses are camera-to-world in a frame
+    matching the depth's camera axes (checked by aligning depth clouds across frames)."""
+    od = np.genfromtxt(find_capture(path) / "odometry.csv", delimiter=",", skip_header=1)[:n]
+    c = np.tile(np.eye(4), (len(od), 1, 1))
+    c[:, :3, :3] = Rotation.from_quat(od[:, 5:9]).as_matrix()
+    c[:, :3, 3] = od[:, 2:5]
+    return np.linalg.inv(c) @ c[ref]

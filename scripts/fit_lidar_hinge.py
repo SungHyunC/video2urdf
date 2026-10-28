@@ -19,7 +19,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from scipy.spatial.transform import Rotation
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -27,17 +26,6 @@ sys.path.insert(0, str(ROOT))
 from video2urdf import stray  # noqa: E402
 from video2urdf.lift3d import clean_angles, fit_plane, fit_planar_hinge, mask_cloud  # noqa: E402
 from video2urdf.pipeline import load_parts, read_frame, video_info  # noqa: E402
-
-
-def arkit_poses(capture: Path, n: int, ref: int) -> np.ndarray:
-    """(n, 4, 4): reference-camera coordinates -> frame-t camera coordinates, for the static scene.
-    Stray Scanner's odometry is camera-to-world in a frame matching the depth's camera axes
-    (checked by aligning depth clouds across frames)."""
-    od = np.genfromtxt(stray.find_capture(capture) / "odometry.csv", delimiter=",", skip_header=1)[:n]
-    c = np.tile(np.eye(4), (n, 1, 1))
-    c[:, :3, :3] = Rotation.from_quat(od[:, 5:9]).as_matrix()
-    c[:, :3, 3] = od[:, 2:5]
-    return np.linalg.inv(c) @ c[ref]
 
 
 def project(intr, x):
@@ -50,7 +38,8 @@ def main():
     ap.add_argument("--stray", type=Path, required=True)
     ap.add_argument("--plate", required=True, help="tracked part that is the moving plate")
     ap.add_argument("--plate-fallback", help="part to use for the plate in frames where --plate is not tracked")
-    ap.add_argument("--base", required=True, help="tracked part the plate hinges on")
+    ap.add_argument("--base", required=True, help="tracked part the plate hinges on (seen only while open)")
+    ap.add_argument("--base-plane", help="part whose reference-frame cloud gives the base plane (default --base)")
     ap.add_argument("--ref", type=int, default=0)
     ap.add_argument("--tracks", type=Path, default=ROOT / "data" / "tracks")
     args = ap.parse_args()
@@ -60,7 +49,7 @@ def main():
     cap = stray.load(args.stray)
     (w, h), n, _ = video_info(args.video)
     n = min(n, len(cap.depth))
-    world = arkit_poses(args.stray, n, args.ref)
+    world = stray.ref_to_frame_poses(args.stray, n, args.ref)
 
     def cloud(part, t):
         c = mask_cloud(by[part][t].full_mask(h, w), cap.depth[t], cap.intrinsics)
@@ -74,7 +63,7 @@ def main():
         elif args.plate_fallback and t in by[args.plate_fallback] and t not in by[args.base]:
             plate[t] = cloud(args.plate_fallback, t)  # closed: the fallback's top face is the plate
             used_fallback += 1
-    base = cloud(args.base, args.ref)
+    base = cloud(args.base_plane or args.base, args.ref)
     nb, db, _ = fit_plane(base, np.random.default_rng(0))
     hinge = fit_planar_hinge(plate, n, args.ref, pin=base.mean(axis=0))
     raw = int((~np.isnan(hinge.q)).sum())

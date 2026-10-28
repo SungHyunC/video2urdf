@@ -110,3 +110,16 @@ def squash(poly: np.ndarray, pivot: np.ndarray, thickness: float) -> np.ndarray:
     if current <= thickness:
         return poly
     return poly + np.outer(s * (thickness / current - 1), thin)
+
+
+def prism(poly: np.ndarray, origin: np.ndarray, e1: np.ndarray, e2: np.ndarray, e3: np.ndarray,
+          w0: float, w1: float) -> tuple[np.ndarray, np.ndarray]:
+    """``poly`` (u, v) laid out at origin + u e1 + v e2 and extruded along e3 from w0 to w1.
+    Polygon orientation is handled; faces point out."""
+    xz = poly if np.sum(poly[:, 0] * np.roll(poly[:, 1], -1) - np.roll(poly[:, 0], -1) * poly[:, 1]) > 0 else poly[::-1]
+    verts, faces = extrude(xz, abs(w1 - w0))
+    basis = np.column_stack([e1, e3, e2])  # extrude's (x, y, z) -> (e1, e3, e2)
+    out = origin + verts @ basis.T + ((w0 + w1) / 2) * e3
+    if np.linalg.det(basis) < 0:
+        faces = faces[:, ::-1]
+    return out, faces

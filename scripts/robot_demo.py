@@ -24,14 +24,14 @@ ARM_JOINTS = [f"joint{i}" for i in range(1, 8)]
 HOME = np.array([0, 0, 0, -1.57079, 0, 1.57079, -0.7853])
 FINGERTIP = np.array([0, 0, 0.11])  # in the hand frame
 PEDESTAL_TOP = 0.30
-OBJECT_X = 0.62
+HINGE_X = 0.50  # where the pushed joint sits in front of the robot
 W, H, FPS = 1920, 1080, 30
 LIFT = np.array([-0.05, 0, 0.15])
 
 
-def object_xml(model_xml: Path, z: float) -> tuple[str, str, str, str]:
-    """Measured bodies as an MJCF snippet, prefixed, at height ``z`` and turned so the pushed
-    link's back faces the robot. Returns (assets, body, contact excludes, pushed joint)."""
+def object_xml(model_xml: Path, pos, yaw: float) -> tuple[str, str, str, str]:
+    """Measured bodies as an MJCF snippet, prefixed, at ``pos`` turned by ``yaw`` about z.
+    Returns (assets, body, contact excludes, pushed joint)."""
     tree = ET.parse(model_xml)
     assets = tree.getroot().find("asset")
     mesh_xml = ""
@@ -57,7 +57,7 @@ def object_xml(model_xml: Path, z: float) -> tuple[str, str, str, str]:
     # parent is welded to the world, as the fixed root is here, so exclude them explicitly.
     excludes = "".join(f'<exclude body1="{parent.get("name")}" body2="{child.get("name")}"/>'
                        for parent in root.iter("body") for child in parent.findall("body"))
-    body = (f'<body name="object" pos="{OBJECT_X} 0 {z:.4f}" euler="0 0 3.14159">'
+    body = (f'<body name="object" pos="{pos[0]:.4f} {pos[1]:.4f} {pos[2]:.4f}" euler="0 0 {yaw:.5f}">'
             f"{ET.tostring(root, encoding='unicode')}</body>")
     return mesh_xml, body, excludes, joint
 
@@ -73,7 +73,7 @@ def geom_points(model: mujoco.MjModel, data: mujoco.MjData, gid: int) -> np.ndar
     return local @ r.T + c
 
 
-def scene_xml(meshes: str, obj: str, excludes: str) -> str:
+def scene_xml(meshes: str, obj: str, excludes: str, pedestal_xy=(0.6, 0.0)) -> str:
     return f"""<mujoco model="video2urdf robot demo">
   <include file="panda.xml"/>
   <visual>
@@ -92,7 +92,7 @@ def scene_xml(meshes: str, obj: str, excludes: str) -> str:
   <worldbody>
     <light pos="0.4 -0.6 1.8" dir="0 0.3 -1" directional="true" castshadow="true"/>
     <geom name="floor" size="0 0 0.05" type="plane" material="floor"/>
-    <geom name="pedestal" type="box" pos="{OBJECT_X} 0 {PEDESTAL_TOP / 2}" size="0.2 0.25 {PEDESTAL_TOP / 2}" material="wood"/>
+    <geom name="pedestal" type="box" pos="{pedestal_xy[0]:.3f} {pedestal_xy[1]:.3f} {PEDESTAL_TOP / 2}" size="0.22 0.25 {PEDESTAL_TOP / 2}" material="wood"/>
     {obj}
   </worldbody>
   <contact>{excludes}</contact>
@@ -165,19 +165,40 @@ def main():
         sys.exit("Panda model missing: run scripts/fetch_assets.sh")
 
     scene = PANDA_DIR / "video2urdf_demo_scene.xml"  # next to panda.xml so its meshdir resolves
-    # Build once to find the object's lowest point, then again resting on the pedestal.
-    meshes, obj, excludes, joint = object_xml(args.run / "model.xml", 0.0)
-    scene.write_text(scene_xml(meshes, obj, excludes))
-    model = mujoco.MjModel.from_xml_path(str(scene))
+    def build(pos, yaw, pedestal_xy=(0.6, 0.0)):
+        meshes, obj, excludes, joint = object_xml(args.run / "model.xml", pos, yaw)
+        scene.write_text(scene_xml(meshes, obj, excludes, pedestal_xy))
+        return mujoco.MjModel.from_xml_path(str(scene)), joint  # already prefixed
+
+    def body_points(model, data, body):
+        return np.vstack([geom_points(model, data, g) for g in range(model.ngeom) if model.geom_bodyid[g] == body])
+
+    # Probe the object where it was measured: which joint limit closes it (the pushed link
+    # sits lowest), and which way it moves while closing.
+    model, joint_name = build((0, 0, 0), 0.0)
+    probe = mujoco.MjData(model)
+    jid = model.joint(joint_name).id
+    pushed = model.jnt_bodyid[jid]
+    lo, hi = model.jnt_range[jid]
+    centroid = {}
+    for q in (0.0, lo, hi):
+        probe.joint(joint_name).qpos[0] = q
+        mujoco.mj_kinematics(model, probe)
+        centroid[q] = body_points(model, probe, pushed).mean(axis=0)
+    closed_end = lo if centroid[lo][2] < centroid[hi][2] else hi
+    move = centroid[closed_end] - centroid[0.0]
+    yaw = -np.arctan2(move[1], move[0])  # closing pushes along +x, away from the robot
+
+    # Turned that way, rest it on the pedestal with the hinge HINGE_X in front of the robot.
+    model, joint_name = build((0, 0, 0), yaw)
     probe = mujoco.MjData(model)
     mujoco.mj_kinematics(model, probe)
     obj_body = model.body("object").id
-    in_object = [g for g in range(model.ngeom) if model.body_rootid[model.geom_bodyid[g]] == obj_body]
-    bottom = min(geom_points(model, probe, g)[:, 2].min() for g in in_object)
-    meshes, obj, excludes, joint = object_xml(args.run / "model.xml", PEDESTAL_TOP - bottom + 0.001)
-    scene.write_text(scene_xml(meshes, obj, excludes))
-    joint_name = "obj_" + joint if not joint.startswith("obj_") else joint
-    model = mujoco.MjModel.from_xml_path(str(scene))
+    pts = np.vstack([geom_points(model, probe, g) for g in range(model.ngeom)
+                     if model.body_rootid[model.geom_bodyid[g]] == obj_body])
+    anchor = probe.xanchor[model.joint(joint_name).id]
+    pos = np.array([HINGE_X - anchor[0], -anchor[1], PEDESTAL_TOP - pts[:, 2].min() + 0.001])
+    model, joint_name = build(pos, yaw, (pts[:, 0].mean() + pos[0], pts[:, 1].mean() + pos[1]))
     data = mujoco.MjData(model)
     plan = mujoco.MjData(model)
     ik = Ik(model)
@@ -187,8 +208,8 @@ def main():
     data.ctrl[:7] = arm_q
     data.ctrl[7] = 0  # gripper closed: push with the fingertips
     mujoco.mj_forward(model, data)
-    lo, hi = model.jnt_range[model.joint(joint_name).id]
-    q_open, q_closed = data.joint(joint_name).qpos[0], hi - 0.05
+    q_open = data.joint(joint_name).qpos[0]
+    q_closed = closed_end - 0.05 * np.sign(closed_end - q_open)  # stop just short of the limit
     robot = np.array([0.0, 0.0, 0.5])
 
     # Phases (seconds): hold, lift clear of the lid, reach behind it, drop, touch, sweep along
@@ -248,13 +269,14 @@ def main():
         lid_q.append(data.joint(joint_name).qpos[0])
         renderer.update_scene(data, camera=cam)
         img = cv2.cvtColor(renderer.render(), cv2.COLOR_RGB2BGR)
-        deg = np.rad2deg(lid_q[-1] - q_open)
-        cv2.putText(img, f"measured hinge '{joint}': {deg:5.1f} deg  (measured range 0..{np.rad2deg(hi - q_open):.0f})",
+        deg = abs(np.rad2deg(lid_q[-1] - q_open))
+        cv2.putText(img, f"measured hinge '{joint_name[4:]}': {deg:5.1f} deg closed of "
+                         f"{abs(np.rad2deg(closed_end - q_open)):.0f} measured",
                     (40, 70), cv2.FONT_HERSHEY_SIMPLEX, 1.3, (40, 40, 40), 3)
         writer.write(img)
     writer.release()
     renderer.close()
-    print(f"lid {joint}: {np.rad2deg(lid_q[0] - q_open):.1f} -> {np.rad2deg(lid_q[-1] - q_open):.1f} deg "
+    print(f"lid {joint_name}: {np.rad2deg(lid_q[0] - q_open):.1f} -> {np.rad2deg(lid_q[-1] - q_open):.1f} deg "
           f"(target {np.rad2deg(q_closed - q_open):.1f}); video -> {out}")
 
 
