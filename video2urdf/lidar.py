@@ -139,21 +139,26 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
     """Fit the plate's hinge; writes hinge.json and hinge.jpg. Returns a summary dict."""
     base = c.cloud(roles.base, c.ref)
     nb, db, _ = fit_plane(base, np.random.default_rng(0))
+    if nb @ (-base.mean(axis=0)) < 0:  # point the base's normal up, toward the camera
+        nb, db = -nb, -db
     plate, used_closed, used_open = {}, 0, 0
     for t in range(c.n):
         if c.has(roles.plate, t):
             plate[t] = c.cloud(roles.plate, t)
-        elif c.has(roles.plate_closed, t) and not c.has(roles.open_indicator, t):
-            plate[t] = c.cloud(roles.plate_closed, t)  # closed: its top face is the plate's back
-            used_closed += 1
         elif c.has(roles.plate_closed, t):
-            # Open but the plate's face isn't tracked (half open, face turned away): the whole
-            # object minus the base's top surface leaves the plate.
+            # The plate's face isn't tracked: half open with the face turned away, or closed.
+            # Decide by geometry, not by whether the open-indicator is seen (a lid half way
+            # down already hides the keyboard from a camera in front): points well above the
+            # base's top plane are the plate (below it are the base's own sides); if there are
+            # hardly any, the object is closed and its top face is the plate's back.
             whole = c.cloud(roles.plate_closed, t)
-            off = whole[np.abs(whole @ nb - db) > OFF_BASE_M]
-            if len(off) > 200:
+            off = whole[whole @ nb - db > OFF_BASE_M]
+            if len(off) > max(200, 0.2 * len(whole)):
                 plate[t] = off
                 used_open += 1
+            else:
+                plate[t] = whole
+                used_closed += 1
     hinge = fit_planar_hinge(plate, c.n, c.ref, pin=base.mean(axis=0))
     raw = int((~np.isnan(hinge.q)).sum())
     hinge.q = clean_angles(hinge.q)
@@ -164,8 +169,13 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
         v -= (v @ hinge.axis) * hinge.axis
         return v / np.linalg.norm(v)
 
-    t_ref = min(hinge.centroids, key=lambda t: abs(t - c.ref))
-    opening = float(np.rad2deg(np.arccos(np.clip(radial(hinge.centroids[t_ref]) @ radial(base.mean(axis=0)), -1, 1))))
+    # Opening per frame, measured directly between the plate and the base about the hinge
+    # (0 = closed): independent of the sign the axis happened to get.
+    u_base = radial(base.mean(axis=0))
+    open_deg = {t: float(np.rad2deg(np.arccos(np.clip(radial(m) @ u_base, -1, 1)))) for t, m in hinge.centroids.items()
+                if not np.isnan(hinge.q[t])}
+    t_ref = min(open_deg, key=lambda t: abs(t - c.ref))
+    opening = open_deg[t_ref]
     q = np.rad2deg(hinge.q[valid])
     along = (plate[c.ref] - hinge.point) @ hinge.axis if c.ref in plate else np.zeros(2)
     summary = {
@@ -174,7 +184,7 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
         "hinge_to_base_plane_deg": float(np.rad2deg(np.arcsin(abs(hinge.axis @ nb)))),
         "plane_residual_mm": 1000 * hinge.residual,
         "opening_on_reference_deg": opening,
-        "opening_range_deg": [float(opening + q.min()), float(opening + q.max())],
+        "opening_range_deg": [min(open_deg.values()), max(open_deg.values())],
         "plate_span_along_hinge_mm": float(1000 * np.ptp(along)),
     }
     summary["from_open_object"] = used_open
@@ -196,7 +206,7 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
     pts = np.stack([ts * (c.w - 1) / max(c.n - 1, 1), 280 - (q - lo) / max(hi - lo, 1e-6) * 260], axis=1).astype(int)
     for run in np.split(np.arange(len(ts)), np.flatnonzero(np.diff(ts) > 3) + 1):  # gaps stay gaps
         cv2.polylines(strip, [pts[run]], False, (200, 60, 0), 4)
-    cv2.putText(strip, f"opening over time: {opening + lo:.0f}..{opening + hi:.0f} deg", (20, 40),
+    cv2.putText(strip, f"opening over time: {summary['opening_range_deg'][0]:.0f}..{summary['opening_range_deg'][1]:.0f} deg", (20, 40),
                 cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 3)
     cv2.imwrite(str(c.track_dir / "hinge.jpg"), cv2.vconcat([image, strip]))
     (c.track_dir / "hinge.json").write_text(json.dumps({
