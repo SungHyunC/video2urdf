@@ -1,0 +1,243 @@
+"""3D joints from video plus per-frame depth: no planar-view requirement.
+
+Points on each part's surface are tracked frame to frame (KLT, inside its SAM mask), lifted
+to 3D with that frame's depth, and a RANSAC Kabsch fit gives the part's rigid motion in the
+camera frame. Camera poses are not needed: for a parent p and child c with camera-frame
+poses P_t = C_t^-1 W_t C_ref, the relative motion P_p^-1 P_c = C_ref^-1 (W_p^-1 W_c) C_ref
+is the true relative motion seen from the reference camera, so a moving phone cancels out.
+Only the depth has to be metric (or at least consistently scaled) across frames.
+"""
+
+from dataclasses import dataclass
+
+import cv2
+import numpy as np
+from scipy.optimize import least_squares
+
+from .sam import Detection
+
+MIN_POINTS = 12
+INLIER_M = 0.004  # RANSAC inlier distance
+MIN_ROTATION = np.deg2rad(5)
+
+
+@dataclass
+class Intrinsics:
+    f: float
+    cx: float
+    cy: float
+
+    def lift(self, uv: np.ndarray, z: np.ndarray) -> np.ndarray:
+        """Pixels (N, 2) and depth along the view axis (N,) -> camera-frame points (N, 3), x right, y down, z forward."""
+        return np.stack([(uv[:, 0] - self.cx) / self.f * z, (uv[:, 1] - self.cy) / self.f * z, z], axis=1)
+
+
+def depth_edges(depth: np.ndarray, jump: float = 0.01) -> np.ndarray:
+    """Pixels next to a depth discontinuity (> ``jump`` m within 3x3): at a mask's edge these
+    read the background, metres away, and wreck any 3D fit."""
+    d = depth.astype(np.float32)
+    k = np.ones((3, 3), np.uint8)
+    return (cv2.dilate(d, k) - cv2.erode(d, k)) > jump
+
+
+def kabsch(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """4x4 rigid transform T with T a ~= b."""
+    ca, cb = a.mean(axis=0), b.mean(axis=0)
+    u, _, vt = np.linalg.svd((a - ca).T @ (b - cb))
+    d = np.sign(np.linalg.det(vt.T @ u.T))
+    r = vt.T @ np.diag([1, 1, d]) @ u.T
+    t = np.eye(4)
+    t[:3, :3], t[:3, 3] = r, cb - r @ ca
+    return t
+
+
+def ransac_rigid(a: np.ndarray, b: np.ndarray, rng: np.random.Generator, iters: int = 200):
+    best = None
+    for _ in range(iters):
+        idx = rng.choice(len(a), 3, replace=False)
+        t = kabsch(a[idx], b[idx])
+        err = np.linalg.norm(a @ t[:3, :3].T + t[:3, 3] - b, axis=1)
+        inl = err < INLIER_M
+        if best is None or inl.sum() > best.sum():
+            best = inl
+    if best.sum() < MIN_POINTS:
+        return None, best
+    return kabsch(a[best], b[best]), best
+
+
+def part_poses_3d(grays: list[np.ndarray], k: float, depth: np.ndarray, intr: Intrinsics,
+                  own: dict[int, Detection], others: dict[int, list[Detection]], ref: int,
+                  size: tuple[int, int]) -> np.ndarray:
+    """(n, 4, 4) camera-frame poses of one part relative to frame ``ref``; NaN where too few points.
+
+    ``grays`` are downscaled by ``k`` (see motion.load_gray); ``depth`` is (n, H, W) at full size.
+    """
+    w, h = size
+    small = grays[0].shape[::-1]
+    erode, dilate = np.ones((5, 5), np.uint8), np.ones((9, 9), np.uint8)
+    rng = np.random.default_rng(0)
+
+    def region(t):
+        if t not in own:
+            return None
+        m = cv2.erode(cv2.resize(own[t].full_mask(h, w).astype(np.uint8), small, interpolation=cv2.INTER_NEAREST), erode)
+        for det in others.get(t, []):
+            o = cv2.resize(det.full_mask(h, w).astype(np.uint8), small, interpolation=cv2.INTER_NEAREST)
+            m[cv2.dilate(o, dilate) > 0] = 0
+        return m * 255
+
+    def lift(t, pts_small):
+        uv = pts_small / k
+        ij = np.clip(np.round(uv).astype(int), 0, [w - 1, h - 1])
+        z = depth[t][ij[:, 1], ij[:, 0]].astype(np.float64)
+        return intr.lift(uv, z), (z > 0) & np.isfinite(z)
+
+    def detect(t, m):
+        pts = cv2.goodFeaturesToTrack(grays[t], 600, 0.001, 4, mask=m)
+        return np.empty((0, 2), np.float32) if pts is None else pts.reshape(-1, 2)
+
+    poses = np.full((len(grays), 4, 4), np.nan)
+    poses[ref] = np.eye(4)
+    lk = dict(winSize=(15, 15), maxLevel=3)
+    for order in (range(ref + 1, len(grays)), range(ref - 1, -1, -1)):
+        pts = detect(ref, region(ref))
+        x_ref, ok = lift(ref, pts)  # each track's 3D point on the part, in the reference camera frame
+        pts, x_ref = pts[ok], x_ref[ok]
+        prev, pose = ref, np.eye(4)
+        for t in order:
+            m = region(t)
+            if m is None or len(pts) == 0:
+                continue
+            nxt, st, _ = cv2.calcOpticalFlowPyrLK(grays[prev], grays[t], pts, None, **lk)
+            back, st2, _ = cv2.calcOpticalFlowPyrLK(grays[t], grays[prev], nxt, None, **lk)
+            keep = (st[:, 0] == 1) & (st2[:, 0] == 1) & (np.linalg.norm(back - pts, axis=1) < 0.5)
+            xy = np.round(nxt).astype(int)
+            inside = (xy[:, 0] >= 0) & (xy[:, 0] < small[0]) & (xy[:, 1] >= 0) & (xy[:, 1] < small[1])
+            keep &= inside
+            keep[inside] &= m[xy[inside, 1], xy[inside, 0]] > 0
+            pts, x_ref = nxt[keep], x_ref[keep]
+            prev = t
+            if len(pts) < MIN_POINTS:
+                continue
+            x_t, ok = lift(t, pts)
+            est, inl = ransac_rigid(x_ref[ok], x_t[ok], rng)
+            if est is None:
+                continue
+            pose = est
+            poses[t] = pose
+            keep = np.zeros(len(pts), bool)
+            keep[np.flatnonzero(ok)[inl]] = True
+            pts, x_ref = pts[keep], x_ref[keep]
+            if len(pts) < 150 and len(pts) >= 3 * MIN_POINTS:
+                new = detect(t, m)
+                x_new, ok = lift(t, new)
+                inv = np.linalg.inv(pose)
+                pts = np.vstack([pts, new[ok]]).astype(np.float32)
+                x_ref = np.vstack([x_ref, x_new[ok] @ inv[:3, :3].T + inv[:3, 3]])
+    return poses
+
+
+@dataclass
+class Joint3D:
+    type: str  # "revolute" or "prismatic"
+    axis: np.ndarray  # unit direction, reference camera frame
+    point: np.ndarray  # a point on the axis (revolute) or the child's centroid (prismatic)
+    q: np.ndarray  # rad or m per frame, 0 on the reference frame
+    residual: float  # m
+
+
+def rotvec(r: np.ndarray) -> np.ndarray:
+    v, _ = cv2.Rodrigues(r)
+    return v[:, 0]
+
+
+def axis_rotation(axis: np.ndarray, theta: np.ndarray) -> np.ndarray:
+    """(n, 3, 3) rotations by ``theta`` about unit ``axis`` (Rodrigues)."""
+    kx = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    s, c = np.sin(theta)[:, None, None], np.cos(theta)[:, None, None]
+    return np.eye(3) + s * kx + (1 - c) * (kx @ kx)
+
+
+def refine_revolute(rel: np.ndarray, points: np.ndarray, axis: np.ndarray, c: np.ndarray, theta: np.ndarray):
+    """Refit a hinge to how the child's surface points move, not to its rotation matrices.
+
+    A thin part's spin about its own long axis is barely observable and noisy, and it leaks
+    into a fit on rotations; on points it only moves them by about the part's radius.
+    ``rel`` (n, 4, 4) are child-in-parent motions, ``points`` (m, 3) the child on the
+    reference frame. Returns axis, point on axis, per-frame angle, RMS point error (m).
+    """
+    target = points @ rel[:, :3, :3].transpose(0, 2, 1) + rel[:, None, :3, 3]  # (n, m, 3)
+    n = len(rel)
+
+    def unpack(x):
+        a = x[:3] / np.linalg.norm(x[:3])
+        return a, x[3:6], x[6:]
+
+    def residual(x):
+        a, cc, th = unpack(x)
+        pred = (points - cc) @ axis_rotation(a, th).transpose(0, 2, 1) + cc
+        return np.concatenate([(pred - target).ravel(), [10 * (a @ (cc - c))]])  # pin c along the axis
+
+    sol = least_squares(residual, np.concatenate([axis, c, theta]), method="trf", x_scale="jac",
+                        loss="soft_l1", f_scale=0.003)  # frames with a bad part pose are outliers
+    a, cc, th = unpack(sol.x)
+    err = np.linalg.norm(sol.fun[:-1].reshape(n, -1, 3), axis=2)
+    rms = float(np.sqrt(np.mean(np.minimum(err, 0.02) ** 2)))  # clipped so a few bad frames don't dominate
+    if th.sum() < 0:
+        a, th = -a, -th
+    return a, cc, th, rms
+
+
+def fit_joint_3d(parent: np.ndarray, child: np.ndarray, child_centroid: np.ndarray,
+                 child_points: np.ndarray | None = None) -> Joint3D:
+    """Fit one joint to the child's motion relative to the parent. ``child_points`` (the child's
+    surface on the reference frame, camera coordinates) enables the point-based hinge refit."""
+    valid = ~(np.isnan(parent).any(axis=(1, 2)) | np.isnan(child).any(axis=(1, 2)))
+    rel = np.linalg.inv(parent[valid]) @ child[valid]
+    r, tr = rel[:, :3, :3], rel[:, :3, 3]
+    w = np.array([rotvec(x) for x in r])
+    q = np.full(len(parent), np.nan)
+    if np.linalg.norm(w, axis=1).max() >= MIN_ROTATION:
+        axis = np.linalg.svd(w, full_matrices=False)[2][0]
+        if (w @ axis).sum() < 0:
+            axis = -axis
+        theta = w @ axis
+        # (I - R) c = t has a free direction along the axis: pin it with axis . c = axis . centroid.
+        a = np.vstack([(np.eye(3) - r).reshape(-1, 3), axis[None]])
+        b = np.concatenate([tr.reshape(-1), [axis @ child_centroid]])
+        inliers = np.ones(len(r), bool)
+        for _ in range(3):
+            sel = np.concatenate([np.repeat(inliers, 3), [True]])
+            c = np.linalg.lstsq(a[sel], b[sel], rcond=None)[0]
+            err = np.linalg.norm((np.eye(3) - r) @ c - tr, axis=1)
+            inliers = err <= max(3 * np.median(err), 1e-3)
+        res = float(np.sqrt(np.mean(err[inliers] ** 2)))
+        if child_points is not None and len(child_points) >= 3:
+            axis, c, theta, res = refine_revolute(rel, child_points, axis, c, theta)
+        q[valid] = theta
+        return Joint3D("revolute", axis, c, q, res)
+    centered = tr - tr.mean(axis=0)
+    axis = np.linalg.svd(centered, full_matrices=False)[2][0]
+    d = tr @ axis
+    if d[np.argmax(np.abs(d))] < 0:
+        axis, d = -axis, -d
+    q[valid] = d
+    perp = tr - np.outer(d, axis)
+    return Joint3D("prismatic", axis, child_centroid, q, float(np.sqrt(np.mean(np.sum(perp ** 2, axis=1)))))
+
+
+def joint_poses(parent: np.ndarray, joint: Joint3D) -> np.ndarray:
+    """The child's poses predicted by ``joint`` on top of ``parent``'s poses: a clean stand-in
+    for the child's measured poses when it becomes a parent further down the chain. A thin
+    link's measured pose carries spin noise that would otherwise leak into the next joint."""
+    q = np.nan_to_num(joint.q)
+    t = np.tile(np.eye(4), (len(q), 1, 1))
+    if joint.type == "revolute":
+        r = axis_rotation(joint.axis, q)
+        t[:, :3, :3] = r
+        t[:, :3, 3] = joint.point - r @ joint.point
+    else:
+        t[:, :3, 3] = q[:, None] * joint.axis
+    out = parent @ t
+    out[np.isnan(joint.q)] = np.nan
+    return out

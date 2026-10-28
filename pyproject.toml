@@ -12,6 +12,7 @@ dependencies = [
     "openai>=1.100",
     "opencv-python>=4.10",
     "python-dotenv>=1.0",
+    "scipy>=1.18.1",
 ]
 
 [tool.uv]
