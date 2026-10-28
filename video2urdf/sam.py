@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,7 +19,7 @@ import cv2
 import numpy as np
 from meta_sam_parser import FramePrompt, PromptBox, PromptObject, build_object_prompt
 from meta_sam_parser import _mask_codec  # private decoder: skip the public API's re-encode check
-from openai import OpenAI
+from openai import APIConnectionError, OpenAI
 
 from .fast_mask import decode_one_bit
 
@@ -34,14 +35,20 @@ class Detection:
     frame: int
     obj_id: int
     box: tuple[int, int, int, int]  # x1, y1, x2, y2 in source pixels
-    crop: np.ndarray  # bool, anchored at (x1, y1)
+    crop: np.ndarray  # bool raster covering the box; at most 1024 px on its long side
     confidence: float | None = None
 
     def full_mask(self, height: int, width: int) -> np.ndarray:
+        """The mask in a full frame. SAM caps the raster at 1024 px on its long side, so a
+        larger box comes back downscaled and is stretched back over the box here."""
         m = np.zeros((height, width), bool)
-        x1, y1 = self.box[:2]
-        h, w = self.crop.shape
-        m[y1:y1 + h, x1:x1 + w] = self.crop[: height - y1, : width - x1]
+        x1, y1, x2, y2 = self.box
+        crop = self.crop
+        bw, bh = x2 - x1 + 1, y2 - y1 + 1
+        if max(bw, bh) > 1024 and crop.shape != (bh, bw):
+            crop = cv2.resize(crop.astype(np.uint8), (bw, bh), interpolation=cv2.INTER_NEAREST).astype(bool)
+        h, w = crop.shape
+        m[y1:y1 + h, x1:x1 + w] = crop[: height - y1, : width - x1]
         return m
 
 
@@ -133,7 +140,17 @@ class SamClient:
         with open(video, "rb") as f:
             return self.client.files.create(file=f, purpose="user_data").id
 
-    def _stream(self, content: list[dict], metadata: dict[str, str]) -> str:
+    def _stream(self, content: list[dict], metadata: dict[str, str], attempts: int = 3) -> str:
+        """Run one request; a dropped connection mid-stream is retried from the start."""
+        for attempt in range(attempts):
+            try:
+                return self._stream_once(content, metadata)
+            except APIConnectionError:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(5 * (attempt + 1))
+
+    def _stream_once(self, content: list[dict], metadata: dict[str, str]) -> str:
         chunks = []
         with self.client.responses.stream(
             model=MODEL,
@@ -168,32 +185,37 @@ class SamClient:
             {"type": "input_video", "file_id": file_id},
         ], {"mask_encoding": mask_encoding})
 
-    def _track_forward(self, video: Path, size: tuple[int, int],
-                       boxes: dict[int, tuple[int, tuple[int, int, int, int]]]) -> str:
+    def _track_forward(self, video: Path, size: tuple[int, int], anchors: dict[int, list]) -> str:
         prompt = build_object_prompt(size=size, objects=[
-            PromptObject(id=oid, prompts=[FramePrompt(frame=frame, box=PromptBox(*box))])
-            for oid, (frame, box) in boxes.items()
+            PromptObject(id=oid, prompts=[FramePrompt(frame=frame, box=PromptBox(*box)) for frame, box in sorted(fb)])
+            for oid, fb in anchors.items()
         ])
         return self._stream([
             {"type": "input_text", "text": prompt},
             {"type": "input_video", "file_id": self.upload(video)},
         ], {"propagation_direction": "forward"})
 
-    def track_boxes(self, video: Path, size: tuple[int, int],
-                    boxes: dict[int, tuple[int, tuple[int, int, int, int]]]) -> str:
-        """Track up to 16 objects through the whole video from {obj_id: (frame, (x1, y1, x2, y2))}.
+    def track_boxes(self, video: Path, size: tuple[int, int], boxes: dict[int, tuple | list]) -> str:
+        """Track up to 16 objects through the whole video.
 
-        ``size`` is the video's displayed (width, height). Masks come back one_bit. The API's
-        backward propagation fails with a server error on some phone videos, so frames before
-        a prompt are tracked forward through a reversed copy of the start of the video.
+        ``boxes`` maps obj_id to one (frame, (x1, y1, x2, y2)) or a list of them: several
+        anchors on one object re-acquire it when it disappears and comes back (a laptop
+        screen, closed then reopened). ``size`` is the video's displayed (width, height).
+        Masks come back one_bit. The API's backward propagation fails with a server error on
+        some phone videos, so frames before an object's first anchor are tracked forward
+        through a reversed copy of the start of the video.
         """
-        text = self._track_forward(video, size, boxes)
-        last = max(frame for frame, _ in boxes.values())
+        anchors = {oid: [fb] if isinstance(fb, tuple) and isinstance(fb[0], int) else [tuple(x) for x in fb]
+                   for oid, fb in boxes.items()}
+        text = self._track_forward(video, size, anchors)
+        first = {oid: min(f for f, _ in fb) for oid, fb in anchors.items()}
+        last = max(first.values())
         if last == 0:
             return text
         with tempfile.TemporaryDirectory() as tmp:
             clip = reversed_clip(video, last, Path(tmp) / "reversed.mp4")
-            back = self._track_forward(clip, size, {oid: (last - f, box) for oid, (f, box) in boxes.items()})
+            back = self._track_forward(clip, size, {oid: [(last - f, box) for f, box in fb if f <= last]
+                                                    for oid, fb in anchors.items()})
         # Forward output can start before an object's own prompt frame (SAM tracks every
         # object from the earliest prompt in the request), so keep one record per
         # (frame, object), preferring the forward pass.

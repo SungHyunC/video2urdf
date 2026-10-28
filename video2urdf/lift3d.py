@@ -13,12 +13,15 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 from scipy.optimize import least_squares
+from scipy.sparse import lil_matrix
+from scipy.spatial import cKDTree
 
 from .sam import Detection
 
 MIN_POINTS = 12
 INLIER_M = 0.004  # RANSAC inlier distance
 MIN_ROTATION = np.deg2rad(5)
+REFINE_POINTS = 150  # surface points used by the hinge refit
 
 
 @dataclass
@@ -38,6 +41,17 @@ def depth_edges(depth: np.ndarray, jump: float = 0.01) -> np.ndarray:
     d = depth.astype(np.float32)
     k = np.ones((3, 3), np.uint8)
     return (cv2.dilate(d, k) - cv2.erode(d, k)) > jump
+
+
+def mask_cloud(mask: np.ndarray, depth: np.ndarray, intr: Intrinsics) -> np.ndarray:
+    """Camera-frame points of a full-size mask, sampled on the depth grid, away from depth edges."""
+    h, w = mask.shape
+    dh, dw = depth.shape
+    m = cv2.resize(mask.astype(np.uint8), (dw, dh), interpolation=cv2.INTER_NEAREST).astype(bool)
+    m &= (depth > 0) & ~depth_edges(depth)
+    vv, uu = np.nonzero(m)
+    uv = np.stack([(uu + 0.5) * w / dw, (vv + 0.5) * h / dh], axis=1)
+    return intr.lift(uv, depth[vv, uu].astype(np.float64))
 
 
 def kabsch(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -86,11 +100,14 @@ def part_poses_3d(grays: list[np.ndarray], k: float, depth: np.ndarray, intr: In
             m[cv2.dilate(o, dilate) > 0] = 0
         return m * 255
 
+    dh, dw = depth.shape[1:]  # depth may be coarser than the video (iPhone LiDAR: 256x192)
+
     def lift(t, pts_small):
         uv = pts_small / k
-        ij = np.clip(np.round(uv).astype(int), 0, [w - 1, h - 1])
+        ij = np.clip(np.round(uv * [dw / w, dh / h]).astype(int), 0, [dw - 1, dh - 1])
         z = depth[t][ij[:, 1], ij[:, 0]].astype(np.float64)
-        return intr.lift(uv, z), (z > 0) & np.isfinite(z)
+        ok = (z > 0) & np.isfinite(z) & ~depth_edges(depth[t])[ij[:, 1], ij[:, 0]]
+        return intr.lift(uv, z), ok
 
     def detect(t, m):
         pts = cv2.goodFeaturesToTrack(grays[t], 600, 0.001, 4, mask=m)
@@ -120,6 +137,8 @@ def part_poses_3d(grays: list[np.ndarray], k: float, depth: np.ndarray, intr: In
             if len(pts) < MIN_POINTS:
                 continue
             x_t, ok = lift(t, pts)
+            if ok.sum() < MIN_POINTS:
+                continue
             est, inl = ransac_rigid(x_ref[ok], x_t[ok], rng)
             if est is None:
                 continue
@@ -166,8 +185,15 @@ def refine_revolute(rel: np.ndarray, points: np.ndarray, axis: np.ndarray, c: np
     ``rel`` (n, 4, 4) are child-in-parent motions, ``points`` (m, 3) the child on the
     reference frame. Returns axis, point on axis, per-frame angle, RMS point error (m).
     """
+    if len(points) > REFINE_POINTS:
+        points = points[np.random.default_rng(0).choice(len(points), REFINE_POINTS, replace=False)]
     target = points @ rel[:, :3, :3].transpose(0, 2, 1) + rel[:, None, :3, 3]  # (n, m, 3)
-    n = len(rel)
+    n, m = len(rel), len(points)
+    # Each residual depends on the 6 shared axis parameters and its own frame's angle only.
+    sparsity = lil_matrix((n * m * 3 + 1, 6 + n), dtype=int)
+    sparsity[:, :6] = 1
+    rows = np.arange(n * m * 3)
+    sparsity[rows, 6 + rows // (m * 3)] = 1
 
     def unpack(x):
         a = x[:3] / np.linalg.norm(x[:3])
@@ -179,7 +205,8 @@ def refine_revolute(rel: np.ndarray, points: np.ndarray, axis: np.ndarray, c: np
         return np.concatenate([(pred - target).ravel(), [10 * (a @ (cc - c))]])  # pin c along the axis
 
     sol = least_squares(residual, np.concatenate([axis, c, theta]), method="trf", x_scale="jac",
-                        loss="soft_l1", f_scale=0.003)  # frames with a bad part pose are outliers
+                        loss="soft_l1", f_scale=0.003,  # frames with a bad part pose are outliers
+                        jac_sparsity=sparsity)
     a, cc, th = unpack(sol.x)
     err = np.linalg.norm(sol.fun[:-1].reshape(n, -1, 3), axis=2)
     rms = float(np.sqrt(np.mean(np.minimum(err, 0.02) ** 2)))  # clipped so a few bad frames don't dominate
@@ -240,4 +267,121 @@ def joint_poses(parent: np.ndarray, joint: Joint3D) -> np.ndarray:
         t[:, :3, 3] = q[:, None] * joint.axis
     out = parent @ t
     out[np.isnan(joint.q)] = np.nan
+    return out
+
+
+def track_angle(joint: Joint3D, parent: np.ndarray, model: np.ndarray, observed: dict[int, np.ndarray],
+                n: int, step: float = np.deg2rad(1.0), window: float = np.deg2rad(25)) -> np.ndarray:
+    """Per-frame hinge angle from depth alone, given the fitted axis.
+
+    Where surface points are lost (a lid closing shows its back, not the screen that was
+    tracked), the joint is still a single number per frame: rotate the child's reference
+    cloud ``model`` about the axis and keep the angle whose points best match that frame's
+    observed depth cloud (camera frame), searched near the previous frame's angle.
+    ``parent`` (n, 4, 4) maps the observed cloud into the reference frame.
+    """
+    q = joint.q.copy()
+    known = np.flatnonzero(~np.isnan(q))
+    if len(known) == 0:
+        return q
+    order = [range(known[0] + 1, n), range(known[0] - 1, -1, -1)]
+    for frames in order:
+        prev = q[known[0]]
+        for t in frames:
+            if t not in observed or np.isnan(parent[t]).any():
+                continue
+            if not np.isnan(joint.q[t]):
+                prev = q[t]
+                continue
+            inv = np.linalg.inv(parent[t])
+            obs = observed[t] @ inv[:3, :3].T + inv[:3, 3]
+            tree = cKDTree(obs)
+            cands = prev + np.arange(-window, window + step / 2, step)
+            r = axis_rotation(joint.axis, cands)
+            moved = (model - joint.point) @ r.transpose(0, 2, 1) + joint.point  # (k, m, 3)
+            cost = [np.median(tree.query(m_)[0]) for m_ in moved]
+            q[t] = prev = cands[int(np.argmin(cost))]
+    return q
+
+
+def fit_plane(points: np.ndarray, rng: np.random.Generator, tol: float = 0.004, iters: int = 150):
+    """RANSAC plane: unit normal n and offset d with n . x = d, and the inlier fraction."""
+    if len(points) < 3:
+        return np.array([0.0, 0.0, 1.0]), 0.0, 0.0
+    best = None
+    for _ in range(iters):
+        a, b, c = points[rng.choice(len(points), 3, replace=False)]
+        n = np.cross(b - a, c - a)
+        if np.linalg.norm(n) < 1e-9:
+            continue
+        n /= np.linalg.norm(n)
+        inl = np.abs((points - a) @ n) < tol
+        if best is None or inl.sum() > best.sum():
+            best = inl
+    p = points[best]
+    centroid = p.mean(axis=0)
+    n = np.linalg.svd(p - centroid, full_matrices=False)[2][2]
+    return n, float(n @ centroid), float(best.mean())
+
+
+@dataclass
+class PlanarHinge:
+    axis: np.ndarray  # unit direction, reference frame
+    point: np.ndarray  # a point on the axis
+    q: np.ndarray  # rotation of the plate about the axis per frame (rad), 0 on the reference frame
+    residual: float  # m, RMS distance of the axis from the fitted planes
+    centroids: dict  # frame -> plate centroid
+
+
+def fit_planar_hinge(clouds: dict[int, np.ndarray], n_frames: int, ref: int, pin: np.ndarray,
+                     min_inliers: float = 0.6) -> PlanarHinge:
+    """Hinge of a flat plate (a laptop lid) from depth alone, no texture needed.
+
+    Fit the plate's plane in every frame (``clouds``, in the reference frame). A plate
+    turning about a hinge keeps its normal perpendicular to the axis, and every plane passes
+    (nearly) through the axis. A plane's normal has no sign, and the face seen can switch
+    (screen, then the lid's back), so nothing here depends on it: the axis direction is the
+    one most perpendicular to all normals, its position the line closest to all planes, and
+    the angle is how far the direction from the axis to the plate's centroid has turned.
+    ``pin`` fixes the free position along the axis.
+    """
+    rng = np.random.default_rng(0)
+    planes, centroids = {}, {}
+    for t, c in clouds.items():
+        if len(c) >= 50:
+            n, d, frac = fit_plane(c, rng)
+            if frac >= min_inliers:
+                planes[t] = (n, d)
+                centroids[t] = c[np.abs(c @ n - d) < 0.004].mean(axis=0)
+    frames = sorted(planes)
+    normals = np.array([planes[t][0] for t in frames])
+    offsets = np.array([planes[t][1] for t in frames])
+    axis = np.linalg.eigh(normals.T @ normals)[1][:, 0]
+    a = np.vstack([normals, axis[None]])
+    b = np.append(offsets, axis @ pin)
+    point = np.linalg.lstsq(a, b, rcond=None)[0]
+    res = normals @ point - offsets
+
+    def radial(t):
+        v = centroids[t] - point
+        v -= (v @ axis) * axis
+        return v / np.linalg.norm(v)
+
+    start = min(frames, key=lambda t: abs(t - ref))
+    u0 = radial(start)
+    theta = np.array([np.arctan2(np.cross(u0, radial(t)) @ axis, u0 @ radial(t)) for t in frames])
+    q = np.full(n_frames, np.nan)
+    q[frames] = theta
+    return PlanarHinge(axis, point, q, float(np.sqrt(np.mean(res ** 2))), centroids)
+
+
+def clean_angles(q: np.ndarray, window: int = 15, max_dev: float = np.deg2rad(25)) -> np.ndarray:
+    """Drop frames far from the running median of their neighbours: a frame where the plane
+    fit caught the wrong surface (a hand, the base) jumps away and back."""
+    out = q.copy()
+    valid = np.flatnonzero(~np.isnan(q))
+    for i, t in enumerate(valid):
+        near = q[valid[max(0, i - window):i + window + 1]]
+        if abs(q[t] - np.median(near)) > max_dev:
+            out[t] = np.nan
     return out

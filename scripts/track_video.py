@@ -28,7 +28,8 @@ from video2urdf.pipeline import video_info  # noqa: E402
 from video2urdf.sam import SamClient, load_tracks, parse  # noqa: E402
 
 COLORS = [(0, 200, 255), (255, 80, 80), (80, 255, 80), (255, 0, 255), (255, 255, 0), (0, 128, 255)]
-KEY_FRAMES = (0.0, 0.25, 0.5, 0.75)  # fractions of the video searched for each part
+KEY_FRAMES = tuple(i / 8 for i in range(8))  # fractions of the video searched for each part
+MIN_ANCHOR_CONFIDENCE = 0.5
 
 
 def read_frame(video: Path, index: int) -> np.ndarray:
@@ -49,7 +50,9 @@ def box_iou(a, b) -> float:
 
 
 def find_parts(client: SamClient, video: Path, n_frames: int, prompts: list[str]) -> dict:
-    """{obj_id: {prompt, frame, box, confidence}} from the best key-frame detection per prompt.
+    """{obj_id: {prompt, frame, box, confidence, anchors}}: the best key-frame detection per
+    prompt, plus every key frame where the part is found ("anchors", [[frame, box], ...]) so
+    tracking re-acquires a part that disappears and comes back.
 
     On each key frame, a detection whose box overlaps an earlier part's detection on that
     frame (IoU > 0.5) is skipped, so list unambiguous parts first: "gray panel" after
@@ -77,8 +80,12 @@ def find_parts(client: SamClient, video: Path, n_frames: int, prompts: list[str]
             print(f"  {prompt!r}: not found on key frames {frames}, skipped")
             continue
         f, det = best
-        parts[oid] = {"prompt": prompt, "frame": f, "box": list(det.box), "confidence": det.confidence}
-        print(f"  {prompt!r}: id {oid}, frame {f}, box {det.box}, c={det.confidence}")
+        anchors = [[t, list(d.box)] for t, d in sorted(best_per_frame.items())
+                   if (d.confidence or 0) >= MIN_ANCHOR_CONFIDENCE]
+        parts[oid] = {"prompt": prompt, "frame": f, "box": list(det.box), "confidence": det.confidence,
+                      "anchors": anchors or [[f, list(det.box)]]}
+        print(f"  {prompt!r}: id {oid}, best frame {f}, c={det.confidence:.2f}, anchors on frames "
+              f"{[a[0] for a in parts[oid]['anchors']]}")
     return parts
 
 
@@ -104,7 +111,8 @@ def main():
         parts = find_parts(client, args.video, n_frames, args.prompts)
         if not parts:
             sys.exit("no parts found")
-        cache.write_text(client.track_boxes(args.video, (w, h), {oid: (p["frame"], tuple(p["box"])) for oid, p in parts.items()}))
+        cache.write_text(client.track_boxes(args.video, (w, h), {
+            oid: [(f, tuple(box)) for f, box in p.get("anchors", [[p["frame"], p["box"]]])] for oid, p in parts.items()}))
         parts_file.write_text(json.dumps(parts, indent=2))
     parts = {int(k): v for k, v in json.loads(parts_file.read_text()).items()}
     objs = load_tracks(cache)
