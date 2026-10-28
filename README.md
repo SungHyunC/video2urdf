@@ -82,15 +82,27 @@ scored against the plate's motion relative to the base from motion capture. The 
 often push the whole object around while opening it (up to 15 cm and 47 deg), so the base is
 followed too.
 
-| Object | Sequences | Hinge axis direction | Axis position | Angle error (median) |
-|---|---|---|---|---|
-| Laptop | 4 | 0.9-2.2 deg | 13-32 mm | 2.0-3.7 deg |
-| Book | 3 | 2.5-6.9 deg | 30-82 mm | 5-21 deg |
-| Cardboard box, treasure box | 6 | 1.5-1.9 deg on 4 of 6 | 26-225 mm | poor (see below) |
+| Sequence | Axis direction | Axis position | Angle error, median | Angle error, p90 | Frames measured |
+|---|---|---|---|---|---|
+| laptop01 | 2.0 deg | 24 mm | 1.9 deg | 31.7 deg | 186/186 |
+| laptop02 | 2.1 deg | 31 mm | 3.3 deg | 8.1 deg | 203/205 |
+| laptop04 | 2.2 deg | 12 mm | 2.0 deg | 4.0 deg | 176/192 |
+| laptop05 | 0.9 deg | 19 mm | 2.5 deg | 5.4 deg | 184/185 |
+| book03 | 2.5 deg | 18 mm | 1.3 deg | 3.3 deg | 188/329 |
+| book05 | 2.8 deg | 63 mm | 1.4 deg | 54.0 deg | 215/256 |
+| book13 | 6.7 deg | 92 mm | 16.0 deg | 45.9 deg | 124/282 |
+| treasurebox03 | 11.5 deg | 37 mm | 0.9 deg | 7.3 deg | 88/224 |
+| cardboardbox03 | 13.3 deg | 151 mm | 5.5 deg | 34.0 deg | 130/265 |
+| cardboardbox06 | 2.5 deg | 47 mm | 40.8 deg | 132.9 deg | 187/222 |
+| cardboardbox02 | 6.4 deg | 57 mm | 47.3 deg | 125.2 deg | 183/220 |
+| treasurebox05 | 4.5 deg | 126 mm | 33.2 deg | 63.6 deg | 40/217 |
+| treasurebox02 | 2.0 deg | 105 mm | 77.5 deg | 96.1 deg | 136/263 |
+| **median of 13** | **2.5 deg** | **47 mm** | **3.3 deg** | **34.0 deg** | |
 
-Books and boxes are where it is weak: book pages bend and get mixed into the cover's mask, and
-box lids are only measured on 20-25% of frames, some of them on the box's inside. Per-sequence
-results: `scripts/rbo_bench.py` writes `data/rbo/results/summary.md`.
+Laptops and two of the books are measured to a few degrees. Box lids are where it fails: in
+these 640 x 480 videos SAM loses the lid (and often the box) on most frames, even after the
+agent re-anchors it, so the closed/open state is guessed from the whole box. Angle errors are
+taken modulo 360 deg. Per-sequence results: `scripts/rbo_bench.py` writes `data/rbo/results/summary.md`.
 
 ### Open weights only
 

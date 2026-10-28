@@ -122,7 +122,7 @@ def main():
         sys.exit(f"{args.name}: the plate was measured on {int(valid.sum())} frames; nothing to score")
     # The circle's normal has no inherent sign, so match the rotation sense to the data.
     def err_to(target):
-        errs = [np.rad2deg(np.abs(sg * q[: c.n][valid] - target[valid])) for sg in (1, -1)]
+        errs = [np.rad2deg(np.abs(np.angle(np.exp(1j * (sg * q[: c.n][valid] - target[valid]))))) for sg in (1, -1)]  # mod 360
         return min(errs, key=np.mean)
     err, err_dataset = err_to(q_true), err_to(q_dataset)
     result = {
