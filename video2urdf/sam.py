@@ -269,3 +269,12 @@ def reversed_clip(video: Path, last: int, out: Path) -> Path:
     if n != last + 1:
         raise RuntimeError(f"reversed clip has {n} frames, expected {last + 1}")
     return out
+
+
+def sam_client():
+    """The SAM 3.1 backend SAM_BACKEND names: "api" (Meta Model API, default) or "open"
+    (the open weights on Modal, video2urdf/sam_open.py)."""
+    if os.environ.get("SAM_BACKEND", "api") == "open":
+        from .sam_open import OpenSamClient
+        return OpenSamClient()
+    return SamClient()

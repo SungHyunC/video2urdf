@@ -17,7 +17,7 @@ from openai import OpenAI
 
 from . import lidar
 from .pipeline import CARD_LONG_SIDE, Fit, fit, long_side_px, read_frame, slug, video_info
-from .sam import Detection, SamClient, parse
+from .sam import Detection, SamClient, parse, sam_client
 
 MODEL = os.environ.get("AGENT_MODEL", "muse-spark-1.3-contributor")
 BASE_URL = os.environ.get("AGENT_BASE_URL", "https://api.meta.ai/v1")
@@ -162,7 +162,7 @@ class Agent:
 
     def __post_init__(self):
         self.client = self.client or OpenAI(base_url=BASE_URL, api_key=os.environ[API_KEY_ENV], timeout=600)
-        self.sam = self.sam or SamClient()
+        self.sam = self.sam or sam_client()
         self.size, self.n, self.fps = video_info(self.video)
         self.out = self.track_dir / "agent"
         self.out.mkdir(parents=True, exist_ok=True)

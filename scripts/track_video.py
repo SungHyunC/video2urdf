@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
 from video2urdf.pipeline import video_info  # noqa: E402
-from video2urdf.sam import SamClient, load_tracks, parse  # noqa: E402
+from video2urdf.sam import SamClient, load_tracks, parse, sam_client  # noqa: E402
 
 COLORS = [(0, 200, 255), (255, 80, 80), (80, 255, 80), (255, 0, 255), (255, 255, 0), (0, 128, 255)]
 KEY_FRAMES = tuple(i / 8 for i in range(8))  # fractions of the video searched for each part
@@ -107,7 +107,7 @@ def main():
 
     cached = parts_file.exists() and [p["prompt"] for p in json.loads(parts_file.read_text()).values()] == args.prompts
     if not (cached and cache.exists()):
-        client = SamClient()
+        client = sam_client()
         parts = find_parts(client, args.video, n_frames, args.prompts)
         if not parts:
             sys.exit("no parts found")
