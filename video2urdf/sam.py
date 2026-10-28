@@ -56,13 +56,34 @@ def _fields(s: str) -> dict[str, str]:
     return dict(kv.split("=", 1) for kv in s.split(";"))
 
 
+def encode_rle(mask: np.ndarray) -> str:
+    """Our own mask payload (marker `R`), used by the open-weights backend: run lengths of the
+    row-major raster, starting with a run of 0s (possibly empty), as base-10 integers joined by
+    `.`. Example: [[0, 1, 1], [1, 0, 0]] -> "R1.3.2"."""
+    flat = np.asarray(mask, bool).ravel()
+    edges = np.flatnonzero(flat[1:] != flat[:-1]) + 1
+    runs = np.diff(np.concatenate([[0], edges, [flat.size]]))
+    if flat.size and flat[0]:
+        runs = np.concatenate([[0], runs])
+    return "R" + ".".join(map(str, runs.tolist()))
+
+
+def decode_rle(payload: str, w: int, h: int) -> np.ndarray:
+    runs = np.array(payload[1:].split("."), np.int64)
+    if runs.sum() != w * h:
+        raise ValueError(f"RLE covers {runs.sum()} pixels, expected {w}x{h}")
+    return np.repeat(np.arange(len(runs)) % 2 == 1, runs).reshape(h, w)
+
+
 def _decode_mask(token: str) -> np.ndarray:
     """Decode a mask token. one_bit (box-prompt tracks) uses the compiled decoder; lossless
-    (concept prompts) still goes through the slow pure-Python reference."""
+    (concept prompts) still goes through the slow pure-Python reference; R is encode_rle."""
     h, w, payload = token.split("data=", 1)[1].split(",", 2)
     h, w = int(h), int(w)
     if payload[0] == "!":
         return decode_one_bit(payload, w, h)
+    elif payload[0] == "R":
+        return decode_rle(payload, w, h)
     elif payload[0] == "~":
         raw = np.frombuffer(bytes(_mask_codec._decode_lossless_raster(payload, w, h)), np.uint8) >= 129
     else:

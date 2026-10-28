@@ -99,7 +99,9 @@ TOOLS = [
          "base": {"type": "string", "description": "tracked part the plate hinges on, as seen on frame 0"},
          "plate": {"type": "string", "description": "tracked part: the plate's inner face (e.g. a screen)"},
          "plate_closed": {"type": "string", "description": "tracked part covering the object when closed"},
-         "open_indicator": {"type": "string", "description": "tracked part seen only while open"}},
+         "open_indicator": {"type": "string", "description": "tracked part seen only while open"},
+         "joint": {"type": "string", "enum": ["hinge", "slide"],
+                   "description": "hinge (a lid, door, flap; default) or slide (a drawer: plate = the drawer)"}},
          "required": ["floor", "base", "plate"]}},
     {"name": "finish", "description": "End with a report.",
      "parameters": {"type": "object", "properties": {"report": {"type": "string"}}, "required": ["report"]}},
@@ -110,7 +112,8 @@ LIDAR = """
 
 This is an RGB-D capture (iPhone LiDAR, or a depth camera): every frame has metric depth,
 so the view may be oblique and no card is needed (skip measure_scale). For a hinged
-plate (laptop lid, door, flap) use fit_lidar, not fit. Track, in one track call:
+plate (laptop lid, door, flap) or a sliding part (a drawer: joint="slide", plate = the drawer)
+use fit_lidar, not fit. Track, in one track call:
 - the floor or table the object stands on (static scene),
 - the base the plate hinges on, as seen on frame 0,
 - the plate's inner face (e.g. "laptop screen"),
@@ -287,7 +290,7 @@ class Agent:
         return cv2.hconcat(imgs)
 
     def tool_fit_lidar(self, floor: str, base: str, plate: str, plate_closed: str | None = None,
-                       open_indicator: str | None = None) -> str:
+                       open_indicator: str | None = None, joint: str = "hinge") -> str:
         if self.capture is None:
             return "fit_lidar needs a LiDAR capture; use fit"
         if not self.tracked:
@@ -300,6 +303,18 @@ class Agent:
             return f"not tracked: {missing}; tracked parts are {c.names}"
         (self.track_dir / "roles.json").write_text(json.dumps(vars(roles)))
         lines = []
+        if joint == "slide":  # a drawer: the plate role is the part that slides out
+            ref = c.ref_with(roles.base, roles.plate)
+            if ref != c.ref:
+                c.set_ref(ref)
+            if c.moving_camera:
+                c.level_with(roles.floor)
+            summary = lidar.fit_and_build_slide(c, roles, log=lines.append)
+            frames = sorted({int(f) for f in np.linspace(0, self.n - 1, 4)})
+            sheet = self.video_sheet(self.track_dir / "replay3d.mp4", frames)
+            self.show(sheet, "fit_lidar (slide): 3D replay from the camera", width=sheet.shape[1])
+            self.last_fit = summary
+            return "\n".join(lines) + "\nImage: the replayed model (colored) over the video."
         ref = c.ref_with(roles.base, roles.plate)
         if ref != c.ref:
             c.set_ref(ref)

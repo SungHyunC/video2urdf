@@ -26,7 +26,7 @@ from scipy.ndimage import median_filter
 from scipy.spatial.transform import Rotation
 
 from . import emit3d, stray
-from .lift3d import clean_angles, fit_plane, fit_planar_hinge, mask_cloud
+from .lift3d import clean_angles, fit_plane, fit_planar_hinge, fit_slide, mask_cloud
 from .pipeline import load_parts, read_frame, video_info
 from .replay import replay3d
 from .shape import part_color, prism, write_stl
@@ -39,7 +39,7 @@ LEVEL_WINDOW = 31  # frames; ARKit drift is slow
 
 @dataclass
 class Roles:
-    floor: str
+    floor: str | None
     base: str
     plate: str
     plate_closed: str | None = None
@@ -355,5 +355,81 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
         f"{summary['plate_size_mm'][1]:.0f} mm, {summary['plate_thickness_mm']:.1f} mm thick"
         f"{' (clipped: not really measured)' if summary['plate_thickness_clipped'] else ''}; hinge "
         f"{summary['hinge_range_deg'][0]:.0f}..{summary['hinge_range_deg'][1]:.0f} deg; replay covers "
+        + ", ".join(f"{k} {100 * v:.0f}%" for k, v in summary["mask_coverage"].items()) + " of the SAM masks")
+    return summary
+
+
+def fit_and_build_slide(c: Capture, roles: Roles, log=print) -> dict:
+    """A part that slides out of a base (a drawer): fit the travel from depth (translation-only
+    ICP of the part's cloud, see lift3d.fit_slide), then write a model with box links measured
+    from the reference frame and replay it. ``roles.plate`` is the sliding part; plate_closed
+    and open_indicator are unused. Writes slide.json, model.urdf, model.xml, meshes/,
+    model3d.json and replay3d.mp4."""
+    clouds = {t: c.cloud(roles.plate, t) for t in range(c.n) if c.has(roles.plate, t)}
+    slide = fit_slide(clouds, c.n, c.ref)
+    q = clean_angles(slide.q, max_dev=0.02)  # 2 cm off its neighbours is a bad frame
+    valid = ~np.isnan(q)
+    lo, hi = float(np.percentile(q[valid], 1)), float(np.percentile(q[valid], 99))
+
+    # Model frame: z up off the floor (or the camera's up), x along the travel, origin at the
+    # sliding part's centroid on the reference frame.
+    if roles.floor:
+        f = c.cloud(roles.floor, c.ref)
+        up, _, _ = fit_plane(f, np.random.default_rng(0))
+        if up @ (-f.mean(axis=0)) < 0:  # the camera is above the floor
+            up = -up
+    else:
+        up = np.array([0.0, -1.0, 0.0])  # the reference camera's up
+    up = up - (up @ slide.axis) * slide.axis
+    up /= np.linalg.norm(up)
+    rot = np.stack([slide.axis, np.cross(up, slide.axis), up])
+    point = slide.point
+
+    def to_model(p):
+        return (p - point) @ rot.T
+
+    def box_of(p):  # robust axis-aligned extent in the model frame
+        return np.percentile(p, 2, axis=0), np.percentile(p, 98, axis=0)
+
+    mesh_dir = c.track_dir / "meshes"
+    mesh_dir.mkdir(exist_ok=True)
+    image = read_frame(c.video, c.ref)
+    links, sizes = [], {}
+    for name, part, back in (("base", roles.base, 0.0), ("drawer", roles.plate, hi - lo)):
+        lo_b, hi_b = box_of(to_model(c.cloud(part, c.ref)))
+        if name == "drawer":
+            lo_b[0] -= back  # the part hidden inside the base: at least as deep as it travels
+        rect = np.array([[lo_b[0], lo_b[1]], [hi_b[0], lo_b[1]], [hi_b[0], hi_b[1]], [lo_b[0], hi_b[1]]])
+        v, fc = prism(rect, np.zeros(3), np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.array([0, 0, 1.0]),
+                      lo_b[2], hi_b[2])
+        write_stl(mesh_dir / f"{name}.stl", v, fc)
+        sizes[name] = (1000 * (hi_b - lo_b)).round().tolist()
+        rgb = part_color(image, c.by[part][c.ref].full_mask(c.h, c.w))
+        links.append(emit3d.Link3D(name, [emit3d.Visual(f"meshes/{name}.stl", rgb)],
+                                   parent=None if name == "base" else "base", joint_type="prismatic",
+                                   axis=np.array([1.0, 0, 0]), limits=(lo, hi)))
+    links[0].joint_type = "fixed"
+    floor_z = float(np.percentile(to_model(c.cloud(roles.floor, c.ref))[:, 2], 50)) if roles.floor else \
+        float(min(box_of(to_model(c.cloud(p, c.ref)))[0][2] for p in (roles.base, roles.plate)))
+    root_pos = np.array([0, 0, -floor_z])
+    (c.track_dir / "model.urdf").write_text(emit3d.urdf(c.video.stem, links))
+    (c.track_dir / "model.xml").write_text(emit3d.mjcf(c.video.stem, links, root_pos, (c.w, c.h)))
+    summary = {"joint": "prismatic", "travel_range_mm": [1000 * lo, 1000 * hi], "frames_measured": int(valid.sum()),
+               "frames": c.n, "line_residual_mm": 1000 * slide.residual, "box_sizes_mm": sizes}
+    (c.track_dir / "slide.json").write_text(json.dumps({
+        "reference_frame": c.ref, "axis": slide.axis.tolist(), "point": point.tolist(),
+        "q": [None if np.isnan(v) else float(v) for v in q], **summary}))
+    (c.track_dir / "model3d.json").write_text(json.dumps({
+        "reference_frame": c.ref, "camera_to_model": {"rotation": rot.tolist(), "hinge_point": point.tolist(),
+                                                      "root_pos": root_pos.tolist()}, **summary}))
+    a = np.eye(4)
+    a[:3, :3], a[:3, 3] = rot, -rot @ point + root_pos
+    cam_to_world = np.array([a @ np.linalg.inv(c.world[t]) for t in range(c.n)])
+    cover = replay3d(c.track_dir / "model.xml", cam_to_world, c.cap.intrinsics, {"drawer_joint": q},
+                     {"drawer": c.by[roles.plate], "base": c.by[roles.base]}, c.video, c.track_dir / "replay3d.mp4")
+    summary["mask_coverage"] = {k: float(np.nanmean(v)) for k, v in cover.items()}
+    log(f"slide: travel {1000 * lo:.0f}..{1000 * hi:.0f} mm measured on {summary['frames_measured']}/{c.n} frames, "
+        f"{1000 * slide.residual:.1f} mm off a straight line; boxes (mm) base {sizes['base']}, drawer {sizes['drawer']} "
+        f"(its hidden depth is assumed equal to the travel); replay covers "
         + ", ".join(f"{k} {100 * v:.0f}%" for k, v in summary["mask_coverage"].items()) + " of the SAM masks")
     return summary

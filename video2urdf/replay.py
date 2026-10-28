@@ -147,10 +147,12 @@ def replay3d(model_xml: Path, cam_to_world: np.ndarray, intr, joint_q: dict[str,
             img[pred] = (0.5 * img[pred] + 0.5 * color).astype(np.uint8)
             contours, _ = cv2.findContours(pred.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             cv2.drawContours(img, contours, -1, color.tolist(), 3)
-        label = "MuJoCo replay of the LiDAR-measured model  " + "  ".join(
-            f"{j} {np.rad2deg(q[t]):.0f} deg" for j, q in qs.items())
-        cv2.putText(img, label, (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (0, 0, 0), 6)
-        cv2.putText(img, label, (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (255, 255, 255), 2)
+        label = "MuJoCo replay of the depth-measured model  " + "  ".join(
+            f"{j} {np.rad2deg(q[t]):.0f} deg" if model.jnt_type[model.joint(j).id] == mujoco.mjtJoint.mjJNT_HINGE
+            else f"{j} {1000 * q[t]:.0f} mm" for j, q in qs.items())
+        k = w / 1920  # text scales with the frame
+        cv2.putText(img, label, (int(30 * k), int(60 * k)), cv2.FONT_HERSHEY_SIMPLEX, 1.4 * k, (0, 0, 0), max(1, int(6 * k)))
+        cv2.putText(img, label, (int(30 * k), int(60 * k)), cv2.FONT_HERSHEY_SIMPLEX, 1.4 * k, (255, 255, 255), max(1, int(2 * k)))
         writer.write(img)
     writer.release()
     renderer.close()

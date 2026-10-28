@@ -377,7 +377,8 @@ def fit_planar_hinge(clouds: dict[int, np.ndarray], n_frames: int, ref: int, pin
 
 def clean_angles(q: np.ndarray, window: int = 15, max_dev: float = np.deg2rad(25)) -> np.ndarray:
     """Drop frames far from the running median of their neighbours: a frame where the plane
-    fit caught the wrong surface (a hand, the base) jumps away and back."""
+    fit caught the wrong surface (a hand, the base) jumps away and back. Works for any joint
+    value (``max_dev`` in its units)."""
     out = q.copy()
     valid = np.flatnonzero(~np.isnan(q))
     for i, t in enumerate(valid):
@@ -385,3 +386,50 @@ def clean_angles(q: np.ndarray, window: int = 15, max_dev: float = np.deg2rad(25
         if abs(q[t] - np.median(near)) > max_dev:
             out[t] = np.nan
     return out
+
+
+@dataclass
+class Slide:
+    axis: np.ndarray  # unit direction of travel, reference frame
+    point: np.ndarray  # the part's centroid on the reference frame
+    q: np.ndarray  # travel per frame (m), 0 on the reference frame
+    residual: float  # m, RMS distance of the travel from a straight line
+
+
+def fit_slide(clouds: dict[int, np.ndarray], n_frames: int, ref: int, sample: int = 2000) -> Slide:
+    """Prismatic joint from depth alone: register each frame's cloud of the part to the
+    reference cloud by translation only (trimmed ICP, warm-started from the neighbouring
+    frame), then take the travel's principal direction as the axis. Every face helps, and
+    newly exposed surface (a drawer coming out) just finds no partner and is trimmed."""
+    rng = np.random.default_rng(0)
+
+    def thin(c):
+        return c[rng.choice(len(c), sample, replace=False)] if len(c) > sample else c
+
+    frames = sorted(t for t, c in clouds.items() if len(c) >= 50)
+    start = min(frames, key=lambda t: abs(t - ref))
+    target = thin(clouds[start])
+    tree = cKDTree(target)
+    shift = {start: np.zeros(3)}
+    for seq in (frames[frames.index(start) + 1:], frames[frames.index(start) - 1::-1]):
+        x = np.zeros(3)
+        for t in seq:
+            c = thin(clouds[t])
+            for _ in range(30):
+                d, idx = tree.query(c - x)
+                keep = d < max(3 * np.median(d), 0.003)
+                step = (c[keep] - x - target[idx[keep]]).mean(axis=0)
+                x = x + step
+                if np.linalg.norm(step) < 1e-5:
+                    break
+            shift[t] = x.copy()
+    ts = np.array(sorted(shift))
+    xs = np.array([shift[t] for t in ts])
+    axis = np.linalg.svd(xs - xs.mean(axis=0), full_matrices=False)[2][0]
+    q = xs @ axis
+    if q.max() < -q.min():  # make the larger travel positive
+        axis, q = -axis, -q
+    out = np.full(n_frames, np.nan)
+    out[ts] = q
+    off = xs - np.outer(q, axis)
+    return Slide(axis, clouds[start].mean(axis=0), out, float(np.sqrt(np.mean(np.sum((off - off.mean(axis=0)) ** 2, axis=1)))))
