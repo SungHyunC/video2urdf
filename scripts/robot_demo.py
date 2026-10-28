@@ -23,11 +23,12 @@ PANDA_DIR = ROOT / "third_party" / "mujoco_menagerie" / "franka_emika_panda"
 ARM_JOINTS = [f"joint{i}" for i in range(1, 8)]
 HOME = np.array([0, 0, 0, -1.57079, 0, 1.57079, -0.7853])
 FINGERTIP = np.array([0, 0, 0.11])  # in the hand frame
-PEDESTAL_TOP = 0.30
+PEDESTAL_TOP = 0.22  # low enough that an open lid clears the hand at home
 HINGE_X = 0.50  # where the pushed joint sits in front of the robot
 W, H, FPS = 1920, 1080, 30
 LIFT = np.array([-0.05, 0, 0.15])
 MAX_JOINT_STEP = 0.06  # rad per frame (~1.8 rad/s)
+START_OPENING_DEG = 80
 
 
 def object_xml(model_xml: Path, pos, yaw: float) -> tuple[str, str, str, str]:
@@ -205,6 +206,12 @@ def main():
     plan = mujoco.MjData(model)
     ik = Ik(model)
 
+    # Start the lid at most START_OPENING_DEG open, inside its measured range: opened further,
+    # a lid leans back over the robot and its back can only be reached from underneath.
+    q_ref = data.joint(joint_name).qpos[0]
+    toward_open = np.sign(q_ref - closed_end)
+    data.joint(joint_name).qpos[0] = closed_end + toward_open * min(abs(q_ref - closed_end),
+                                                                   np.deg2rad(START_OPENING_DEG))
     arm_q = HOME.copy()
     data.qpos[ik.qadr] = arm_q
     data.ctrl[:7] = arm_q
@@ -248,6 +255,8 @@ def main():
                 start_tip, start_axis = data.xpos[ik.hand] + r @ FINGERTIP, r[:, 2]
             target = (start_tip + smooth(u) * LIFT, start_axis)
         elif name == "reach":
+            # Come in along the pushed face's normal, from well off the face: a lid leaning back
+            # over the robot has to be approached from underneath, not dropped onto from above.
             high = pre + np.array([0, 0, 0.12])  # come in above the lid, then drop behind it
             target = (start_tip + LIFT + smooth(u) * (high - start_tip - LIFT), pre_n)
         elif name == "descend":

@@ -1,0 +1,121 @@
+"""Export fitted runs for the web viewer (docs/, served as a static page).
+
+For each run: the MJCF's body tree (positions, joints, meshes, colours) as JSON, the joint
+values per video frame, the STL meshes, URDF/MJCF downloads, and web-sized videos (phone
+video, replay over it, robot demo).
+
+Usage:
+  .venv/bin/python scripts/export_viewer.py \\
+      laptop_lidar:data/tracks_agent/laptop_lidar:data/real/laptop_lidar/laptop_lidar.mp4 \\
+      notebook:data/tracks/notebook_2:data/real/notebook_2.MOV [--out docs]
+"""
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from video2urdf.pipeline import video_info  # noqa: E402
+
+WEB_HEIGHT = 720  # px, long videos are scaled so their shorter side is at most this
+
+
+def floats(s: str | None, default):
+    return [float(v) for v in s.split()] if s else default
+
+
+def body_tree(el: ET.Element) -> dict:
+    joint = el.find("joint")
+    out = {
+        "name": el.get("name"),
+        "pos": floats(el.get("pos"), [0, 0, 0]),
+        "joint": None if joint is None else {
+            "name": joint.get("name"), "type": joint.get("type", "hinge"),
+            "axis": floats(joint.get("axis"), [0, 0, 1]), "range": floats(joint.get("range"), [0, 0])},
+        "geoms": [],
+        "children": [body_tree(c) for c in el.findall("body")],
+    }
+    for g in el.findall("geom"):
+        out["geoms"].append({
+            "mesh": g.get("mesh"), "type": g.get("type"), "rgba": floats(g.get("rgba"), [0.7, 0.7, 0.7, 1]),
+            "pos": floats(g.get("pos"), [0, 0, 0]), "size": floats(g.get("size"), []),
+            "axisangle": floats(g.get("axisangle"), None)})
+    return out
+
+
+def joint_tracks(run: Path) -> dict[str, list]:
+    """Joint name -> value per video frame (None where unmeasured)."""
+    if (run / "hinge.json").exists() and (run / "model3d.json").exists():
+        return {"lid_joint": json.loads((run / "hinge.json").read_text())["q"]}
+    joints = json.loads((run / "joints.json").read_text())["joints"]
+    return {f"{j['child']}_joint": j["q"] for j in joints if j["type"] != "fixed"}
+
+
+def web_video(src: Path, dst: Path, crf: int = 30):
+    """H.264 for browsers: shorter side at most WEB_HEIGHT, no audio, index up front."""
+    vf = f"scale='if(gt(iw,ih),-2,min({WEB_HEIGHT},iw))':'if(gt(iw,ih),min({WEB_HEIGHT},ih),-2)'"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-vf", vf, "-an", "-c:v", "libx264",
+                    "-preset", "slow", "-crf", str(crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+                    str(dst)], check=True)
+
+
+def export(name: str, run: Path, video: Path, out: Path) -> dict:
+    dst = out / "models" / name
+    if dst.exists():
+        shutil.rmtree(dst)
+    (dst / "meshes").mkdir(parents=True)
+    root = ET.parse(run / "model.xml").getroot()
+    meshes = {m.get("name"): m.get("file") for m in root.iter("mesh")}
+    for file in set(meshes.values()):
+        shutil.copy(run / file, dst / file)
+    tree = body_tree(root.find("worldbody").find("body"))
+
+    def fix_mesh_paths(b):
+        for g in b["geoms"]:
+            if g["mesh"]:
+                g["mesh"] = meshes[g["mesh"]]
+        for c in b["children"]:
+            fix_mesh_paths(c)
+
+    fix_mesh_paths(tree)
+    for f in ("model.urdf", "model.xml"):
+        shutil.copy(run / f, dst / f)
+    _, n, fps = video_info(video)
+    videos = {}
+    for key, src in (("phone", video), ("replay", run / "replay3d.mp4"), ("replay", run / "replay.mp4"),
+                     ("robot", run / "robot_demo.mp4")):
+        if key not in videos and src.exists():
+            web_video(src, dst / f"{key}.mp4")
+            videos[key] = f"{key}.mp4"
+    meta = {}
+    for f in ("model3d.json", "hinge.json"):
+        if (run / f).exists():
+            m = json.loads((run / f).read_text())
+            meta.update({k: v for k, v in m.items() if k not in ("q", "camera_to_model")})
+    report = run / "agent" / "report.md"
+    spec = {"name": name, "fps": fps, "frames": n, "tree": tree, "joints": joint_tracks(run), "videos": videos,
+            "measured": meta, "agent_report": report.read_text() if report.exists() else None,
+            "three_d": (run / "model3d.json").exists()}
+    (dst / "model.json").write_text(json.dumps(spec))
+    size = sum(f.stat().st_size for f in dst.rglob("*") if f.is_file())
+    print(f"{name}: {size / 1e6:.1f} MB -> {dst}")
+    return {"name": name, "path": f"models/{name}/model.json", "three_d": spec["three_d"]}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("runs", nargs="+", help="name:run_dir:video")
+    ap.add_argument("--out", type=Path, default=ROOT / "docs")
+    args = ap.parse_args()
+    index = [export(name, Path(run), Path(video), args.out) for name, run, video in (r.split(":") for r in args.runs)]
+    (args.out / "models" / "index.json").write_text(json.dumps(index))
+
+
+if __name__ == "__main__":
+    main()

@@ -132,9 +132,15 @@ Keys live in `.env` (template: `.env.example`). All four credits arrived on 10/2
   - **Agent drives the LiDAR path** (`video2urdf/lidar.py` holds the hinge fit and model build; `fit_lidar` tool; `run_agent.py` takes a Stray Scanner folder). Spark picks prompts and part roles (floor, base, plate, plate_closed, open_indicator), gives disappearing parts candidates on several frames, then fits. From scratch (`data/tracks_agent/laptop_lidar`): lid 304 x 215 mm, base 12 mm, hinge 0.6 deg off the base plane, opening -5..113 deg; it flagged the clipped lid thickness itself. Robot closes it 111 of 111 deg. Reel: `data/tracks_agent/laptop_lidar/reel.mp4`.
   - Robot demo: IK steps and joint targets are rate-limited; an IK branch jump used to whip the arm and leave the lid half closed.
   - The interactive MuJoCo viewer can't open from Claude Code's shell; launch it through Terminal (`osascript ... do script`) or have the user run `.venv/bin/mjpython -m mujoco.viewer --mjcf=<model.xml>`.
-- Known gaps: Replay IoU is harsh on thin parts and understated when thickness is overridden. Spark tends to accept low worst-frame IoU as "thin part" without checking. LiDAR lid thickness is clipped at 3 mm (not measured). fit_lidar handles one hinged plate only. Refit stand_2 and notebook_2 after the 1024 px mask fix.
+  - **Web viewer** (`docs/index.html`, data from `scripts/export_viewer.py` into `docs/models/`): static page, three.js from a CDN, no build. Phone video / model-over-video / robot demo on the left; the measured model in 3D on the right, its joints driven by the video's time; joint sliders; URDF/MJCF downloads; the agent's report. Serve with `.venv/bin/python -m http.server 8931 --directory docs` (port 8765 is taken by another local service). For GitHub Pages: serve `docs/` once the repo is public (ask first).
+  - **Accuracy pass (10/28)**:
+    - stand_2 refit after the 1024 px mask fix, with meshes: replay IoU base 0.86 -> 0.92, lower arm 0.63 -> 0.71, upper arm 0.62 -> 0.66; fit residuals 1.5 -> 1.0 mm and 2.4 -> 0.9 mm.
+    - LiDAR: ARKit drifts ~9-14 mm in height over the video. `Capture.level_with(floor)` fits the floor plane per frame, drops implausible fits (> 4 deg), smooths over 31 frames, and removes the tilt and height. Closed lid now reads 1 deg (was -5), lid thickness is measured (2.6 mm; it used to read 9 mm *below* the base and was clipped).
+    - Half-open frames without the screen mask now use the whole-object mask minus the base's top surface: plate measured on 697/923 frames (was 486). Lid replay coverage 66% -> 71%; base 89% -> 86%.
+  - Robot demo: a lid opened past vertical leans back over the robot and can only be pushed from underneath, which drove the arm into the pedestal; the demo now starts the lid at most 80 deg open (inside its measured range) and the pedestal is 22 cm. All three models close to within 2-3 deg of their target.
+- Known gaps: Replay IoU is harsh on thin parts and understated when thickness is overridden. Spark tends to accept low worst-frame IoU as "thin part" without checking. fit_lidar handles one hinged plate only. Floor levelling can't see drift along the floor.
 - Behind schedule: the Glimmer endpoint.
 - Next, in order:
   1. Drawer from the front with LiDAR (prismatic in 3D; fit_lidar needs a slide mode).
-  2. Three.js viewer.
-  3. Open-weight path: agent on Muse Spark Open (Baseten), SAM 3.1 weights on Modal.
+  2. Open-weight path: agent on Muse Spark Open (Baseten), SAM 3.1 weights on Modal.
+  3. README with exact commands; publish the viewer on GitHub Pages.

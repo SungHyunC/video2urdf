@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<robot name="laptop_lidar">
+  <link name="base">
+    <visual name="base_0"><geometry><mesh filename="meshes/base.stl"/></geometry><material name="base_0_color"><color rgba="0.58039 0.65098 0.67843 1"/></material></visual>
+    <collision><geometry><mesh filename="meshes/base.stl"/></geometry></collision>
+  </link>
+  <link name="lid">
+    <visual name="lid_0"><geometry><mesh filename="meshes/lid.stl"/></geometry><material name="lid_0_color"><color rgba="0.33333 0.43922 0.50980 1"/></material></visual>
+    <collision><geometry><mesh filename="meshes/lid.stl"/></geometry></collision>
+    <visual name="lid_1"><geometry><mesh filename="meshes/screen.stl"/></geometry><material name="lid_1_color"><color rgba="0.17647 0.23529 0.32157 1"/></material></visual>
+  </link>
+  <joint name="lid_joint" type="revolute">
+    <parent link="base"/>
+    <child link="lid"/>
+    <origin xyz="0.00000 0.00000 0.00000" rpy="0 0 0"/>
+    <axis xyz="1.00000 0.00000 0.00000"/>
+    <limit lower="-1.9884" upper="0.0265" effort="10" velocity="2"/>
+  </joint>
+</robot>

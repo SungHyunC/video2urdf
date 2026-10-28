@@ -22,6 +22,8 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from scipy.ndimage import median_filter
+from scipy.spatial.transform import Rotation
 
 from . import emit3d, stray
 from .lift3d import clean_angles, fit_plane, fit_planar_hinge, mask_cloud
@@ -30,6 +32,9 @@ from .replay import replay3d
 from .shape import part_color, prism, write_stl
 
 SCREEN_DEPTH = 0.0008  # m, the dark display layer drawn on the plate's inner face
+OFF_BASE_M = 0.015  # points this far off the base's top plane belong to a half-open plate
+MAX_LEVEL_TILT_DEG = 4.0  # a floor fit tilted more than this from the reference is a bad fit
+LEVEL_WINDOW = 31  # frames; ARKit drift is slow
 
 
 @dataclass
@@ -60,6 +65,55 @@ class Capture:
         self.n = min(n, len(self.cap.depth))
         self.world = stray.ref_to_frame_poses(capture, self.n, ref)
 
+    def level_with(self, floor: str, sample: int = 1500) -> dict:
+        """Remove ARKit drift off the floor plane: the floor is static, so on every frame turn
+        and shift the scene until that frame's floor plane matches the reference frame's.
+        (Drift along the floor stays; a plane can't show it.) Returns the correction sizes."""
+        rng = np.random.default_rng(0)
+
+        def plane(t):
+            c = self.cloud(floor, t)
+            if len(c) > sample:
+                c = c[rng.choice(len(c), sample, replace=False)]
+            n, d, _ = fit_plane(c, rng)
+            return n, d
+
+        n0, d0 = plane(self.ref)
+        # Per-frame correction as a small rotation vector (turning that frame's floor normal onto
+        # the reference one) and a height shift. Drift is slow and plane fits are noisy (a hand
+        # or a chair leg in the floor mask), so implausible frames are dropped and the rest
+        # smoothed over time before applying.
+        rotvec = np.full((self.n, 3), np.nan)
+        height = np.full(self.n, np.nan)
+        for t in range(self.n):
+            if not self.has(floor, t):
+                continue
+            n, d = plane(t)
+            if n @ n0 < 0:
+                n, d = -n, -d
+            ang = np.arccos(np.clip(n @ n0, -1, 1))
+            if ang > np.deg2rad(MAX_LEVEL_TILT_DEG):
+                continue
+            axis = np.cross(n, n0)
+            rotvec[t] = axis / max(np.linalg.norm(axis), 1e-12) * ang
+            r = Rotation.from_rotvec(rotvec[t]).as_matrix()
+            height[t] = d0 - n0 @ (r @ (n * d))
+        ts = np.arange(self.n)
+        ok = ~np.isnan(height)
+        for series in (*rotvec.T, height):
+            series[:] = np.interp(ts, ts[ok], median_filter(series[ok], size=LEVEL_WINDOW, mode="nearest"))
+        for t in range(self.n):
+            if t == self.ref:
+                continue
+            fix = np.eye(4)
+            fix[:3, :3] = Rotation.from_rotvec(rotvec[t]).as_matrix()
+            fix[:3, 3] = height[t] * n0
+            self.world[t] = self.world[t] @ np.linalg.inv(fix)
+        tilt = np.rad2deg(np.linalg.norm(rotvec, axis=1))
+        return {"frames_used": int(ok.sum()), "tilt_deg_max": float(tilt.max()),
+                "shift_mm_max": float(1000 * np.abs(height).max()),
+                "shift_mm_median": float(1000 * np.median(np.abs(height)))}
+
     def has(self, part: str | None, t: int) -> bool:
         return part is not None and part in self.by and t in self.by[part]
 
@@ -72,15 +126,23 @@ class Capture:
 
 def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
     """Fit the plate's hinge; writes hinge.json and hinge.jpg. Returns a summary dict."""
-    plate, used_closed = {}, 0
+    base = c.cloud(roles.base, c.ref)
+    nb, db, _ = fit_plane(base, np.random.default_rng(0))
+    plate, used_closed, used_open = {}, 0, 0
     for t in range(c.n):
         if c.has(roles.plate, t):
             plate[t] = c.cloud(roles.plate, t)
         elif c.has(roles.plate_closed, t) and not c.has(roles.open_indicator, t):
             plate[t] = c.cloud(roles.plate_closed, t)  # closed: its top face is the plate's back
             used_closed += 1
-    base = c.cloud(roles.base, c.ref)
-    nb, _, _ = fit_plane(base, np.random.default_rng(0))
+        elif c.has(roles.plate_closed, t):
+            # Open but the plate's face isn't tracked (half open, face turned away): the whole
+            # object minus the base's top surface leaves the plate.
+            whole = c.cloud(roles.plate_closed, t)
+            off = whole[np.abs(whole @ nb - db) > OFF_BASE_M]
+            if len(off) > 200:
+                plate[t] = off
+                used_open += 1
     hinge = fit_planar_hinge(plate, c.n, c.ref, pin=base.mean(axis=0))
     raw = int((~np.isnan(hinge.q)).sum())
     hinge.q = clean_angles(hinge.q)
@@ -104,7 +166,9 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
         "opening_range_deg": [float(opening + q.min()), float(opening + q.max())],
         "plate_span_along_hinge_mm": float(1000 * np.ptp(along)),
     }
-    log(f"hinge: plate planes on {summary['frames_with_plate']}/{c.n} frames ({used_closed} from {roles.plate_closed}), "
+    summary["from_open_object"] = used_open
+    log(f"hinge: plate planes on {summary['frames_with_plate']}/{c.n} frames ({used_closed} closed and {used_open} "
+        f"half-open from {roles.plate_closed}), "
         f"{summary['outliers_dropped']} outliers dropped; axis {summary['hinge_to_base_plane_deg']:.1f} deg off the "
         f"base plane; opening {opening:.0f} deg on the reference frame, "
         f"{summary['opening_range_deg'][0]:.0f}..{summary['opening_range_deg'][1]:.0f} deg over the video; "
@@ -178,7 +242,7 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
             heights.append(np.median(pm[:, 2]) - z_top)
             cq, sq = np.cos(-q[t]), np.sin(-q[t])  # turn it back to the reference pose about the hinge
             back.append(pm @ np.array([[1, 0, 0], [0, cq, -sq], [0, sq, cq]]).T)
-    thick = float(np.clip(np.median(heights), 0.003, 0.03)) if heights else 0.006
+    thick = float(np.clip(np.median(heights), 0.001, 0.03)) if heights else 0.006
 
     mesh_dir = c.track_dir / "meshes"
     mesh_dir.mkdir(exist_ok=True)
@@ -220,7 +284,7 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
     (c.track_dir / "model.xml").write_text(emit3d.mjcf(c.video.stem, links, root_pos, (w, h)))
     summary = {
         "base_thickness_mm": 1000 * (z_top - z_floor), "plate_thickness_mm": 1000 * thick,
-        "plate_thickness_clipped": not heights or not 0.003 < float(np.median(heights)) < 0.03,
+        "plate_thickness_clipped": not heights or not 0.001 < float(np.median(heights)) < 0.03,
         "plate_size_mm": [float(1000 * plate_size[0]), float(1000 * plate_size[1])],
         "hinge_range_deg": [float(np.rad2deg(limits[0])), float(np.rad2deg(limits[1]))],
         "closed_frames_used": len(heights),

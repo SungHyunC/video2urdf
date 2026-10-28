@@ -297,7 +297,8 @@ class Agent:
         missing = [r for r in vars(roles).values() if r and r not in c.names]
         if missing:
             return f"not tracked: {missing}; tracked parts are {c.names}"
-        lines = []
+        fix = c.level_with(roles.floor)
+        lines = [f"floor levelling removed ARKit drift up to {fix['shift_mm_max']:.0f} mm"]
         lidar.fit_hinge(c, roles, log=lines.append)
         summary = lidar.build_model(c, roles, log=lines.append)
         hinge_img = cv2.imread(str(self.track_dir / "hinge.jpg"))
