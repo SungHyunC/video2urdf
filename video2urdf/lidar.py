@@ -189,10 +189,36 @@ def open_capture(video: Path, source: Path, track_dir: Path) -> Capture:
     return Capture.from_stray(video, source, track_dir)
 
 
+def base_top(base: np.ndarray, floor: np.ndarray | None) -> tuple[np.ndarray, float]:
+    """The base's face the plate closes onto. Its largest plane, unless a floor is known: a
+    thick base (a book's page block) can show a side face bigger than its top, so then take,
+    of its few largest planes, the one most parallel to the floor. If none is within 30 deg
+    of it (the top is barely in view), the object rests on the floor: its top is parallel."""
+    rng = np.random.default_rng(0)
+    n, d, _ = fit_plane(base, rng)
+    if floor is None or len(floor) < 50:
+        return n, d
+    nf = fit_plane(floor, rng)[0]
+    best, rest = (n, d), base
+    for _ in range(3):
+        if len(rest) < max(200, 0.1 * len(base)):
+            break
+        n, d, _ = fit_plane(rest, rng)
+        on = np.abs(rest @ n - d) < 0.004
+        if on.sum() >= 0.1 * len(base) and abs(n @ nf) > abs(best[0] @ nf):
+            best = (n, d)
+        rest = rest[~on]
+    if abs(best[0] @ nf) < np.cos(np.deg2rad(30)):
+        if nf @ (-floor.mean(axis=0)) < 0:  # toward the camera, which looks down on the floor
+            nf = -nf
+        return nf, float(np.percentile(base @ nf, 95))
+    return best
+
+
 def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
     """Fit the plate's hinge; writes hinge.json and hinge.jpg. Returns a summary dict."""
     base = c.cloud(roles.base, c.ref)
-    nb, db, _ = fit_plane(base, np.random.default_rng(0))
+    nb, db = base_top(base, c.cloud(roles.floor, c.ref) if c.has(roles.floor, c.ref) else None)
     if nb @ (-base.mean(axis=0)) < 0:  # point the base's normal up, toward the camera
         nb, db = -nb, -db
     plate, used_closed, used_open = {}, 0, 0

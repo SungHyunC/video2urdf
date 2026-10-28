@@ -171,10 +171,13 @@ def truth(root: Path) -> dict:
         p = f"field.markers{m}."
         if p + "id" not in h:
             break
-        pos = np.array([[float(r[h.index(p + f"pose.position.{a}")]) for a in "xyz"] for r in rows])
-        rot = np.array([[float(r[h.index(p + f"pose.orientation.{a}")]) for a in "xyzw"] for r in rows])
-        in_map = np.array([_pose(a, b) for a, b in zip(pos, rot)])
-        in_cam = np.linalg.inv(cam) @ _interp_poses(t, times, in_map)
+        cols = [h.index(p + f"pose.position.{a}") for a in "xyz"] + [h.index(p + f"pose.orientation.{a}") for a in "xyzw"]
+        full = [i for i, r in enumerate(rows) if len(r) > max(cols)]  # rows can omit a marker body
+        if len(full) < len(rows) // 2:
+            continue
+        vals = np.array([[float(rows[i][c]) for c in cols] for i in full])
+        in_map = np.array([_pose(v[:3], v[3:]) for v in vals])
+        in_cam = np.linalg.inv(cam) @ _interp_poses(t[full], times, in_map)
         if in_cam[:, 2, 3].max() < 0.2:
             continue  # the camera's own marker body, at (not in front of) the camera
         bodies[rows[0][h.index(p + "id")]] = in_cam
