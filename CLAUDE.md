@@ -26,6 +26,16 @@ Built solo for the Meta Global AI Developer Hackathon (Cerebral Valley, Indie tr
   Because of this, the UI is a Three.js URDF viewer with a video overlay, never Streamlit.
 - Use only code, data and media we have rights to, and follow open-source licenses. CC-BY media needs attribution. The participant must own all rights to the submission.
 - Never commit API keys. Keep them in `.env`, which is git-ignored.
+- Organizer answers (Discord, 10/28):
+  - Every model the project calls at runtime must be a Meta model.
+  - Hackathon credits cover only `-contributor` models; `muse-spark-1.3` and other opt-out variants bill the card. Always use `muse-spark-1.3-contributor`. Contributor inputs may train Meta models and zero retention isn't available. The model list has no `sam-3.1` contributor variant, so check on dev.meta.ai whether SAM usage hits credits or the card.
+  - SAM 3.1 takes images, videos and frame batches and keeps object identity across frames. Prompts are nouns ("lamp arm"), not sentences that need reasoning. Docs: dev.meta.ai/docs/media-segmentation.
+  - Open Weight bonus: Glimmer or Spark Open on our own hardware or partner inference, verified by the partner. How much of the pipeline must be open weights is unanswered, so keep a mode that runs the whole pipeline on open weights only.
+  - Submissions can be edited until the deadline, not after; submitting early gains nothing. The demo is cut at 3:00; sped-up footage is fine. Track and bonus prizes can stack.
+  - Most Viral counts likes + reposts + comments on the one X post linked at submission, until 11/8. Posting early helps; the user decides when.
+  - Judges read the commit history to check the work is new: commit in small steps. The README must list the open-source models and repos used and what we built on top.
+  - Claude Code is allowed and needn't be disclosed.
+- Competition context (10/28): no other team does URDF or articulated objects. Closest are CCTV accident reconstruction (physics from video) and SnapPart (dimensioned 3D from photos). One product-video team pitches a self-checking fix loop, so make our MuJoCo replay and numeric verification obvious.
 - Judging weights:
   - Impact 30
   - Meta tooling 25 ("beyond basic integration")
@@ -60,7 +70,7 @@ Keys live in `.env` (template: `.env.example`). All four credits arrived on 10/2
 
 | Backend | Credit | Role | Models | How to call |
 |---|---|---|---|---|
-| Meta Model API | $150 | Main path: tracking, reasoning, agent loop | `sam-3.1`; `muse-spark-1.3-contributor` for dev, `muse-spark-1.3` | `https://api.meta.ai/v1`, Responses or Chat Completions for Spark, Responses only for SAM; key `MODEL_API_KEY` |
+| Meta Model API | $150 | Main path: tracking, reasoning, agent loop | `sam-3.1`; `muse-spark-1.3-contributor` only (credits cover only `-contributor`) | `https://api.meta.ai/v1`, Responses or Chat Completions for Spark, Responses only for SAM; key `MODEL_API_KEY` |
 | Baseten | $100, 2M TPM | Open-weights reasoning for the Open Weight bonus | `meta-models/muse-spark-open` (the listed ID; `-1026` returns 404) | `https://inference.baseten.co/v1` Chat Completions, key `BASETEN_API_KEY` |
 | Modal | $100 | GPUs: Muse Glimmer endpoint, SAM 3.1 open weights, batch renders | Muse Glimmer 30B (Dedicated Endpoint), `facebook/sam3.1` | `modal setup` (token in `~/.modal.toml`), then `modal endpoint create --model <id>`; HTTP calls need a proxy token (`MODAL_PROXY_TOKEN_ID`, `MODAL_PROXY_TOKEN_SECRET`) |
 | Fireworks | $101 | Spare Muse Spark Open. Its credits never expire, so use it last | `accounts/fireworks/models/muse-spark-open` | `https://api.fireworks.ai/inference/v1` Chat Completions, key `FIREWORKS_API_KEY` |
