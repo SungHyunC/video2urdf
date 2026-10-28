@@ -31,6 +31,8 @@ class Link:
     parent: str | None
     joint: Joint | None
     box: tuple[np.ndarray, np.ndarray, float]  # center (x, z), half sizes, angle (rad, CCW)
+    mesh: str | None = None  # path relative to the model files; replaces the box when set
+    color: tuple[float, float, float] = (0.7, 0.7, 0.7)  # RGB 0..1
 
 
 def image_to_world(px_per_m: float, origin_px: tuple[float, float]) -> np.ndarray:

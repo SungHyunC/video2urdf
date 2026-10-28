@@ -23,50 +23,57 @@ PANDA_DIR = ROOT / "third_party" / "mujoco_menagerie" / "franka_emika_panda"
 ARM_JOINTS = [f"joint{i}" for i in range(1, 8)]
 HOME = np.array([0, 0, 0, -1.57079, 0, 1.57079, -0.7853])
 FINGERTIP = np.array([0, 0, 0.11])  # in the hand frame
-WIDTH_HALF = 0.15  # m; depth across the motion plane is not measured from a side view
 PEDESTAL_TOP = 0.30
 OBJECT_X = 0.62
 W, H, FPS = 1920, 1080, 30
 LIFT = np.array([-0.05, 0, 0.15])
 
 
-def object_xml(model_xml: Path) -> tuple[str, str, str]:
-    """Measured bodies as an MJCF snippet, prefixed, sitting on the pedestal and turned so the
-    pushed link's back faces the robot. Returns (xml, contact excludes, pushed joint)."""
+def object_xml(model_xml: Path, z: float) -> tuple[str, str, str, str]:
+    """Measured bodies as an MJCF snippet, prefixed, at height ``z`` and turned so the pushed
+    link's back faces the robot. Returns (assets, body, contact excludes, pushed joint)."""
     tree = ET.parse(model_xml)
-    world = tree.getroot().find("worldbody")
-    root = world.find("body")
+    assets = tree.getroot().find("asset")
+    mesh_xml = ""
+    if assets is not None:
+        for mesh in assets.iter("mesh"):
+            mesh.set("name", "obj_" + mesh.get("name"))
+            mesh.set("file", str((model_xml.parent / mesh.get("file")).resolve()))  # Panda's meshdir is elsewhere
+            mesh_xml += ET.tostring(mesh, encoding="unicode")
+    root = tree.getroot().find("worldbody").find("body")
     for el in root.iter():
         if "name" in el.attrib:
             el.set("name", "obj_" + el.get("name"))
         if el.tag == "geom":
-            size = [float(v) for v in el.get("size").split()]
-            size[1] = WIDTH_HALF
-            el.set("size", " ".join(f"{v:.5f}" for v in size))
+            if el.get("mesh"):
+                el.set("mesh", "obj_" + el.get("mesh"))
             el.set("density", "300")
-            el.set("rgba", "0.75 0.76 0.78 1")
         if el.tag == "joint":
             el.set("damping", "0.3")
             el.set("frictionloss", "0.5")  # laptop hinges are stiff: the lid holds its angle
             el.set("armature", "0.01")
     joint = next(el.get("name") for el in root.iter("joint") if el.get("type") == "hinge")
-    # Link boxes overlap at their joints. MuJoCo skips parent-child contacts, except when the
+    # Links overlap at their joints. MuJoCo skips parent-child contacts, except when the
     # parent is welded to the world, as the fixed root is here, so exclude them explicitly.
     excludes = "".join(f'<exclude body1="{parent.get("name")}" body2="{child.get("name")}"/>'
                        for parent in root.iter("body") for child in parent.findall("body"))
-    # Lift so the root link's box rests on the pedestal.
-    g = root.find("geom")
-    pz = float(g.get("pos").split()[2])
-    hx, _, hz = (float(v) for v in g.get("size").split())
-    a = float(g.get("axisangle").split()[3])
-    bottom = pz - (abs(hx * np.sin(a)) + abs(hz * np.cos(a)))
-    snippet = ET.tostring(root, encoding="unicode")
-    wrapper = (f'<body name="object" pos="{OBJECT_X} 0 {PEDESTAL_TOP - bottom + 0.001:.4f}" euler="0 0 3.14159">'
-               f"{snippet}</body>")
-    return wrapper, excludes, joint
+    body = (f'<body name="object" pos="{OBJECT_X} 0 {z:.4f}" euler="0 0 3.14159">'
+            f"{ET.tostring(root, encoding='unicode')}</body>")
+    return mesh_xml, body, excludes, joint
 
 
-def scene_xml(obj: str, excludes: str) -> str:
+def geom_points(model: mujoco.MjModel, data: mujoco.MjData, gid: int) -> np.ndarray:
+    """A geom's surface points in world: mesh vertices, or a box's corners."""
+    r, c = data.geom_xmat[gid].reshape(3, 3), data.geom_xpos[gid]
+    if model.geom_type[gid] == mujoco.mjtGeom.mjGEOM_MESH:
+        mid = model.geom_dataid[gid]
+        local = model.mesh_vert[model.mesh_vertadr[mid]:model.mesh_vertadr[mid] + model.mesh_vertnum[mid]]
+    else:
+        local = np.array([[sx, sy, sz] for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]) * model.geom_size[gid]
+    return local @ r.T + c
+
+
+def scene_xml(meshes: str, obj: str, excludes: str) -> str:
     return f"""<mujoco model="video2urdf robot demo">
   <include file="panda.xml"/>
   <visual>
@@ -80,6 +87,7 @@ def scene_xml(obj: str, excludes: str) -> str:
       markrgb="0.7 0.7 0.7" width="300" height="300"/>
     <material name="floor" texture="floor" texuniform="true" texrepeat="5 5" reflectance="0.05"/>
     <material name="wood" rgba="0.62 0.47 0.33 1"/>
+    {meshes}
   </asset>
   <worldbody>
     <light pos="0.4 -0.6 1.8" dir="0 0.3 -1" directional="true" castshadow="true"/>
@@ -130,13 +138,16 @@ def push_target(model, plan: mujoco.MjData, joint: str, q: float, standoff: floa
     plan.joint(joint).qpos[0] = q
     mujoco.mj_kinematics(model, plan)
     body = model.joint(joint).bodyid[0]
-    gid = next(g for g in range(model.ngeom) if model.geom_bodyid[g] == body)
-    c, r, size = plan.geom_xpos[gid], plan.geom_xmat[gid].reshape(3, 3), model.geom_size[gid]
-    long_i = 0 if size[0] > size[2] else 2
-    thin_i = 2 - long_i
-    up = r[:, long_i] if r[2, long_i] > 0 else -r[:, long_i]
-    n = r[:, thin_i] if r[:, thin_i] @ (robot - c) > 0 else -r[:, thin_i]
-    point = c + up * 0.75 * size[long_i] + n * (size[thin_i] + standoff)
+    pts = np.vstack([geom_points(model, plan, g) for g in range(model.ngeom) if model.geom_bodyid[g] == body])
+    c = pts.mean(axis=0)
+    axes = np.linalg.svd(pts - c, full_matrices=False)[2]
+    width = np.argmax(np.abs(axes[:, 1]))  # across the motion plane (world y)
+    rest = [i for i in range(3) if i != width]
+    half = {i: np.ptp((pts - c) @ axes[i]) / 2 for i in rest}
+    long_i, thin_i = sorted(rest, key=lambda i: -half[i])
+    up = axes[long_i] if axes[long_i][2] > 0 else -axes[long_i]
+    n = axes[thin_i] if axes[thin_i] @ (robot - c) > 0 else -axes[thin_i]
+    point = c + up * 0.75 * half[long_i] + n * (half[thin_i] + standoff)
     return point, -n
 
 
@@ -153,10 +164,19 @@ def main():
     if not (PANDA_DIR / "panda.xml").exists():
         sys.exit("Panda model missing: run scripts/fetch_assets.sh")
 
-    obj, excludes, joint = object_xml(args.run / "model.xml")
-    joint_name = "obj_" + joint if not joint.startswith("obj_") else joint
     scene = PANDA_DIR / "video2urdf_demo_scene.xml"  # next to panda.xml so its meshdir resolves
-    scene.write_text(scene_xml(obj, excludes))
+    # Build once to find the object's lowest point, then again resting on the pedestal.
+    meshes, obj, excludes, joint = object_xml(args.run / "model.xml", 0.0)
+    scene.write_text(scene_xml(meshes, obj, excludes))
+    model = mujoco.MjModel.from_xml_path(str(scene))
+    probe = mujoco.MjData(model)
+    mujoco.mj_kinematics(model, probe)
+    obj_body = model.body("object").id
+    in_object = [g for g in range(model.ngeom) if model.body_rootid[model.geom_bodyid[g]] == obj_body]
+    bottom = min(geom_points(model, probe, g)[:, 2].min() for g in in_object)
+    meshes, obj, excludes, joint = object_xml(args.run / "model.xml", PEDESTAL_TOP - bottom + 0.001)
+    scene.write_text(scene_xml(meshes, obj, excludes))
+    joint_name = "obj_" + joint if not joint.startswith("obj_") else joint
     model = mujoco.MjModel.from_xml_path(str(scene))
     data = mujoco.MjData(model)
     plan = mujoco.MjData(model)

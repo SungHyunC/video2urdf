@@ -70,6 +70,8 @@ def main():
     ap.add_argument("--px-per-m", type=float)
     ap.add_argument("--ref", help='"PART=METERS": real length of the long side of a part')
     ap.add_argument("--gt", type=Path, help="synthetic gt.json: scale from its camera, and report errors")
+    ap.add_argument("--widths", default="", help='"PART=METERS,...": depth across the motion plane')
+    ap.add_argument("--thickness", default="", help='"PART=METERS,...": in-plane thickness (oblique views overstate it)')
     args = ap.parse_args()
 
     track_dir = args.tracks / args.video.stem
@@ -88,7 +90,9 @@ def main():
         sys.exit("need a scale: --px-per-m, --ref or --gt")
 
     print("part poses (mask registration; surface points where the mask is occluded)...")
-    result = fit(args.video, track_dir, px_per_m)
+    widths = {slug(k): float(v) for k, v in (kv.split("=") for kv in args.widths.split(",") if kv)}
+    thickness = {slug(k): float(v) for k, v in (kv.split("=") for kv in args.thickness.split(",") if kv)}
+    result = fit(args.video, track_dir, px_per_m, widths=widths, thickness=thickness)
     print(result.summary())
     if gt:
         print("ground truth:")

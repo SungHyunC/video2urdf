@@ -40,10 +40,10 @@ def _hold(q: np.ndarray) -> np.ndarray:
     return q
 
 
-def replay(model_xml: str, links: list[Link], root_poses_img: np.ndarray, tracks: dict[str, dict[int, Detection]],
+def replay(model_xml: Path, links: list[Link], root_poses_img: np.ndarray, tracks: dict[str, dict[int, Detection]],
            video: Path, out_video: Path) -> dict[str, np.ndarray]:
     """Write the overlay video and return per-link IoU per frame (NaN where a mask is missing)."""
-    model = mujoco.MjModel.from_xml_string(model_xml)
+    model = mujoco.MjModel.from_xml_path(str(model_xml))  # a path, so mesh files resolve
     data = mujoco.MjData(model)
     cap = cv2.VideoCapture(str(video))
     w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))

@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Phone video of an articulated object -> measured URDF/MJCF, verified in MuJoCo"
 requires-python = ">=3.12"
 dependencies = [
+    "mapbox-earcut>=2.1.0",
     "meta-sam-parser>=0.1.0",
     "modal>=1.6",
     "mujoco>=3.3",

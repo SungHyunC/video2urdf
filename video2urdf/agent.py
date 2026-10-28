@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 from openai import OpenAI
 
-from .pipeline import CARD_LONG_SIDE, Fit, fit, long_side_px, slug, video_info
+from .pipeline import CARD_LONG_SIDE, Fit, fit, long_side_px, read_frame, slug, video_info
 from .sam import Detection, SamClient, parse
 
 MODEL = os.environ.get("AGENT_MODEL", "muse-spark-1.3-contributor")
@@ -45,7 +45,10 @@ Tools:
   rigid part; skip the hand, the card and the background. This is the expensive call.
 - fit(parents, fixed): fit joints between tracked parts and replay the model in MuJoCo. By
   default the tree is chosen automatically; pass parents {child: parent} to override it and
-  fixed [child...] to make a joint rigid. Returns joints, a fit residual and per-part
+  fixed [child...] to make a joint rigid, and widths {part: metres} for each part's depth
+  across the motion plane (the video can't see it; estimate it from what the object is), and
+  thickness {part: metres} when an oblique view makes a part's silhouette too thick.
+  Returns joints, a fit residual and per-part
   silhouette IoU, plus an image of the worst replay frames.
 - finish(report): end with a short report for a robotics developer.
 
@@ -77,7 +80,13 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {
          "parents": {"type": "object", "additionalProperties": {"type": "string"},
                      "description": "Optional {child: parent} tree override."},
-         "fixed": {"type": "array", "items": {"type": "string"}, "description": "Children whose joint is rigid."}}}},
+         "fixed": {"type": "array", "items": {"type": "string"}, "description": "Children whose joint is rigid."},
+         "widths": {"type": "object", "additionalProperties": {"type": "number"},
+                    "description": "Optional {part: metres}: each part's depth across the motion plane "
+                                   "(e.g. a laptop is ~0.30 wide), which the video can't measure."},
+         "thickness": {"type": "object", "additionalProperties": {"type": "number"},
+                       "description": "Optional {part: metres}: a part's true thickness when the view is "
+                                      "oblique and its silhouette shows faces (a laptop lid is ~0.006)."}}}},
     {"name": "finish", "description": "End with a report.",
      "parameters": {"type": "object", "properties": {"report": {"type": "string"}}, "required": ["report"]}},
 ]
@@ -86,18 +95,6 @@ TOOLS = [
 def jpeg_url(img: np.ndarray, width: int = VIEW_WIDTH) -> str:
     small = cv2.resize(img, (width, round(img.shape[0] * width / img.shape[1])), interpolation=cv2.INTER_AREA)
     return "data:image/jpeg;base64," + base64.b64encode(cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 85])[1]).decode()
-
-
-def read_frame(video: Path, index: int) -> np.ndarray:
-    """Decode frames in order up to ``index``: seeking is unreliable on variable-frame-rate phone video."""
-    cap = cv2.VideoCapture(str(video))
-    for _ in range(index):
-        cap.grab()
-    ok, img = cap.read()
-    cap.release()
-    if not ok:
-        raise ValueError(f"no frame {index}")
-    return img
 
 
 def label(img: np.ndarray, text: str) -> np.ndarray:
@@ -212,7 +209,8 @@ class Agent:
         return "Tracked: " + ", ".join(f"{name} {counts.get(oid, 0)}/{self.n} frames"
                                         for oid, (name, *_) in enumerate(chosen))
 
-    def tool_fit(self, parents: dict | None = None, fixed: list | None = None) -> str:
+    def tool_fit(self, parents: dict | None = None, fixed: list | None = None, widths: dict | None = None,
+                 thickness: dict | None = None) -> str:
         if not self.tracked:
             return "track parts first"
         if self.px_per_m is None:
@@ -222,7 +220,9 @@ class Agent:
                                "no card was measured, so sizes are rough; angles are unaffected")
         parents = {slug(k): slug(v) for k, v in (parents or {}).items()} or None
         result = fit(self.video, self.track_dir, self.px_per_m, parents=parents,
-                     fixed={slug(f) for f in (fixed or [])}, log=lambda s: None)
+                     fixed={slug(f) for f in (fixed or [])},
+                     widths={slug(k): float(v) for k, v in (widths or {}).items()},
+                     thickness={slug(k): float(v) for k, v in (thickness or {}).items()}, log=lambda s: None)
         self.last_fit = result
         sheet = self.replay_sheet(result)
         self.show(sheet, "fit: worst replay frames", width=sheet.shape[1])

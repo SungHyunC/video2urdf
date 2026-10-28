@@ -17,8 +17,10 @@ from .joints import Joint, Link, build_tree, fit_joint, image_to_world, mask_box
 from .motion import MIN_MASK_FIT, fuse_poses, interpolate_poses, load_gray, part_poses, surface_poses
 from .replay import replay, video_camera
 from .sam import Detection, load_tracks
+from .shape import extrude, part_color, part_profile, profile_polygon, squash, write_stl
 
 CARD_LONG_SIDE = 0.0856  # m, ID-1 card
+DEFAULT_WIDTH = 0.03  # m, a part's depth across the motion plane when nobody says
 
 
 def slug(text: str) -> str:
@@ -46,6 +48,18 @@ def load_parts(track_dir: Path) -> tuple[list[str], dict[str, dict[int, Detectio
     return names, {nm: objs.get(oid, {}) for nm, oid in zip(names, sorted(parts))}
 
 
+def read_frame(video: Path, index: int) -> np.ndarray:
+    """Decode frames in order up to ``index``: seeking is unreliable on variable-frame-rate phone video."""
+    cap = cv2.VideoCapture(str(video))
+    for _ in range(index):
+        cap.grab()
+    ok, img = cap.read()
+    cap.release()
+    if not ok:
+        raise ValueError(f"no frame {index}")
+    return img
+
+
 def long_side_px(mask: np.ndarray) -> float:
     pts = np.argwhere(mask)[:, ::-1].astype(np.float32)
     return float(max(cv2.minAreaRect(pts)[1]))
@@ -60,9 +74,13 @@ class Fit:
     origin: tuple[float, float]
     ious: dict[str, np.ndarray]
     pose_sources: dict[str, tuple[int, int]]  # frames from mask, from surface points
+    thickness_set: tuple[str, ...] = ()  # parts whose thickness was overridden
 
     def summary(self) -> str:
         lines = [f"reference frame {self.ref}, scale {self.px_per_m:.0f} px/m"]
+        if self.thickness_set:
+            lines.append(f"note: thickness overridden for {', '.join(self.thickness_set)}; their replay IoU "
+                         "is understated, since the oblique silhouette they are scored against includes faces")
         for l in self.links:
             iou = self.ious[l.name]
             fit = f"replay IoU mean {np.nanmean(iou):.2f}, worst {np.nanmin(iou):.2f} (frame {int(np.nanargmin(iou))})"
@@ -84,11 +102,14 @@ class Fit:
 
 
 def fit(video: Path, track_dir: Path, px_per_m: float, parents: dict[str, str] | None = None,
-        fixed: set[str] = frozenset(), log=print) -> Fit:
-    """Fit and write model.urdf, model.xml, joints.json and replay.mp4 into ``track_dir``.
+        fixed: set[str] = frozenset(), widths: dict[str, float] | None = None,
+        thickness: dict[str, float] | None = None, log=print) -> Fit:
+    """Fit and write model.urdf, model.xml, meshes/, joints.json and replay.mp4 into ``track_dir``.
 
     ``parents`` ({child: parent}) overrides the automatic tree; ``fixed`` names children
-    whose joint is rigid.
+    whose joint is rigid; ``widths`` (m) sets each part's depth across the motion plane,
+    which a side view can't measure (default DEFAULT_WIDTH); ``thickness`` (m) overrides a
+    part's in-plane thickness, which an oblique view overstates (see shape.squash).
     """
     names, by_name = load_parts(track_dir)
     size, n, _ = video_info(video)
@@ -135,6 +156,23 @@ def fit(video: Path, track_dir: Path, px_per_m: float, parents: dict[str, str] |
         if l.name in fixed and l.joint:
             l.joint = Joint("fixed", centroids_w[l.name], np.zeros(2), np.zeros(n), l.joint.residual)
 
+    # Geometry: each part's profile voted over the video, extruded to its width, in its colour.
+    image = read_frame(video, ref)
+    (track_dir / "meshes").mkdir(exist_ok=True)
+    for l in links:
+        profile = part_profile(by_name[l.name], poses_img[l.name], size, ref)
+        anchor = l.joint.anchor if l.joint else np.zeros(2)
+        poly = profile_polygon(profile, m, anchor, px_per_m)
+        if thickness and l.name in thickness:
+            # Squash about the link's joints: its own, or where its children attach.
+            pivots = [np.zeros(2)] if l.joint else []
+            pivots += [c.joint.anchor - anchor for c in links if c.parent == l.name and c.joint]
+            poly = squash(poly, np.mean(pivots, axis=0), thickness[l.name])
+        verts, faces = extrude(poly, (widths or {}).get(l.name, DEFAULT_WIDTH))
+        write_stl(track_dir / "meshes" / f"{l.name}.stl", verts, faces)
+        l.mesh = f"meshes/{l.name}.stl"
+        l.color = part_color(image, ref_masks[l.name])
+
     camera = video_camera(size, px_per_m, origin)
     (track_dir / "model.urdf").write_text(emit.urdf(video.stem, links))
     xml = emit.mjcf(video.stem, links, camera, size)
@@ -145,5 +183,5 @@ def fit(video: Path, track_dir: Path, px_per_m: float, parents: dict[str, str] |
                     "anchor_m": l.joint.anchor.tolist(), "axis": l.joint.axis.tolist(),
                     "residual_m": l.joint.residual, "q": [None if np.isnan(v) else v for v in l.joint.q]}
                    for l in links if l.joint]}))
-    ious = replay(xml, links, poses_img[names[0]], by_name, video, track_dir / "replay.mp4")
-    return Fit(links, names, ref, px_per_m, origin, ious, sources)
+    ious = replay(track_dir / "model.xml", links, poses_img[names[0]], by_name, video, track_dir / "replay.mp4")
+    return Fit(links, names, ref, px_per_m, origin, ious, sources, tuple(sorted((thickness or {}).keys())))
