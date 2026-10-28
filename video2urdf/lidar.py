@@ -61,8 +61,9 @@ class Capture:
 
     def __init__(self, video: Path, track_dir: Path, cap: stray.Capture, world: np.ndarray, ref: int = 0):
         self.video, self.track_dir, self.ref, self.cap = video, track_dir, ref, cap
-        self.names, self.by = load_parts(track_dir)
+        self.names, by = load_parts(track_dir)
         (self.w, self.h), n, _ = video_info(video)
+        self.by = {nm: {t: d for t, d in dets.items() if d.usable(self.w, self.h)} for nm, dets in by.items()}
         self.n = min(n, len(cap.depth), len(world))
         self.world = world[: self.n]
 
@@ -90,9 +91,11 @@ class Capture:
         """A reference frame showing both parts: the one where the plate's mask is largest.
         Angles are measured from it, so a frame with only a sliver of plate (barely open)
         would offset every angle."""
-        both = set(self.by[base]) & set(self.by[plate])
-        return max(both, key=lambda t: self.by[plate][t].crop.mean() * np.prod(np.subtract(
-            self.by[plate][t].box[2:], self.by[plate][t].box[:2]) + 1))
+        both = set(self.by[base]) & set(self.by[plate]) or set(self.by[plate]) or set(self.by[base])
+        if not both:
+            raise ValueError(f"neither {base} nor {plate} is tracked with a usable mask")
+        part = self.by[plate] if set(self.by[plate]) & both else self.by[base]
+        return max(both, key=lambda t: part[t].area)
 
     def level_with(self, floor: str, sample: int = 1500) -> dict:
         """Remove ARKit drift off the floor plane: the floor is static, so on every frame turn
@@ -150,6 +153,8 @@ class Capture:
         slides along a flat base); ``exclude`` parts (the plate) are masked out of it. Fixed
         camera only: the motion is in camera coordinates. Returns how far the part moved."""
         assert not self.moving_camera, "follow() needs a fixed camera"
+        if self.ref not in self.by.get(part, {}):
+            return {"frames": 0}  # its points are picked on the reference frame
         grays, k = load_gray(self.video)
         others: dict[int, list] = {}
         for o in exclude:
@@ -217,7 +222,10 @@ def base_top(base: np.ndarray, floor: np.ndarray | None) -> tuple[np.ndarray, fl
 
 def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
     """Fit the plate's hinge; writes hinge.json and hinge.jpg. Returns a summary dict."""
-    base = c.cloud(roles.base, c.ref)
+    seen = sorted(c.by[roles.base])
+    if not seen:
+        raise ValueError(f"{roles.base} has no usable mask on any frame")
+    base = c.cloud(roles.base, min(seen, key=lambda t: abs(t - c.ref)))  # the base is static here
     nb, db = base_top(base, c.cloud(roles.floor, c.ref) if c.has(roles.floor, c.ref) else None)
     if nb @ (-base.mean(axis=0)) < 0:  # point the base's normal up, toward the camera
         nb, db = -nb, -db
@@ -236,8 +244,9 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
             if len(off) > max(200, 0.2 * len(whole)):
                 plate[t] = off
                 used_open += 1
-            else:
-                plate[t] = whole
+            else:  # closed: its top face is the plate's back (not a box's walls below it)
+                top = whole[whole @ nb - db > -OFF_BASE_M]
+                plate[t] = top if len(top) >= 50 else whole
                 used_closed += 1
     hinge = fit_planar_hinge(plate, c.n, c.ref, pin=base.mean(axis=0), base_normal=nb)
     raw = int((~np.isnan(hinge.q)).sum())

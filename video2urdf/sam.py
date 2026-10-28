@@ -30,6 +30,9 @@ _FRAME = re.compile(r"<(\d+)f>")
 _RECORD = re.compile(r"(\d+)<\|box;([^|]*)\|><\|mask;([^|]*)\|>")
 
 
+MIN_MASK_FRAC = 5e-4  # of the frame; smaller masks count as lost
+
+
 @dataclass(frozen=True)
 class Detection:
     frame: int
@@ -37,6 +40,16 @@ class Detection:
     box: tuple[int, int, int, int]  # x1, y1, x2, y2 in source pixels
     crop: np.ndarray  # bool raster covering the box; at most 1024 px on its long side
     confidence: float | None = None
+
+    @property
+    def area(self) -> float:
+        """Mask area in source pixels."""
+        x1, y1, x2, y2 = self.box
+        return float(self.crop.mean()) * (x2 - x1 + 1) * (y2 - y1 + 1)
+
+    def usable(self, width: int, height: int) -> bool:
+        """Big enough to measure: a lost track can leave a mask of a few pixels."""
+        return self.area >= MIN_MASK_FRAC * width * height
 
     def full_mask(self, height: int, width: int) -> np.ndarray:
         """The mask in a full frame. SAM caps the raster at 1024 px on its long side, so a

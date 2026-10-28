@@ -264,13 +264,21 @@ class Agent:
             oid: {"name": name, "prompt": prompt, "frame": frame, "box": list(d.box), "confidence": d.confidence,
                   "anchors": [[f, list(b)] for f, b in anchors]}
             for oid, (name, prompt, d, frame, anchors) in enumerate(chosen)}, indent=2))
-        counts = {}
+        counts, tiny = {}, {}
         for det in parse(raw):
             counts[det.obj_id] = counts.get(det.obj_id, 0) + 1
+            if not det.usable(*self.size):
+                tiny[det.obj_id] = tiny.get(det.obj_id, 0) + 1
         self.tracked = True
         self.last_fit = None
-        return "Tracked: " + ", ".join(f"{name} {counts.get(oid, 0)}/{self.n} frames"
-                                        for oid, (name, *_) in enumerate(chosen))
+
+        def line(oid, name):
+            n = counts.get(oid, 0)
+            if not tiny.get(oid):
+                return f"{name} {n}/{self.n} frames"
+            return (f"{name} {n - tiny[oid]}/{self.n} frames (plus {tiny[oid]} where the mask shrank to a few "
+                    f"pixels: lost there; anchor it on frames where it looks different)")
+        return "Tracked: " + ", ".join(line(oid, name) for oid, (name, *_) in enumerate(chosen))
 
     def tool_fit(self, parents: dict | None = None, fixed: list | None = None, widths: dict | None = None,
                  thickness: dict | None = None) -> str:
