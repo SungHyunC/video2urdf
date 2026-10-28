@@ -32,7 +32,7 @@ def roles_args(ap: argparse.ArgumentParser):
 
 
 def load(args) -> tuple[lidar.Capture, lidar.Roles]:
-    c = lidar.Capture(args.video, args.stray, args.tracks / args.video.stem, args.ref)
+    c = lidar.Capture.from_stray(args.video, args.stray, args.tracks / args.video.stem, args.ref)
     fix = c.level_with(args.floor)
     print(f"floor levelling: ARKit drift up to {fix['tilt_deg_max']:.1f} deg tilt, {fix['shift_mm_max']:.0f} mm "
           f"height (median {fix['shift_mm_median']:.0f} mm), removed")

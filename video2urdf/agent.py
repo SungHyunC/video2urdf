@@ -293,7 +293,7 @@ class Agent:
             return "track parts first"
         roles = lidar.Roles(slug(floor), slug(base), slug(plate), plate_closed and slug(plate_closed),
                             open_indicator and slug(open_indicator))
-        c = lidar.Capture(self.video, self.capture, self.track_dir)
+        c = lidar.Capture.from_stray(self.video, self.capture, self.track_dir)
         missing = [r for r in vars(roles).values() if r and r not in c.names]
         if missing:
             return f"not tracked: {missing}; tracked parts are {c.names}"

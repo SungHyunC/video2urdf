@@ -55,15 +55,26 @@ def _project(intr, x):
 
 
 class Capture:
-    """A tracked LiDAR capture: tracks, depth, intrinsics and static-scene motion."""
+    """A tracked RGB-D video: tracks, depth, intrinsics and the static scene's motion
+    (``world``: reference-camera coordinates -> frame-t camera coordinates)."""
 
-    def __init__(self, video: Path, capture: Path, track_dir: Path, ref: int = 0):
-        self.video, self.track_dir, self.ref = video, track_dir, ref
+    def __init__(self, video: Path, track_dir: Path, cap: stray.Capture, world: np.ndarray, ref: int = 0):
+        self.video, self.track_dir, self.ref, self.cap = video, track_dir, ref, cap
         self.names, self.by = load_parts(track_dir)
-        self.cap = stray.load(capture)
         (self.w, self.h), n, _ = video_info(video)
-        self.n = min(n, len(self.cap.depth))
-        self.world = stray.ref_to_frame_poses(capture, self.n, ref)
+        self.n = min(n, len(cap.depth), len(world))
+        self.world = world[: self.n]
+
+    @classmethod
+    def from_stray(cls, video: Path, capture: Path, track_dir: Path, ref: int = 0) -> "Capture":
+        """An iPhone capture: the scene's motion comes from ARKit odometry."""
+        cap = stray.load(capture)
+        return cls(video, track_dir, cap, stray.ref_to_frame_poses(capture, len(cap.depth), ref), ref)
+
+    @classmethod
+    def fixed_camera(cls, video: Path, track_dir: Path, depth: np.ndarray, intrinsics, ref: int = 0) -> "Capture":
+        """A camera that doesn't move (a tripod, the RBO dataset): the scene's motion is identity."""
+        return cls(video, track_dir, stray.Capture(video, depth, intrinsics), np.tile(np.eye(4), (len(depth), 1, 1)), ref)
 
     def level_with(self, floor: str, sample: int = 1500) -> dict:
         """Remove ARKit drift off the floor plane: the floor is static, so on every frame turn
