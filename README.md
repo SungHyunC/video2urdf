@@ -13,6 +13,9 @@ the overlay, frame by frame, before it reports.
 Built solo for the Meta Global AI Developer Hackathon (Oct 26 - Nov 4 2026). All code in this
 repository was written during the hackathon; see [Built on](#built-on) for what it uses.
 
+**Live viewer:** https://sunghyunc.github.io/video2urdf/ (the phone video, the MuJoCo replay over it,
+the robot demo, and the measured model in 3D with its URDF/MJCF).
+
 ## What it does
 
 ```
