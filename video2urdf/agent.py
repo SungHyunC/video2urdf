@@ -116,9 +116,11 @@ plate (laptop lid, door, flap) or a sliding part (a drawer: joint="slide", plate
 use fit_lidar, not fit. Track, in one track call:
 - the floor or table the object stands on (static scene),
 - the base the plate hinges on, as seen on frame 0,
-- the plate's inner face (e.g. "laptop screen"),
+- the plate's inner face (e.g. "laptop screen"). The plate is one rigid piece that turns
+  as a whole: for a book, the front cover (not the pages, which bend; not the spine),
 - what covers the object when closed (segment it on a closed frame; for a laptop the
-  whole closed laptop, which may be the same tracked part as the base),
+  whole closed laptop, which may be the same tracked part as the base; for a book, the
+  closed book),
 - a part seen only while open (e.g. "laptop keyboard"), so closed frames can be told apart.
 Look at frames across the video first to see when it is open and closed. A part that
 disappears and comes back (a screen that closes and reopens) needs candidates on several
@@ -322,6 +324,11 @@ class Agent:
         if c.moving_camera:
             fix = c.level_with(roles.floor)
             lines.append(f"floor levelling removed ARKit drift up to {fix['shift_mm_max']:.0f} mm")
+        else:  # a fixed camera: the object itself may be pushed around, so measure from its base
+            moved = c.follow(roles.base, exclude=(roles.plate,))
+            if moved["frames"]:
+                lines.append(f"base followed on {moved['frames']} frames: moved up to {moved['moved_mm_max']:.0f} mm, "
+                             f"turned {moved['turned_deg_max']:.1f} deg")
         lidar.fit_hinge(c, roles, log=lines.append)
         summary = lidar.build_model(c, roles, log=lines.append)
         hinge_img = cv2.imread(str(self.track_dir / "hinge.jpg"))
