@@ -164,7 +164,8 @@ Keys live in `.env` (template: `.env.example`). All four credits arrived on 10/2
 - Known gaps: Replay IoU is harsh on thin parts and understated when thickness is overridden. Spark tends to accept low worst-frame IoU as "thin part" without checking. fit_lidar handles one hinged plate only. Floor levelling can't see drift along the floor. Box lids and book covers track poorly on RBO (see above).
 - Behind schedule: the Glimmer endpoint.
 - Next, in order:
-  2. Box lids: keep only plate planes consistent with neighbours / the closed lid; book covers without pages.
-  3. Multi-joint 3D (foldingrule, pliers via fit3d); real drawer LiDAR capture.
+  2. Box lids: SAM loses them at 640x480 (tried: tiny-mask handling, re-anchoring, top-band closed planes; a top-plane-orientation closed test hurt laptops and was reverted).
+  3. Multi-joint 3D: RBO pliers/foldingrule are too small for SAM at 640x480 ("black plastic part" fragments, "yellow ruler" as one piece); needs our own LiDAR capture (e.g. a desk lamp). Real drawer LiDAR capture too.
   4. README with exact commands, credits (RBO CC BY, Menagerie Apache-2.0, sam3 and meta-sam-parser SAM License, three.js MIT, mapbox-earcut ISC) and the benchmark table; publish the viewer on GitHub Pages (ask first).
-  5. URDF Doctor if time allows.
+  5. URDF Doctor if time allows (needs a decision: SO-101 data + camera calibration is a big job; the robot demo already covers the 11/2 slot).
+- Viewer (10/29): laptop_lidar rebuilt with the current fit from data/tracks_agent (roles.json written from the agent's log): 309 x 205 mm, lid 3.8 mm, replay lid 95% / base 94%; robot closes to -77.8 of -77.1 deg.

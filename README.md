@@ -64,9 +64,10 @@ weights is one flag.
 
 ### Real objects, filmed for this project
 
-- **13" MacBook Pro, iPhone LiDAR, no card**, agent from scratch: lid 304 x 215 mm (spec
-  304 x 212), base 12 mm, lid 2.6 mm, opening -5..113 deg; the hinge line is drawn on the real
-  hinge. The Panda then closes it to within 2-3 deg of its measured limit.
+- **13" MacBook Pro, iPhone LiDAR, no card**, agent from scratch: lid 309 x 205 mm (spec
+  304 x 212), base 14 mm, lid 3.8 mm, opening about 0..110 deg, hinge drawn on the real hinge;
+  the replayed model covers 95% (lid) and 94% (base) of SAM's masks over the 923 frames, while
+  the phone moves. The Panda then closes it to within 1 deg of its measured limit.
 - Laptop, 2D side view: one hinge, 0-77 deg, fit residual 1.7 mm. Spark saw its first fit was
   wrong (base tracked on 319/408 frames, 25 deg range), re-segmented on other frames and
   re-tracked: 408/408 frames.
