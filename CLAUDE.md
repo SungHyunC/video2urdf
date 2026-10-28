@@ -148,9 +148,21 @@ Keys live in `.env` (template: `.env.example`). All four credits arrived on 10/2
     - LiDAR: ARKit drifts ~9-14 mm in height over the video. `Capture.level_with(floor)` fits the floor plane per frame, drops implausible fits (> 4 deg), smooths over 31 frames, and removes the tilt and height. Closed lid now reads 1 deg (was -5), lid thickness is measured (2.6 mm; it used to read 9 mm *below* the base and was clipped).
     - Half-open frames without the screen mask now use the whole-object mask minus the base's top surface: plate measured on 697/923 frames (was 486). Lid replay coverage 66% -> 71%; base 89% -> 86%.
   - Robot demo: a lid opened past vertical leans back over the robot and can only be pushed from underneath, which drove the arm into the pedestal; the demo now starts the lid at most 80 deg open (inside its measured range) and the pedestal is 22 cm. All three models close to within 2-3 deg of their target.
-- Known gaps: Replay IoU is harsh on thin parts and understated when thickness is overridden. Spark tends to accept low worst-frame IoU as "thin part" without checking. fit_lidar handles one hinged plate only. Floor levelling can't see drift along the floor.
+- **Slide joints in 3D** (`lidar.fit_and_build_slide`, `fit_lidar joint="slide"`): translation-only ICP on the drawer's depth. Synthetic drawer toward the camera: axis 0.24 deg, travel error 0.17 mm. No real LiDAR drawer yet.
+- **RBO benchmark** (TU Berlin RBO dataset, CC BY 4.0, Zenodo 1036660; `scripts/rbo_download.py`, `rbo_eval.py`, `rbo_bench.py`; raw data git-ignored in `data/rbo/`). Kinect RGB-D with motion capture; the agent runs each sequence from scratch, then it is scored.
+  - Truth = the plate's motion relative to the base from the tf rigid-body frames (rb_poses_array orientations are unreliable). Operators push the whole object around (laptop04: 121 mm, 47 deg), so `Capture.follow(base)` tracks the base with KLT points lifted by depth (`part_poses_3d`); depth-only ICP slid along flat bases.
+  - Hinge axis = median crossing of plate and base planes. Base top = `lidar.base_top`: the base face parallel to the floor; if none is within 30 deg, the floor normal (book05 was 89 deg off, now 2.5).
+  - Results (10/28, `data/rbo/results/summary.md`): laptops 01/02/04/05: axis 0.9-2.2 deg, position 13-32 mm, angle median 2.0-3.7 deg. Books: axis 2.5-6.9 deg but angle median 5-21 deg (pages bend, cover mask mixes them). Boxes (cardboardbox, treasurebox): axis 1.5-1.9 deg on most, but angles wrong: the lid is measured on 20-25% of frames and some "plate" planes are the box's inside. treasurebox03: lid never measured.
+- **Open weights**:
+  - `run_agent.py --open-weights`: agent on Muse Spark Open (Baseten), SAM via `SAM_BACKEND=open` (`sam.sam_client()`); `--sam api` keeps the Meta API segmenter. Baseten allows 8 images per request (`AGENT_MAX_IMAGES`, older images dropped).
+  - Muse Spark Open ran the LiDAR laptop end to end in 9 turns (`data/tracks_open/laptop_lidar`): lid 312 x 208 mm, base 13 mm, 0..117 deg, hinge on the real hinge.
+  - SAM 3.1 weights on Modal (`modal_apps/sam3_open.py`, `video2urdf/sam_open.py`, `scripts/check_sam_open.py`): image builds, untested on GPU because **Modal refuses GPU functions until a payment method is added** (the user must add it; credits still cover usage). Then: `modal deploy modal_apps/sam3_open.py` and `scripts/check_sam_open.py --e2e`.
+- Agent tool errors now log the full traceback in `agent/log.md`.
+- Known gaps: Replay IoU is harsh on thin parts and understated when thickness is overridden. Spark tends to accept low worst-frame IoU as "thin part" without checking. fit_lidar handles one hinged plate only. Floor levelling can't see drift along the floor. Box lids and book covers track poorly on RBO (see above).
 - Behind schedule: the Glimmer endpoint.
 - Next, in order:
-  1. Drawer from the front with LiDAR (prismatic in 3D; fit_lidar needs a slide mode).
-  2. Open-weight path: agent on Muse Spark Open (Baseten), SAM 3.1 weights on Modal.
-  3. README with exact commands; publish the viewer on GitHub Pages.
+  1. Modal payment method (user), then verify SAM 3.1 open weights; full open-weights run.
+  2. Box lids: keep only plate planes consistent with neighbours / the closed lid; book covers without pages.
+  3. Multi-joint 3D (foldingrule, pliers via fit3d); real drawer LiDAR capture.
+  4. README with exact commands, credits (RBO CC BY, Menagerie Apache-2.0, sam3 and meta-sam-parser SAM License, three.js MIT, mapbox-earcut ISC) and the benchmark table; publish the viewer on GitHub Pages (ask first).
+  5. URDF Doctor if time allows.
