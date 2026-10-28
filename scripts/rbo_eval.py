@@ -118,6 +118,8 @@ def main():
     mid = point + ((plate_gt[c.ref][:3, 3] - point) @ axis) * axis
     pos_err = line_gap(true_point, true_axis, mid)
     valid = ~np.isnan(q[: c.n])
+    if valid.sum() < 2:
+        sys.exit(f"{args.name}: the plate was measured on {int(valid.sum())} frames; nothing to score")
     # The circle's normal has no inherent sign, so match the rotation sense to the data.
     def err_to(target):
         errs = [np.rad2deg(np.abs(sg * q[: c.n][valid] - target[valid])) for sg in (1, -1)]
