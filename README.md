@@ -100,7 +100,11 @@ results: `scripts/rbo_bench.py` writes `data/rbo/results/summary.md`.
   0.952, arm against ground truth 0.942 (hosted 0.960).
 - Muse Spark Open driving the LiDAR laptop (SAM via the API): lid 312 x 208 mm, base 13 mm,
   0..117 deg, hinge on the real hinge, 9 turns.
-<!-- OPEN_FULL -->
+- **Everything on open weights** (Muse Spark Open + SAM on Modal), LiDAR laptop from scratch,
+  18 turns: lid 305 x 209 mm (13" MacBook: 304 x 212), opening 3..122 deg following the
+  video (closes, then reopens), lid replay covering 91% of its masks. The base was segmented in
+  fragments (keyboard, trackpad), so its thickness came out wrong (-73 mm); Spark flagged it as
+  unreliable in its report rather than accepting it.
 
 ## Run it
 

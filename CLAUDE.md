@@ -156,12 +156,12 @@ Keys live in `.env` (template: `.env.example`). All four credits arrived on 10/2
 - **Open weights**:
   - `run_agent.py --open-weights`: agent on Muse Spark Open (Baseten), SAM via `SAM_BACKEND=open` (`sam.sam_client()`); `--sam api` keeps the Meta API segmenter. Baseten allows 8 images per request (`AGENT_MAX_IMAGES`, older images dropped).
   - Muse Spark Open ran the LiDAR laptop end to end in 9 turns (`data/tracks_open/laptop_lidar`): lid 312 x 208 mm, base 13 mm, 0..117 deg, hinge on the real hinge.
-  - SAM 3.1 weights on Modal (`modal_apps/sam3_open.py`, `video2urdf/sam_open.py`, `scripts/check_sam_open.py`): image builds, untested on GPU because **Modal refuses GPU functions until a payment method is added** (the user must add it; credits still cover usage). Then: `modal deploy modal_apps/sam3_open.py` and `scripts/check_sam_open.py --e2e`.
+  - SAM open weights on Modal (`modal_apps/sam3_open.py`, deployed, A10G, scale-to-zero 120 s): image concept prompts on SAM 3.1 (`facebook/sam3.1`); box tracking on SAM 3's SAM2-style tracker (`facebook/sam3`), because the SAM 3.1 multiplex predictor only returns point/box objects on their prompted frames. Synthetic lamp: 120/120 frames, IoU vs hosted 0.970 / 0.952. Gotchas: sam3's mp4 reader needs decord (we pass a JPEG folder); a prompted frame only outputs the objects prompted on it (filled from the neighbour frame); `modal deploy` leaves warm old containers serving (stop them with `modal container stop -y`). ~3 frames/s on 1920x1440.
+  - Full open-weights run (Spark Open + SAM on Modal), LiDAR laptop, 18 turns (`data/tracks_open_full`): lid 305 x 209 mm, 3..122 deg, lid replay 91%; base segmented in fragments, so base thickness wrong (-73 mm), flagged by Spark.
 - Agent tool errors now log the full traceback in `agent/log.md`.
 - Known gaps: Replay IoU is harsh on thin parts and understated when thickness is overridden. Spark tends to accept low worst-frame IoU as "thin part" without checking. fit_lidar handles one hinged plate only. Floor levelling can't see drift along the floor. Box lids and book covers track poorly on RBO (see above).
 - Behind schedule: the Glimmer endpoint.
 - Next, in order:
-  1. Modal payment method (user), then verify SAM 3.1 open weights; full open-weights run.
   2. Box lids: keep only plate planes consistent with neighbours / the closed lid; book covers without pages.
   3. Multi-joint 3D (foldingrule, pliers via fit3d); real drawer LiDAR capture.
   4. README with exact commands, credits (RBO CC BY, Menagerie Apache-2.0, sam3 and meta-sam-parser SAM License, three.js MIT, mapbox-earcut ISC) and the benchmark table; publish the viewer on GitHub Pages (ask first).
