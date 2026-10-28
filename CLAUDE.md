@@ -120,10 +120,14 @@ Keys live in `.env` (template: `.env.example`). All four credits arrived on 10/2
   - SAM API findings: `propagation_direction=both` silently drops the backward pass (it fails with server_error on phone video), so `track_boxes` tracks forward, then forward through an ffmpeg-reversed clip of the frames before the prompt, deduped per (frame, object). Forward output starts at the earliest prompt frame for every object.
   - Speed: one_bit masks decode with a numba port of the reference decoder (`video2urdf/fast_mask.py`, ~74x, verified identical by `scripts/check_fast_mask.py`; derived from meta-sam-parser under the SAM License, copy in `LICENSES/SAM_LICENSE`). Comparing a numpy array to a MuJoCo enum is elementwise in Python; cast with int(). A 620-frame fit takes ~1 min.
   - Frame counts come from decoding (`pipeline.video_info`): the header count is off by one on variable-frame-rate video.
-- Known gaps: link geometry is one box from the reference-frame mask, too thick when the camera sees a face obliquely (laptop lid). Replay IoU is harsh on thin parts. Spark tends to accept low worst-frame IoU as "thin part" without checking.
+  - **Robot demo** (`scripts/robot_demo.py`, `scripts/make_reel.py`): a Franka Panda (MuJoCo Menagerie, Apache-2.0, fetched by `scripts/fetch_assets.sh` into git-ignored `third_party/`) closes the notebook_2 laptop in MuJoCo physics by pushing along the measured hinge (IK + contact). The laptop's width (30 cm) is assumed: a side view doesn't measure it. Reel: `data/tracks/notebook_2/reel.mp4` (phone video | replay | robot).
+    - MuJoCo skips parent-child contacts except when the parent is welded to the world; the demo excludes them explicitly.
+  - **3D experiment, stage A (oracle depth) passed** (`video2urdf/lift3d.py`, `scripts/fit3d.py`, `synth.render3d`): points tracked in each part's mask, lifted with per-frame depth, RANSAC Kabsch per part, hinge refit on point motion, parents down the chain use their fitted motion. Camera poses cancel out of parent-child motion, so only depth is needed. Oblique (az 40°, el 25°) lamp with handheld wobble: shoulder axis 0.5–0.85° / 4 mm / 0.1°, elbow 1.4–1.6° / 8 mm / 0.9°. Drawer sliding toward the camera (the drawer_2 failure case): prismatic, axis 0.23°, travel error 0.6 mm.
+    - Mask-edge pixels read background depth; drop them with `depth_edges` before any 3D fit.
+- Known gaps: link geometry is one box from the reference-frame mask, too thick when the camera sees a face obliquely (laptop lid). Replay IoU is harsh on thin parts. Spark tends to accept low worst-frame IoU as "thin part" without checking. The 3D path has no tree search, emit or replay yet (fit3d chains parts in prompt order).
 - Behind schedule: the Glimmer endpoint.
 - Next, in order:
-  1. Three.js viewer with the video overlay.
-  2. Robot-arm scene (11/2 pick): a MuJoCo arm operating a captured object.
-  3. Open-weight path: run the agent on Muse Spark Open (Baseten: AGENT_BASE_URL/AGENT_MODEL/AGENT_API_KEY_ENV) and SAM 3.1 weights on Modal.
-  4. Reshoot the drawer from the side.
+  1. 3D stage B: real depth. iPhone Pro LiDAR capture (depth + intrinsics per frame) for the demo; a monocular depth model for the open path. Need a sample capture first to write the loader.
+  2. 3D emit + replay, and let the agent pick 2D or 3D.
+  3. Three.js viewer.
+  4. Open-weight path: agent on Muse Spark Open (Baseten), SAM 3.1 weights on Modal.
