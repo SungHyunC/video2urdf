@@ -1,0 +1,18 @@
+[project]
+name = "video2urdf"
+version = "0.1.0"
+description = "Phone video of an articulated object -> measured URDF/MJCF, verified in MuJoCo"
+requires-python = ">=3.12"
+dependencies = [
+    "meta-sam-parser>=0.1.0",
+    "modal>=1.6",
+    "mujoco>=3.3",
+    "numba>=0.68.1",
+    "numpy>=2.0",
+    "openai>=1.100",
+    "opencv-python>=4.10",
+    "python-dotenv>=1.0",
+]
+
+[tool.uv]
+package = false
