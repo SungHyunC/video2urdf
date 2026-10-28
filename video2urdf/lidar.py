@@ -33,6 +33,7 @@ from .replay import replay3d
 from .shape import part_color, prism, write_stl
 
 SCREEN_DEPTH = 0.0008  # m, the dark display layer drawn on the plate's inner face
+BASE_FALLBACK_M = 0.012  # base thickness when the capture can't measure it
 OFF_BASE_M = 0.015  # points this far off the base's top plane belong to a half-open plate
 MAX_LEVEL_TILT_DEG = 4.0  # a floor fit tilted more than this from the reference is a bad fit
 LEVEL_WINDOW = 31  # frames; ARKit drift is slow
@@ -315,7 +316,9 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
     q = np.array([np.nan if v is None else v for v in hinge["q"]])
 
     # Model frame: z up off the base, x along the hinge, origin on the hinge.
-    base_c = c.cloud(roles.base, ref)
+    seen = sorted(c.by[roles.base])
+    base_c = c.cloud(roles.base, min(seen, key=lambda t: abs(t - ref)))
+    floor_c = c.cloud(roles.floor, ref) if c.has(roles.floor, ref) else None
     nb, db, _ = fit_plane(base_c, rng)
     top = base_c[np.abs(base_c @ nb - db) < 0.005]
     if nb @ (-top.mean(axis=0)) < 0:  # the camera (origin) is above the base
@@ -329,7 +332,12 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
 
     top_m = to_model(top)
     z_top = float(np.median(top_m[:, 2]))
-    z_floor = float(np.median(to_model(c.cloud(roles.floor, ref))[:, 2]))
+    z_floor = float(np.median(to_model(floor_c)[:, 2])) if floor_c is not None else z_top - BASE_FALLBACK_M
+    base_measured = 0.002 < z_top - z_floor < 0.2
+    if not base_measured:  # a fragmented base mask: keep the model valid and say so
+        log(f"base thickness reads {1000 * (z_top - z_floor):.0f} mm: not measured, using "
+            f"{1000 * BASE_FALLBACK_M:.0f} mm")
+        z_floor = z_top - BASE_FALLBACK_M
 
     # Plate on the reference frame: along the hinge (e1), away from it in its plane (e2), across (e3).
     plate_m = to_model(c.cloud(roles.plate, ref))
@@ -343,7 +351,13 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
     w_face = float(np.median(plate_m @ e3))
 
     # Closed frames: the plate's back shows its full outline and how thick it is.
-    closed = [t for t in range(n) if not np.isnan(q[t]) and q[t] < np.nanpercentile(q, 10)
+    # q's sign follows the fitted axis, so the closed end is the end of its range that sits
+    # the reference frame's opening away from the reference (q = 0), not simply the low end.
+    shut = np.deg2rad(hinge["opening_on_reference_deg"])
+    lo, hi = np.nanmin(q), np.nanmax(q)
+    toward = 1.0 if abs(hi - shut) < abs(lo + shut) else -1.0
+    near_shut = toward * q > np.nanpercentile(toward * q, 90)
+    closed = [t for t in range(n) if not np.isnan(q[t]) and near_shut[t]
               and c.has(roles.plate_closed, t) and not c.has(roles.open_indicator, t)]
     heights, back = [], []
     for t in closed[:: max(1, len(closed) // 40)]:
@@ -393,7 +407,8 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
     (c.track_dir / "model.urdf").write_text(emit3d.urdf(c.video.stem, links))
     (c.track_dir / "model.xml").write_text(emit3d.mjcf(c.video.stem, links, root_pos, (w, h)))
     summary = {
-        "base_thickness_mm": 1000 * (z_top - z_floor), "plate_thickness_mm": 1000 * thick,
+        "base_thickness_mm": 1000 * (z_top - z_floor), "base_thickness_measured": base_measured,
+        "plate_thickness_mm": 1000 * thick,
         "plate_thickness_clipped": not heights or not 0.001 < float(np.median(heights)) < 0.03,
         "plate_size_mm": [float(1000 * plate_size[0]), float(1000 * plate_size[1])],
         "hinge_range_deg": [float(np.rad2deg(limits[0])), float(np.rad2deg(limits[1]))],

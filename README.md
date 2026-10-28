@@ -103,8 +103,8 @@ results: `scripts/rbo_bench.py` writes `data/rbo/results/summary.md`.
 - **Everything on open weights** (Muse Spark Open + SAM on Modal), LiDAR laptop from scratch,
   18 turns: lid 305 x 209 mm (13" MacBook: 304 x 212), opening 3..122 deg following the
   video (closes, then reopens), lid replay covering 91% of its masks. The base was segmented in
-  fragments (keyboard, trackpad), so its thickness came out wrong (-73 mm); Spark flagged it as
-  unreliable in its report rather than accepting it.
+  fragments (keyboard, trackpad), so its thickness could not be measured; the pipeline and
+  Spark's report both flag it instead of passing on a wrong number.
 
 ## Run it
 
