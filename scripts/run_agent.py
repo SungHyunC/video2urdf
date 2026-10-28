@@ -2,6 +2,7 @@
 
 Usage: .venv/bin/python scripts/run_agent.py data/real/stand_2.MOV [--out data/tracks]
        .venv/bin/python scripts/run_agent.py data/real/laptop_lidar   (a Stray Scanner LiDAR capture)
+       .venv/bin/python scripts/run_agent.py data/rbo/prep/laptop02   (a fixed-camera RGB-D folder)
 
 Writes the model files plus agent/log.md (every step, with the images Spark saw) and
 agent/report.md into <out>/<video stem>/. AGENT_MODEL, AGENT_BASE_URL and AGENT_API_KEY_ENV
@@ -29,7 +30,9 @@ def main():
     ap.add_argument("--out", type=Path, default=ROOT / "data" / "tracks")
     args = ap.parse_args()
     video, capture = args.video, None
-    if args.video.is_dir():  # an iPhone LiDAR capture (Stray Scanner export, possibly nested)
+    if args.video.is_dir() and (args.video / "depth.npz").exists():  # fixed-camera RGB-D (rbo_eval.py --prepare-only)
+        capture, video = args.video, next(args.video.glob("*.mp4"))
+    elif args.video.is_dir():  # an iPhone LiDAR capture (Stray Scanner export, possibly nested)
         capture = args.video
         rgb = find_capture(capture) / "rgb.mp4"
         video = capture / f"{capture.name}.mp4"  # tracks are filed under the video's name

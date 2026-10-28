@@ -108,8 +108,8 @@ TOOLS = [
 
 LIDAR = """
 
-This is an iPhone LiDAR capture: every frame has metric depth and the phone's own camera
-pose, so the view may be oblique and no card is needed (skip measure_scale). For a hinged
+This is an RGB-D capture (iPhone LiDAR, or a depth camera): every frame has metric depth,
+so the view may be oblique and no card is needed (skip measure_scale). For a hinged
 plate (laptop lid, door, flap) use fit_lidar, not fit. Track, in one track call:
 - the floor or table the object stands on (static scene),
 - the base the plate hinges on, as seen on frame 0,
@@ -223,7 +223,8 @@ class Agent:
     def tool_track(self, parts: list[dict]) -> str:
         chosen = []  # (name, prompt, best detection, its frame, all anchors)
         for p in parts:
-            ids = p.get("candidates") or [p.get("candidate")]
+            ids = p.get("candidates") or p.get("candidate")
+            ids = ids if isinstance(ids, list) else [ids]  # Spark sometimes puts a list in "candidate"
             missing = [i for i in ids if i not in self.candidates]
             if missing:
                 return f"unknown candidate(s) {missing}; segment first"
@@ -293,12 +294,19 @@ class Agent:
             return "track parts first"
         roles = lidar.Roles(slug(floor), slug(base), slug(plate), plate_closed and slug(plate_closed),
                             open_indicator and slug(open_indicator))
-        c = lidar.Capture.from_stray(self.video, self.capture, self.track_dir)
+        c = lidar.open_capture(self.video, self.capture, self.track_dir)
         missing = [r for r in vars(roles).values() if r and r not in c.names]
         if missing:
             return f"not tracked: {missing}; tracked parts are {c.names}"
-        fix = c.level_with(roles.floor)
-        lines = [f"floor levelling removed ARKit drift up to {fix['shift_mm_max']:.0f} mm"]
+        (self.track_dir / "roles.json").write_text(json.dumps(vars(roles)))
+        lines = []
+        ref = c.ref_with(roles.base, roles.plate)
+        if ref != c.ref:
+            c.set_ref(ref)
+            lines.append(f"reference frame {c.ref}: where the plate is seen largest")
+        if c.moving_camera:
+            fix = c.level_with(roles.floor)
+            lines.append(f"floor levelling removed ARKit drift up to {fix['shift_mm_max']:.0f} mm")
         lidar.fit_hinge(c, roles, log=lines.append)
         summary = lidar.build_model(c, roles, log=lines.append)
         hinge_img = cv2.imread(str(self.track_dir / "hinge.jpg"))

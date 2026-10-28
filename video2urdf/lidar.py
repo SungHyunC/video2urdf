@@ -74,7 +74,24 @@ class Capture:
     @classmethod
     def fixed_camera(cls, video: Path, track_dir: Path, depth: np.ndarray, intrinsics, ref: int = 0) -> "Capture":
         """A camera that doesn't move (a tripod, the RBO dataset): the scene's motion is identity."""
-        return cls(video, track_dir, stray.Capture(video, depth, intrinsics), np.tile(np.eye(4), (len(depth), 1, 1)), ref)
+        c = cls(video, track_dir, stray.Capture(video, depth, intrinsics), np.tile(np.eye(4), (len(depth), 1, 1)), ref)
+        c.moving_camera = False
+        return c
+
+    moving_camera = True  # ARKit odometry drifts and gets levelled against the floor
+
+    def set_ref(self, t: int):
+        """Use frame t as the reference: the scene's motion is re-expressed from it."""
+        self.world = self.world @ np.linalg.inv(self.world[t])
+        self.ref = t
+
+    def ref_with(self, base: str, plate: str) -> int:
+        """A reference frame showing both parts: the one where the plate's mask is largest.
+        Angles are measured from it, so a frame with only a sliver of plate (barely open)
+        would offset every angle."""
+        both = set(self.by[base]) & set(self.by[plate])
+        return max(both, key=lambda t: self.by[plate][t].crop.mean() * np.prod(np.subtract(
+            self.by[plate][t].box[2:], self.by[plate][t].box[:2]) + 1))
 
     def level_with(self, floor: str, sample: int = 1500) -> dict:
         """Remove ARKit drift off the floor plane: the floor is static, so on every frame turn
@@ -133,6 +150,17 @@ class Capture:
         c = mask_cloud(self.by[part][t].full_mask(self.h, self.w), self.cap.depth[t], self.cap.intrinsics)
         inv = np.linalg.inv(self.world[t])
         return c @ inv[:3, :3].T + inv[:3, 3]
+
+
+def open_capture(video: Path, source: Path, track_dir: Path) -> Capture:
+    """An iPhone capture (Stray Scanner folder) or a fixed-camera RGB-D folder holding
+    depth.npz (metres) and intrinsics.json, as scripts/rbo_eval.py prepares them."""
+    if (source / "depth.npz").exists() and (source / "intrinsics.json").exists():
+        from .lift3d import Intrinsics
+        k = json.loads((source / "intrinsics.json").read_text())
+        depth = np.load(source / "depth.npz")["depth"].astype(np.float32)
+        return Capture.fixed_camera(video, track_dir, depth, Intrinsics(k["f"], k["cx"], k["cy"]))
+    return Capture.from_stray(video, source, track_dir)
 
 
 def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:

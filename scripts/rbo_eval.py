@@ -6,8 +6,11 @@ then track the sequence's video (prepared here on first run), then score:
   .venv/bin/python scripts/rbo_eval.py laptop01 --prepare-only
   .venv/bin/python scripts/track_video.py data/rbo/prep/laptop01/laptop01.mp4 \\
       "table" "laptop screen" "laptop keyboard" "laptop" --out data/rbo/tracks
-  .venv/bin/python scripts/rbo_eval.py laptop01 --floor table --base laptop \\
+  .venv/bin/python scripts/rbo_eval.py laptop01 --floor table --base laptop_keyboard \\
       --plate laptop_screen --plate-closed laptop --open-indicator laptop_keyboard
+Or let the agent track and pick the roles, then score what it chose:
+  .venv/bin/python scripts/run_agent.py data/rbo/prep/laptop02 --out data/rbo/agent
+  .venv/bin/python scripts/rbo_eval.py laptop02 --tracks data/rbo/agent
 
 Ground truth: the plate's marker body (the one that moves most) traces a circle about the
 true hinge, and how far it has swept about it is the true angle. The dataset's own joint
@@ -63,6 +66,7 @@ def main():
     ap.add_argument("--plate-closed")
     ap.add_argument("--open-indicator")
     ap.add_argument("--data", type=Path, default=ROOT / "data" / "rbo")
+    ap.add_argument("--tracks", type=Path, help="track folder root (default <data>/tracks)")
     args = ap.parse_args()
 
     prep = args.data / "prep" / args.name
@@ -73,9 +77,12 @@ def main():
     k = json.loads((prep / "intrinsics.json").read_text())
     intr = Intrinsics(k["f"], k["cx"], k["cy"])
     depth = np.load(prep / "depth.npz")["depth"].astype(np.float32)
-    c = lidar.Capture.fixed_camera(video, args.data / "tracks" / args.name, depth, intr)
-    roles = lidar.Roles(args.floor, args.base, args.plate, args.plate_closed, args.open_indicator)
-    c.ref = min(set(c.by[roles.base]) & set(c.by[roles.plate]))  # first frame showing both (fixed camera)
+    c = lidar.Capture.fixed_camera(video, (args.tracks or args.data / "tracks") / args.name, depth, intr)
+    if args.floor:
+        roles = lidar.Roles(args.floor, args.base, args.plate, args.plate_closed, args.open_indicator)
+    else:  # the roles the agent chose
+        roles = lidar.Roles(**json.loads((c.track_dir / "roles.json").read_text()))
+    c.set_ref(c.ref_with(roles.base, roles.plate))
     ours = lidar.fit_hinge(c, roles)
     hinge = json.loads((c.track_dir / "hinge.json").read_text())
     axis, point = np.array(hinge["axis"]), np.array(hinge["point"])
