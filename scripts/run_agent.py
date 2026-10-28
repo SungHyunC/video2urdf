@@ -26,7 +26,7 @@ load_dotenv(ROOT / ".env")
 from video2urdf.stray import find_capture  # noqa: E402
 
 OPEN_WEIGHTS = {"AGENT_MODEL": "meta-models/muse-spark-open", "AGENT_BASE_URL": "https://inference.baseten.co/v1",
-                "AGENT_API_KEY_ENV": "BASETEN_API_KEY", "SAM_BACKEND": "open"}
+                "AGENT_API_KEY_ENV": "BASETEN_API_KEY", "AGENT_MAX_IMAGES": "8", "SAM_BACKEND": "open"}
 
 
 def main():

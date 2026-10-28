@@ -8,6 +8,7 @@ import base64
 import json
 import os
 import time
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from .sam import Detection, SamClient, parse, sam_client
 MODEL = os.environ.get("AGENT_MODEL", "muse-spark-1.3-contributor")
 BASE_URL = os.environ.get("AGENT_BASE_URL", "https://api.meta.ai/v1")
 API_KEY_ENV = os.environ.get("AGENT_API_KEY_ENV", "MODEL_API_KEY")
+MAX_IMAGES = int(os.environ.get("AGENT_MAX_IMAGES", "0"))  # per request; 0 = no cap (Baseten allows 8)
 MAX_STEPS = 20  # Spark turns; the last one must call finish
 ASSUMED_VIEW_M = 0.6  # frame's long side in metres when no card sets the scale
 VIEW_WIDTH = 540  # px; frames shown to Spark
@@ -128,6 +130,21 @@ frames, at least one before and one after it disappears. Then call fit_lidar wit
 tracked part names in their roles. Judge the result: the hinge line should sit on the real
 hinge, the opening over time should follow the video, and the replayed model should stay
 on the object. Report sizes in mm; say which numbers are clipped or unmeasured."""
+
+
+def cap_images(messages: list[dict]) -> None:
+    """Keep only the newest MAX_IMAGES images in the conversation; older ones become a note."""
+    if not MAX_IMAGES:
+        return
+    seen = 0
+    for m in reversed(messages):
+        if not isinstance(m["content"], list):
+            continue
+        for i in range(len(m["content"]) - 1, -1, -1):
+            if m["content"][i]["type"] == "image_url":
+                seen += 1
+                if seen > MAX_IMAGES:
+                    m["content"][i] = {"type": "text", "text": "(older image dropped)"}
 
 
 def jpeg_url(img: np.ndarray, width: int = VIEW_WIDTH) -> str:
@@ -370,6 +387,7 @@ class Agent:
         tools = [{"type": "function", "function": t} for t in TOOLS]
         for step in range(MAX_STEPS):
             t0 = time.time()
+            cap_images(messages)
             r = self.client.chat.completions.create(model=MODEL, messages=messages, tools=tools, max_tokens=6000)
             msg = r.choices[0].message
             calls = msg.tool_calls or []
@@ -385,7 +403,9 @@ class Agent:
                     self.log(f"**{c.function.name}** `{json.dumps(args)}`")
                     result = getattr(self, f"tool_{c.function.name}")(**args)
                 except Exception as e:  # report tool errors back to Spark instead of crashing the run
-                    result = f"error: {type(e).__name__}: {e}"
+                    self.log("```\n" + traceback.format_exc() + "```")
+                    where = traceback.extract_tb(e.__traceback__)[-1]
+                    result = f"error: {type(e).__name__}: {e} (in {where.name}, {Path(where.filename).name}:{where.lineno})"
                 self.log(f"> {result}".replace("\n", "\n> "))
                 messages.append({"role": "tool", "tool_call_id": c.id, "content": result})
             if self.report is not None:
@@ -395,6 +415,7 @@ class Agent:
             messages.append({"role": "user", "content": [{"type": "text", "text": note}] + self._take_images()})
         if self.report is None:  # out of turns; the API can't force a finish call, so ask for text
             messages.append({"role": "user", "content": "Out of turns. Write your final report now as plain text."})
+            cap_images(messages)
             r = self.client.chat.completions.create(model=MODEL, messages=messages, max_tokens=6000)
             self.report = (r.choices[0].message.content or "").strip() or "(no report)"
             self.log(f"## Spark (final report, out of turns)\n\n{self.report}")
