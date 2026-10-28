@@ -30,7 +30,11 @@ def fetch(name: str, raw: Path) -> Path:
         tmp = dst.with_suffix(".part")
         ctx = ssl.create_default_context(cafile=certifi.where())
         with urllib.request.urlopen(RECORD.format(name), context=ctx) as r, open(tmp, "wb") as f:
+            expected = int(r.headers.get("Content-Length", -1))
             shutil.copyfileobj(r, f, length=1 << 20)
+        if expected >= 0 and tmp.stat().st_size != expected:  # a dropped connection can end the stream early
+            tmp.unlink()
+            raise IOError(f"{name}: got {tmp.stat().st_size if tmp.exists() else 0} of {expected} bytes")
         tmp.rename(dst)
     return dst
 
@@ -38,9 +42,12 @@ def fetch(name: str, raw: Path) -> Path:
 def extract(archive: Path, out: Path):
     if out.exists():
         return
-    out.mkdir(parents=True)
+    tmp = out.with_name(out.name + ".part")
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True)
     with tarfile.open(archive) as tar:
-        tar.extractall(out, filter="data")  # refuses absolute paths and links out of the folder
+        tar.extractall(tmp, filter="data")  # refuses absolute paths and links out of the folder
+    tmp.rename(out)  # only a complete extraction counts as done
 
 
 def main():
@@ -48,9 +55,15 @@ def main():
     raw.mkdir(parents=True, exist_ok=True)
     for seq in sys.argv[1:] or SUBSET:
         obj = seq.rstrip("0123456789")
-        extract(fetch(f"{obj}.tar.gz", raw), x / f"{obj}_model")
-        extract(fetch(f"{seq}_o.tar.gz", raw), x / seq)
-        print(seq, "ok", flush=True)
+        for attempt in range(3):
+            try:
+                extract(fetch(f"{obj}.tar.gz", raw), x / f"{obj}_model")
+                extract(fetch(f"{seq}_o.tar.gz", raw), x / seq)
+                print(seq, "ok", flush=True)
+                break
+            except (OSError, EOFError, tarfile.TarError) as e:
+                print(seq, f"attempt {attempt + 1} failed: {e}", flush=True)
+                (raw / f"{seq}_o.tar.gz").unlink(missing_ok=True)  # truncated archive: fetch again
 
 
 if __name__ == "__main__":
