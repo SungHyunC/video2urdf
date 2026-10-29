@@ -647,22 +647,29 @@ def fit_and_build_slides(c: Capture, base: str, floor: str | None, drawers: list
     mesh_dir = c.track_dir / "meshes"
     mesh_dir.mkdir(exist_ok=True)
     links, sizes, masks, joint_q = [], {}, {"base": c.by[base]}, {}
-    parts = [("base", base, t_base, None)] + [(f"drawer{i + 1}", f["part"], f["ref"], f) for i, f in enumerate(fits)]
-    for name, part, t, f in parts:
-        pts = to_model(c.cloud(part, t))
+    # Drawers first: each one's box (shut, q = 0), then the base, at least as deep as its
+    # drawers (a front view doesn't show how deep the cabinet is).
+    geom = {}
+    for k, f in enumerate(fits):
+        pts = to_model(c.cloud(f["part"], f["ref"]))
         lo_b, hi_b = box_of(pts)
-        if f is not None:  # a drawer's cross-section is its front face (an open drawer's mask also
-            front = pts[pts[:, 0] > hi_b[0] - 0.02]  # takes in the opening's walls behind it)
-            if len(front) >= 50:
-                lo_b[1:], hi_b[1:] = np.percentile(front[:, 1:], 2, axis=0), np.percentile(front[:, 1:], 98, axis=0)
+        front = pts[pts[:, 0] > hi_b[0] - 0.02]  # its front face: an open drawer's mask also takes in the opening
+        if len(front) >= 50:
+            lo_b[1:], hi_b[1:] = np.percentile(front[:, 1:], 2, axis=0), np.percentile(front[:, 1:], 98, axis=0)
+        lo_b[0] = min(lo_b[0], hi_b[0] - f["hi"])  # the hidden rest is at least as deep as it travels
+        lo_b[0] -= f["at_ref"]  # seen pulled out by at_ref; shut at q = 0
+        hi_b[0] -= f["at_ref"]
+        geom[f"drawer{k + 1}"] = (f["part"], f["ref"], f, lo_b, hi_b)
+    lo_b, hi_b = box_of(to_model(c.cloud(base, t_base)))
+    for _, _, _, dl, dh in geom.values():  # only deeper: its cross-section stays as seen, so the
+        lo_b[0] = min(lo_b[0], dl[0])  # drawers' slots stay free (no overlapping solids in MuJoCo)
+    geom = {"base": (base, t_base, None, lo_b, hi_b), **geom}
+    for name, (part, t, f, lo_b, hi_b) in geom.items():
         rect = np.array([[lo_b[0], lo_b[1]], [hi_b[0], lo_b[1]], [hi_b[0], hi_b[1]], [lo_b[0], hi_b[1]]])
-        if f is not None:  # seen pulled out by at_ref: the hidden rest is at least that deep; shut at q = 0
-            rect[[0, 3], 0] = np.minimum(rect[[0, 3], 0], rect[[1, 2], 0] - f["hi"])
-            rect[:, 0] -= f["at_ref"]
         v, fc = prism(rect, np.zeros(3), np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.array([0, 0, 1.0]),
                       lo_b[2], hi_b[2])
         write_stl(mesh_dir / f"{name}.stl", v, fc)
-        sizes[name] = (1000 * (np.array([hi_b[0] - rect[0, 0], hi_b[1] - lo_b[1], hi_b[2] - lo_b[2]]))).round().tolist()
+        sizes[name] = (1000 * (hi_b - lo_b)).round().tolist()
         rgb = part_color(read_frame(c.video, t), c.by[part][t].full_mask(c.h, c.w))
         link = emit3d.Link3D(name, [emit3d.Visual(f"meshes/{name}.stl", rgb)], parent=None if f is None else "base")
         if f is not None:
