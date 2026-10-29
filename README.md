@@ -13,7 +13,7 @@ the overlay, frame by frame, before it reports.
 Built solo for the Meta Global AI Developer Hackathon (Oct 26 - Nov 4 2026). All code in this
 repository was written during the hackathon; see [Built on](#built-on) for what it uses.
 
-**Demo video (2:37):** [docs/demo.mp4](docs/demo.mp4) · https://sunghyunc.github.io/video2urdf/demo.mp4  
+**Demo video (2:55):** [docs/demo.mp4](docs/demo.mp4) · https://sunghyunc.github.io/video2urdf/demo.mp4  
 **Live viewer:** https://sunghyunc.github.io/video2urdf/ (the phone video, the MuJoCo replay over it,
 the robot demo, and the measured model in 3D with its URDF/MJCF).
 
@@ -72,6 +72,11 @@ weights is one flag.
   304 x 212), base 14 mm, lid 3.8 mm, opening about 0..110 deg, hinge drawn on the real hinge;
   the replayed model covers 95% (lid) and 94% (base) of SAM's masks over the 923 frames, while
   the phone moves. The Panda then closes it to within 1 deg of its measured limit.
+- **Office pedestal drawer, iPhone LiDAR**, agent from scratch: it finds which of three
+  look-alike drawers moves (the tool warns when a "fixed" part stands out like a drawer),
+  measures how far the drawer's front stands out of the cabinet's front in every frame (camera
+  drift cancels), and builds a cabinet carcass with a slot and the drawer as an open tray:
+  pulls out 248 mm; the replay sits on the drawer shut and open.
 - Laptop, 2D side view: one hinge, 0-77 deg, fit residual 1.7 mm. Spark saw its first fit was
   wrong (base tracked on 319/408 frames, 25 deg range), re-segmented on other frames and
   re-tracked: 408/408 frames.

@@ -34,7 +34,7 @@ ACCENT = (110, 160, 255)
 RUN = ROOT / "data" / "tracks_agent" / "laptop_lidar"
 PHONE = ROOT / "data" / "real" / "laptop_lidar" / "laptop_lidar.mp4"
 ASSETS = ROOT / "data" / "demo_assets"
-DRAWER_RUN = ROOT / "data" / "tracks_manual" / "drawer2_lidar"
+DRAWER_RUN = ROOT / "data" / "tracks_agent" / "drawer2_lidar"
 DRAWER_PHONE = ROOT / "data" / "real" / "drawer2_lidar" / "drawer2_lidar.mp4"
 
 
@@ -198,10 +198,11 @@ def scenes() -> list[Scene]:
                "lid 309 x 205 mm  (spec: 304 x 212 mm)"],
               side_by_side(PHONE, RUN / "replay3d.mp4", 0, 922)),
         Scene("4b  Drawers too",
-              "Drawers work the same way. Here the drawer is measured against the cabinet's front in every frame: "
-              "it pulls out two hundred and fifty three millimetres, and the replay stays on the drawer, shut and open.",
-              ["a drawer: a slide joint, measured against the cabinet's front in every frame",
-               "pulls out 253 mm; the replay stays on the drawer, shut and open"],
+              "Drawers work too. The agent finds which drawer moves, measures it against the cabinet's front in "
+              "every frame, and builds the cabinet and the drawer. It pulls out two hundred and forty eight "
+              "millimetres, and the replay stays on the drawer, shut and open.",
+              ["a drawer: the agent finds which one moves and measures it against the cabinet's front",
+               "pulls out 248 mm; the replay stays on the drawer, shut and open"],
               side_by_side(DRAWER_PHONE, DRAWER_RUN / "replay3d.mp4", 150, 700)),
         Scene("5  Use",
               "The URDF is ready to use. A Franka arm in MuJoCo closes the measured laptop by pushing along the "
