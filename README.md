@@ -47,9 +47,10 @@ Two capture paths:
 
 | Model | Where | Role |
 |---|---|---|
-| **Muse Spark** (`muse-spark-1.3-contributor`, Meta Model API) | `video2urdf/agent.py` | The agent: looks at frames, chooses noun prompts for SAM, picks the parts' roles, calls track / fit / fit_lidar, judges the replay images and numbers, refits, writes the report. Chat Completions with tool calls and images. |
+| **Muse Spark** (`muse-spark-1.3-contributor`, Meta Model API) | `video2urdf/agent.py`, `scripts/add_physics.py` | The agent: watches the whole video (mp4 input), looks at frames, chooses noun prompts for SAM, picks the parts' roles, calls track / fit / fit_lidar, watches the replay (the model drawn over the video) to judge the fit over time, refits, then judges each link's material and mass and finds when a part stood still with no hand on it (`set_physics`), and writes the report. Chat Completions with tool calls, images, video and structured output. |
 | **SAM 3.1** (`sam-3.1`, Meta Model API) | `video2urdf/sam.py`, `scripts/track_video.py` | Concept prompts on key frames find each part; one box-anchored video request tracks all parts with stable IDs. |
-| **Muse Spark Open** (open weights, Baseten) | `run_agent.py --open-weights` | The same agent on open weights. |
+| **Muse Spark Open** (open weights, Baseten) | `run_agent.py --open-weights` | The same agent on open weights (it takes video too). |
+| **Muse Glimmer 30B** (open weights `meta-models/Muse-Glimmer-30B`, our own Modal Dedicated Endpoint, SGLang) | `run_agent.py --glimmer` | The same agent on a 30B dense open model we serve ourselves: tool calls and images (the endpoint drops video, so it works from frames). |
 | **SAM 3.1 / SAM 3** (open weights `facebook/sam3.1`, `facebook/sam3`, on a Modal GPU) | `modal_apps/sam3_open.py`, `video2urdf/sam_open.py` | Open-weights segmentation (SAM 3.1 concept prompts) and box tracking (SAM 3's tracker), answering in the hosted API's wire format so the rest of the pipeline is unchanged. |
 | **SAM 3D Objects** (open weights `facebook/sam-3d-objects`, on a Modal GPU) | `modal_apps/sam3d.py`, `scripts/sam3d_meshes.py` | A realistic, coloured mesh of each link from one frame and its SAM 3.1 mask, laid out in metres by our LiDAR depth (given as its pointmap), checked against the measured depth points; it becomes the link's visual, the measured shape stays its collision. |
 
@@ -128,6 +129,13 @@ taken modulo 360 deg. Per-sequence results: `scripts/rbo_bench.py` writes `data/
   video (closes, then reopens), lid replay covering 91% of its masks. The base was segmented in
   fragments (keyboard, trackpad), so its thickness could not be measured; the pipeline and
   Spark's report both flag it instead of passing on a wrong number.
+- **Everything on open weights, served by us**: Muse Glimmer 30B on our own Modal endpoint +
+  SAM on Modal (`--open-weights --glimmer`), LiDAR laptop from scratch, through to physics:
+  lid 307 x 201 mm, opening 0..108 deg, lid replay 87%; it set masses (base 1.1 kg, lid
+  0.45 kg) and the lid hinge's friction was measured at 0.164 N·m from the lid held open with
+  no hand on it (released in MuJoCo: 0.1 deg). Its base candidate was the whole laptop, so the
+  base replay is low (5%), which its report notes. A first try spent all its turns collecting
+  candidates; the turn note now says to track once half the budget is gone.
 
 ### Physics: masses, inertia, and joint friction measured from the video
 
@@ -241,6 +249,21 @@ and URDF/MJCF downloads.
 `--sam api` keeps the hosted segmenter while reasoning runs on open weights. The Modal app
 scales to zero after 2 idle minutes (A10G, about $0.05-0.10 per video).
 
+Muse Glimmer 30B on your own GPU instead of Baseten (a Modal Dedicated Endpoint bills while
+it is up; stop it when done):
+
+```bash
+.venv/bin/modal workspace proxy-tokens create --name video2urdf --json
+#   -> MODAL_PROXY_TOKEN_ID (Modal-Key) and MODAL_PROXY_TOKEN_SECRET (Modal-Secret) in .env
+.venv/bin/modal endpoint create --name glimmer --model meta-models/Muse-Glimmer-30B
+.venv/bin/modal endpoint info glimmer            # wait for State: live; put its URL in .env as GLIMMER_URL
+.venv/bin/python scripts/run_agent.py data/real/laptop_lidar --open-weights --glimmer --out data/tracks_glimmer
+.venv/bin/modal endpoint stop glimmer --yes
+```
+
+Locally, Glimmer runs under vLLM, SGLang, llama.cpp (`meta-models/Muse-Glimmer-30B-GGUF`) or
+LM Studio with 24 GB+ of VRAM; point `AGENT_BASE_URL`/`AGENT_MODEL` at it.
+
 ### Realistic link meshes (SAM 3D Objects)
 
 ```bash
@@ -281,7 +304,7 @@ cat data/rbo/results/summary.md
 
 ## Built on
 
-Models: Muse Spark, Muse Spark Open, SAM 3.1, SAM 3, SAM 3D Objects (Meta).
+Models: Muse Spark, Muse Spark Open, Muse Glimmer, SAM 3.1, SAM 3, SAM 3D Objects (Meta).
 
 | Project | License | Used for |
 |---|---|---|
