@@ -21,14 +21,18 @@ the robot demo, and the measured model in 3D with its URDF/MJCF).
 
 ```
 phone video (or iPhone LiDAR capture)
-  -> Muse Spark looks at frames, names the parts, prompts SAM 3.1   (agent, tool calls)
+  -> Muse Spark watches the video, names the parts, prompts SAM 3.1   (agent, tool calls)
   -> SAM 3.1 finds each part on key frames and tracks it through the video
   -> joint fit: hinge or slide, axis, position, limits, from the parts' relative motion
-  -> link geometry: each part's silhouette (2D) or depth (LiDAR), with mass and inertia
+  -> link geometry: each part's silhouette (2D) or depth (LiDAR), painted with the video
   -> URDF + MJCF
-  -> MuJoCo replay rendered from the camera, scored against the video (IoU per frame)
-  -> Muse Spark reads the scores and the worst frames, re-segments / re-tracks / refits,
-     and writes a report with the measured sizes and what is uncertain
+  -> MuJoCo replay rendered from the camera, scored against the video (coverage per frame);
+     the fit tool names a wrong part choice (a base that holds the lid, a lid track that
+     slid onto the closed lid's back)
+  -> Muse Spark watches the replay, re-segments / re-tracks / refits
+  -> physics: Spark judges materials and masses; joint friction measured where a part
+     stands still with no hand on it, checked by letting the model go in MuJoCo
+  -> report with the measured sizes and what is uncertain
 ```
 
 The model is then used: a Franka Panda in MuJoCo closes the measured laptop by pushing along
@@ -138,6 +142,18 @@ taken modulo 360 deg. Per-sequence results: `scripts/rbo_bench.py` writes `data/
   base replay is low (5%), which its report notes. A first try spent all its turns collecting
   candidates; the turn note now says to track once half the budget is gone.
 
+### The model looks like the object: painted with its own video
+
+The measured shapes are boxes and outlines; `video2urdf/texture.py` paints them with the video.
+Each flat face of each link takes the frame where it was seen largest and most head-on, not
+hidden behind another part of the model (MuJoCo renders, from the phone's pose on that frame,
+which face is in front) nor behind a hand (the point must be inside that link's SAM mask). The
+face is rectified by a homography into one texture atlas; pixels outside the link's mask and
+faces thinner than 1 cm take the link's colour. On the LiDAR laptop the screen shows its
+wallpaper, the base its keyboard and trackpad, the shut lid the logo seen while it was
+closed; the drawer's front its wood grain and handle. Shapes, and so collisions and inertia,
+are unchanged. The viewer, the robot demo and the MJCF/URDF (textured OBJ visuals) use it.
+
 ### Physics: masses, inertia, and joint friction measured from the video
 
 A model a robot can push needs mass and friction, not just a shape. Muse Spark watches the
@@ -155,6 +171,10 @@ base) is left out. The check: release the model in MuJoCo at the held angles for
 | Laptop, 2D side view | 0.95 + 0.45 kg | 0.038 N·m, measured (held only near upright: a lower bound) | 0.0 deg (76 deg without) |
 | Monitor stand, 2D | base 0.45, arms 0.075 / 0.09 kg | 0.028 / 0.122 N·m, measured | 0.0 / 3.4 deg (21 / 56 deg without) |
 | Pedestal drawer, LiDAR | cabinet 13 kg, drawer 2.5 kg | 0.98 N, estimated (gravity doesn't load a horizontal slide) | |
+
+`scripts/physics_demo.py` renders the check: the model let go at a held angle, with the
+measured friction and without, side by side (viewer tab "Physics check"; laptop +0.1 vs
++11.5 deg in 3 s, stand +0.0 vs +20.3 deg).
 
 URDF gets `<inertial>` and `<dynamics>`, MJCF explicit inertials, `frictionloss` (stiffened:
 MuJoCo's default soft friction lets a loaded hinge creep 7 deg in 2 s) and contact friction.
@@ -245,6 +265,13 @@ seen edge-on, its plane fits were poor (replay covers 13% of the lid) and Spark 
 asked for a reshoot; side views go through the 2D path instead.
 
 ### Robot demo and viewer
+
+After a fit (the agent's run does physics itself):
+
+```bash
+.venv/bin/python scripts/texture_model.py data/tracks_agent/laptop_lidar data/real/laptop_lidar/laptop_lidar.mp4
+.venv/bin/python scripts/physics_demo.py data/tracks_agent/laptop_lidar
+```
 
 ```bash
 scripts/fetch_assets.sh                            # Franka Panda from MuJoCo Menagerie
