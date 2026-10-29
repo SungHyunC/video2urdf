@@ -79,7 +79,10 @@
     <div class="card">
       <div class="card-head">
         <h2>Measured model</h2>
-        <div class="seg"><button id="follow" aria-pressed="true">Follow video</button></div>
+        <div class="seg">
+          <span class="seg" id="looks" hidden><button data-look="realistic" aria-pressed="true">Realistic</button><button data-look="measured" aria-pressed="false">Measured</button></span>
+          <button id="follow" aria-pressed="true">Follow video</button>
+        </div>
       </div>
       <div id="view3d"><span class="hint">Drag to orbit, pinch or scroll to zoom</span></div>
     </div>
@@ -104,6 +107,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
+import { PLYLoader } from "three/addons/loaders/PLYLoader.js";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -125,6 +129,8 @@ grid.material.opacity = 0.5;
 scene.add(grid);
 
 const stl = new STLLoader();
+const ply = new PLYLoader();
+let look = "realistic";  // or "measured": which visuals show when a model has SAM 3D meshes
 let model = null;       // { root, joints: {name: {node, spec, track, value}} }
 let spec = null;
 let follow = true;
@@ -148,7 +154,11 @@ async function geomObject(g, base) {
   const color = new THREE.Color(g.rgba[0], g.rgba[1], g.rgba[2]);
   const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.15 });
   let mesh;
-  if (g.mesh) {
+  if (g.mesh && g.mesh.endsWith(".ply")) {  // SAM 3D's mesh, coloured per vertex
+    const geo = await ply.loadAsync(base + g.mesh);
+    geo.computeVertexNormals();
+    mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.05 }));
+  } else if (g.mesh) {
     const geo = await stl.loadAsync(base + g.mesh);
     geo.computeVertexNormals();
     mesh = new THREE.Mesh(geo, mat);
@@ -170,11 +180,24 @@ async function buildBody(b, base, joints) {
   if (b.joint) joints[b.joint.name] = { node: moving, spec: b.joint, value: 0 };
   for (const g of b.geoms) {
     const m = await geomObject(g, base);
-    if (m) moving.add(m);
+    if (!m) continue;
+    m.userData.look = g.realistic ? "realistic" : g.measured ? "measured" : "both";
+    moving.add(m);
   }
   for (const c of b.children) moving.add(await buildBody(c, base, joints));
   return node;
 }
+
+function applyLook() {
+  if (!model) return;
+  let realistic = false;
+  model.root.traverse((o) => { if (o.userData.look === "realistic") realistic = true; });
+  const want = realistic ? look : "measured";
+  model.root.traverse((o) => { if (o.userData.look && o.userData.look !== "both") o.visible = o.userData.look === want; });
+  $("looks").hidden = !realistic;
+  for (const b of $("looks").children) b.setAttribute("aria-pressed", String(b.dataset.look === want));
+}
+for (const b of document.querySelectorAll("#looks button")) b.onclick = () => { look = b.dataset.look; applyLook(); };
 
 function setJoint(j, q) {
   j.value = q;
@@ -210,6 +233,7 @@ async function load(entry) {
   scene.add(root);
   for (const [name, j] of Object.entries(joints)) j.track = spec.joints[name] ? holdFill(spec.joints[name]) : null;
   model = { root, joints };
+  applyLook();
   frameCamera(root);
 
   const jc = $("joints");
