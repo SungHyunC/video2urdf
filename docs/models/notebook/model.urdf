@@ -1,32 +1,55 @@
-<?xml version="1.0"?>
+<?xml version='1.0' encoding='utf-8'?>
 <robot name="notebook_2">
   <link name="base">
+    <inertial>
+      <origin xyz="0.000983581 -7.74387e-19 0.00511656" rpy="1.5708 -1.50883 0" />
+      <mass value="0.95" />
+      <inertia ixx="0.00863463" ixy="0" ixz="0" iyy="0.0071381" iyz="0" izz="0.00152273" />
+    </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="meshes/base.stl"/></geometry>
-      <material name="base_color"><color rgba="0.490 0.486 0.486 1"/></material>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/base.stl" />
+      </geometry>
+      <material name="base_color">
+        <color rgba="0.490 0.486 0.486 1" />
+      </material>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="meshes/base.stl"/></geometry>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/base.stl" />
+      </geometry>
     </collision>
   </link>
   <link name="lid">
+    <inertial>
+      <origin xyz="-0.00679926 2.99811e-18 0.0669546" rpy="1.5708 -0.108748 0" />
+      <mass value="0.45" />
+      <inertia ixx="0.00399872" ixy="0" ixz="0" iyy="0.00337646" iyz="0" izz="0.000625173" />
+    </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="meshes/lid.stl"/></geometry>
-      <material name="lid_color"><color rgba="0.310 0.247 0.227 1"/></material>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/lid.stl" />
+      </geometry>
+      <material name="lid_color">
+        <color rgba="0.310 0.247 0.227 1" />
+      </material>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="meshes/lid.stl"/></geometry>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/lid.stl" />
+      </geometry>
     </collision>
   </link>
   <joint name="lid_joint" type="revolute">
-    <parent link="base"/>
-    <child link="lid"/>
-    <origin xyz="0.07332 0 0.00169" rpy="0 0 0"/>
-    <axis xyz="0 -1 0"/>
-    <limit lower="-0.0683" upper="1.2798" effort="10" velocity="2"/>
+    <parent link="base" />
+    <child link="lid" />
+    <origin xyz="0.07332 0 0.00169" rpy="0 0 0" />
+    <axis xyz="0 -1 0" />
+    <limit lower="-0.0683" upper="1.2798" effort="10" velocity="2" />
+    <dynamics damping="0.02" friction="0.0377475" />
   </joint>
 </robot>

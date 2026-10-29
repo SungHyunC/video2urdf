@@ -1,15 +1,25 @@
 <mujoco model="notebook_2">
-  <compiler angle="radian"/>
-  <visual><global offwidth="1080" offheight="1920"/></visual>
-  <asset><mesh name="base_mesh" file="meshes/base.stl" inertia="exact"/><mesh name="lid_mesh" file="meshes/lid.stl" inertia="exact"/></asset>
+  <compiler angle="radian" />
+  <visual>
+    <global offwidth="1080" offheight="1920" />
+  </visual>
+  <asset>
+    <mesh name="base_mesh" file="meshes/base.stl" inertia="exact" />
+    <mesh name="lid_mesh" file="meshes/lid.stl" inertia="exact" />
+  </asset>
   <worldbody>
-    <camera name="video" pos="0.02117 -5.00000 0.07606" xyaxes="1 0 0 0 0 1" fovy="3.87204"/>
+    <camera name="video" pos="0.02117 -5.00000 0.07606" xyaxes="1 0 0 0 0 1" fovy="3.87204" />
     <body name="base" pos="0.00000 0 0.00000">
-      <geom type="mesh" mesh="base_mesh" rgba="0.490 0.486 0.486 1"/>
+      <inertial pos="0.000983581 -7.74387e-19 0.00511656" quat="0.51525 0.51525 -0.48427 0.48427" mass="0.95" diaginertia="0.00863463 0.0071381 0.00152273" />
+      <geom type="mesh" mesh="base_mesh" rgba="0.490 0.486 0.486 1" friction="0.45 0.005 0.0001" />
       <body name="lid" pos="0.07332 0 0.00169">
-        <joint name="lid_joint" type="hinge" axis="0 -1 0" range="-0.0683 1.2798" limited="true"/>
-        <geom type="mesh" mesh="lid_mesh" rgba="0.310 0.247 0.227 1"/>
+        <joint name="lid_joint" type="hinge" axis="0 -1 0" range="-0.0683 1.2798" limited="true" frictionloss="0.0377475" solreffriction="0.005 1" solimpfriction="0.99 0.999 0.001" damping="0.02" />
+        <inertial pos="-0.00679926 2.99811e-18 0.0669546" quat="0.706062 0.706062 -0.0384294 0.0384294" mass="0.45" diaginertia="0.00399872 0.00337646 0.000625173" />
+        <geom type="mesh" mesh="lid_mesh" rgba="0.310 0.247 0.227 1" friction="0.35 0.005 0.0001" />
       </body>
     </body>
   </worldbody>
+  <contact>
+    <exclude body1="base" body2="lid" />
+  </contact>
 </mujoco>

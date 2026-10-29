@@ -101,9 +101,16 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
             m = json.loads((run / f).read_text())
             meta.update({k: v for k, v in m.items() if k not in ("q", "camera_to_model")})
     report = run / "agent" / "report.md"
+    phys = None
+    if (run / "physics.json").exists():  # masses and friction (physics.apply)
+        p = json.loads((run / "physics.json").read_text())
+        phys = {"links": {k: {f: v[f] for f in ("material", "mass_kg")} for k, v in p["links"].items()},
+                "joints": {k: {f: v[f] for f in ("type", "friction", "friction_measured", "held_range",
+                                                    "drift_with_deg", "drift_without_deg") if f in v}
+                           for k, v in p["joints"].items()}}
     spec = {"name": name, "fps": fps, "frames": n, "tree": tree, "joints": joint_tracks(run), "videos": videos,
             "measured": meta, "agent_report": report.read_text() if report.exists() else None,
-            "three_d": (run / "model3d.json").exists()}
+            "three_d": (run / "model3d.json").exists(), "physics": phys}
     (dst / "model.json").write_text(json.dumps(spec))
     size = sum(f.stat().st_size for f in dst.rglob("*") if f.is_file())
     print(f"{name}: {size / 1e6:.1f} MB -> {dst}")

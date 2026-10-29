@@ -1,50 +1,85 @@
-<?xml version="1.0"?>
+<?xml version='1.0' encoding='utf-8'?>
 <robot name="stand_2">
   <link name="base">
+    <inertial>
+      <origin xyz="0.000709794 8.31021e-19 6.71188e-05" rpy="-3.7274e-16 -1.55853 -3.14159" />
+      <mass value="0.45" />
+      <inertia ixx="0.00114864" ixy="0" ixz="0" iyy="0.000637651" iyz="0" izz="0.000569014" />
+    </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="meshes/base.stl"/></geometry>
-      <material name="base_color"><color rgba="0.710 0.729 0.761 1"/></material>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/base.stl" />
+      </geometry>
+      <material name="base_color">
+        <color rgba="0.710 0.729 0.761 1" />
+      </material>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="meshes/base.stl"/></geometry>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/base.stl" />
+      </geometry>
     </collision>
   </link>
   <link name="lower_arm">
+    <inertial>
+      <origin xyz="0.0116196 2.01681e-19 0.115613" rpy="0 0.0638385 0" />
+      <mass value="0.075" />
+      <inertia ixx="0.000309725" ixy="0" ixz="0" iyy="0.000307362" iyz="0" izz="2.63711e-06" />
+    </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="meshes/lower_arm.stl"/></geometry>
-      <material name="lower_arm_color"><color rgba="0.424 0.404 0.400 1"/></material>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/lower_arm.stl" />
+      </geometry>
+      <material name="lower_arm_color">
+        <color rgba="0.424 0.404 0.400 1" />
+      </material>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="meshes/lower_arm.stl"/></geometry>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/lower_arm.stl" />
+      </geometry>
     </collision>
   </link>
   <link name="upper_arm">
+    <inertial>
+      <origin xyz="-0.010476 6.5465e-19 -0.110646" rpy="0 0.0719112 0" />
+      <mass value="0.09" />
+      <inertia ixx="0.000324948" ixy="0" ixz="0" iyy="0.00031314" iyz="0" izz="1.21918e-05" />
+    </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="meshes/upper_arm.stl"/></geometry>
-      <material name="upper_arm_color"><color rgba="0.545 0.565 0.561 1"/></material>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/upper_arm.stl" />
+      </geometry>
+      <material name="upper_arm_color">
+        <color rgba="0.545 0.565 0.561 1" />
+      </material>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="meshes/upper_arm.stl"/></geometry>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/upper_arm.stl" />
+      </geometry>
     </collision>
   </link>
   <joint name="lower_arm_joint" type="revolute">
-    <parent link="base"/>
-    <child link="lower_arm"/>
-    <origin xyz="0.03973 0 0.01514" rpy="0 0 0"/>
-    <axis xyz="0 -1 0"/>
-    <limit lower="-0.0114" upper="0.5315" effort="10" velocity="2"/>
+    <parent link="base" />
+    <child link="lower_arm" />
+    <origin xyz="0.03973 0 0.01514" rpy="0 0 0" />
+    <axis xyz="0 -1 0" />
+    <limit lower="-0.0114" upper="0.5315" effort="10" velocity="2" />
+    <dynamics damping="0.02" friction="0.0278679" />
   </joint>
   <joint name="upper_arm_joint" type="revolute">
-    <parent link="lower_arm"/>
-    <child link="upper_arm"/>
-    <origin xyz="0.01649 0 0.24251" rpy="0 0 0"/>
-    <axis xyz="0 -1 0"/>
-    <limit lower="-1.4158" upper="0.0137" effort="10" velocity="2"/>
+    <parent link="lower_arm" />
+    <child link="upper_arm" />
+    <origin xyz="0.01649 0 0.24251" rpy="0 0 0" />
+    <axis xyz="0 -1 0" />
+    <limit lower="-1.4158" upper="0.0137" effort="10" velocity="2" />
+    <dynamics damping="0.02" friction="0.122417" />
   </joint>
 </robot>

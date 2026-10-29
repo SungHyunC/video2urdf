@@ -1,32 +1,142 @@
-<?xml version="1.0"?>
+<?xml version='1.0' encoding='utf-8'?>
 <robot name="drawer2_lidar">
   <link name="base">
-    <visual name="base_0"><geometry><mesh filename="meshes/base_0.stl"/></geometry><material name="base_0_color"><color rgba="0.95294 0.88235 0.76471 1"/></material></visual>
-    <collision><geometry><mesh filename="meshes/base_0.stl"/></geometry></collision>
-    <visual name="base_1"><geometry><mesh filename="meshes/base_1.stl"/></geometry><material name="base_1_color"><color rgba="0.95294 0.88235 0.76471 1"/></material></visual>
-    <collision><geometry><mesh filename="meshes/base_1.stl"/></geometry></collision>
-    <visual name="base_2"><geometry><mesh filename="meshes/base_2.stl"/></geometry><material name="base_2_color"><color rgba="0.95294 0.88235 0.76471 1"/></material></visual>
-    <collision><geometry><mesh filename="meshes/base_2.stl"/></geometry></collision>
-    <visual name="base_3"><geometry><mesh filename="meshes/base_3.stl"/></geometry><material name="base_3_color"><color rgba="0.95294 0.88235 0.76471 1"/></material></visual>
-    <collision><geometry><mesh filename="meshes/base_3.stl"/></geometry></collision>
+    <inertial>
+      <origin xyz="-0.122118 0.00408661 -0.269527" rpy="-0.0010759 -0.000274735 -0.00377982" />
+      <mass value="13" />
+      <inertia ixx="0.571259" ixy="0" ixz="0" iyy="0.501093" iyz="0" izz="0.218996" />
+    </inertial>
+    <visual name="base_0">
+      <geometry>
+        <mesh filename="meshes/base_0.stl" />
+      </geometry>
+      <material name="base_0_color">
+        <color rgba="0.95294 0.88235 0.76471 1" />
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/base_0.stl" />
+      </geometry>
+    </collision>
+    <visual name="base_1">
+      <geometry>
+        <mesh filename="meshes/base_1.stl" />
+      </geometry>
+      <material name="base_1_color">
+        <color rgba="0.95294 0.88235 0.76471 1" />
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/base_1.stl" />
+      </geometry>
+    </collision>
+    <visual name="base_2">
+      <geometry>
+        <mesh filename="meshes/base_2.stl" />
+      </geometry>
+      <material name="base_2_color">
+        <color rgba="0.95294 0.88235 0.76471 1" />
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/base_2.stl" />
+      </geometry>
+    </collision>
+    <visual name="base_3">
+      <geometry>
+        <mesh filename="meshes/base_3.stl" />
+      </geometry>
+      <material name="base_3_color">
+        <color rgba="0.95294 0.88235 0.76471 1" />
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/base_3.stl" />
+      </geometry>
+    </collision>
   </link>
   <link name="drawer1">
-    <visual name="drawer1_0"><geometry><mesh filename="meshes/drawer1_0.stl"/></geometry><material name="drawer1_0_color"><color rgba="0.48627 0.40392 0.31765 1"/></material></visual>
-    <collision><geometry><mesh filename="meshes/drawer1_0.stl"/></geometry></collision>
-    <visual name="drawer1_1"><geometry><mesh filename="meshes/drawer1_1.stl"/></geometry><material name="drawer1_1_color"><color rgba="0.34039 0.28275 0.22235 1"/></material></visual>
-    <collision><geometry><mesh filename="meshes/drawer1_1.stl"/></geometry></collision>
-    <visual name="drawer1_2"><geometry><mesh filename="meshes/drawer1_2.stl"/></geometry><material name="drawer1_2_color"><color rgba="0.34039 0.28275 0.22235 1"/></material></visual>
-    <collision><geometry><mesh filename="meshes/drawer1_2.stl"/></geometry></collision>
-    <visual name="drawer1_3"><geometry><mesh filename="meshes/drawer1_3.stl"/></geometry><material name="drawer1_3_color"><color rgba="0.34039 0.28275 0.22235 1"/></material></visual>
-    <collision><geometry><mesh filename="meshes/drawer1_3.stl"/></geometry></collision>
-    <visual name="drawer1_4"><geometry><mesh filename="meshes/drawer1_4.stl"/></geometry><material name="drawer1_4_color"><color rgba="0.34039 0.28275 0.22235 1"/></material></visual>
-    <collision><geometry><mesh filename="meshes/drawer1_4.stl"/></geometry></collision>
+    <inertial>
+      <origin xyz="-0.104177 -0.0147241 -0.280774" rpy="-1.5708 -1.51331 -3.14159" />
+      <mass value="2.5" />
+      <inertia ixx="0.0493126" ixy="0" ixz="0" iyy="0.0312277" iyz="0" izz="0.023528" />
+    </inertial>
+    <visual name="drawer1_0">
+      <geometry>
+        <mesh filename="meshes/drawer1_0.stl" />
+      </geometry>
+      <material name="drawer1_0_color">
+        <color rgba="0.48627 0.40392 0.31765 1" />
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/drawer1_0.stl" />
+      </geometry>
+    </collision>
+    <visual name="drawer1_1">
+      <geometry>
+        <mesh filename="meshes/drawer1_1.stl" />
+      </geometry>
+      <material name="drawer1_1_color">
+        <color rgba="0.34039 0.28275 0.22235 1" />
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/drawer1_1.stl" />
+      </geometry>
+    </collision>
+    <visual name="drawer1_2">
+      <geometry>
+        <mesh filename="meshes/drawer1_2.stl" />
+      </geometry>
+      <material name="drawer1_2_color">
+        <color rgba="0.34039 0.28275 0.22235 1" />
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/drawer1_2.stl" />
+      </geometry>
+    </collision>
+    <visual name="drawer1_3">
+      <geometry>
+        <mesh filename="meshes/drawer1_3.stl" />
+      </geometry>
+      <material name="drawer1_3_color">
+        <color rgba="0.34039 0.28275 0.22235 1" />
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/drawer1_3.stl" />
+      </geometry>
+    </collision>
+    <visual name="drawer1_4">
+      <geometry>
+        <mesh filename="meshes/drawer1_4.stl" />
+      </geometry>
+      <material name="drawer1_4_color">
+        <color rgba="0.34039 0.28275 0.22235 1" />
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/drawer1_4.stl" />
+      </geometry>
+    </collision>
   </link>
   <joint name="drawer1_joint" type="prismatic">
-    <parent link="base"/>
-    <child link="drawer1"/>
-    <origin xyz="0.00000 0.00000 0.00000" rpy="0 0 0"/>
-    <axis xyz="1.00000 0.00000 -0.00000"/>
-    <limit lower="0.0000" upper="0.2480" effort="10" velocity="2"/>
+    <parent link="base" />
+    <child link="drawer1" />
+    <origin xyz="0.00000 0.00000 0.00000" rpy="0 0 0" />
+    <axis xyz="1.00000 0.00000 -0.00000" />
+    <limit lower="0.0000" upper="0.2480" effort="10" velocity="2" />
+    <dynamics damping="1" friction="0.981" />
   </joint>
 </robot>

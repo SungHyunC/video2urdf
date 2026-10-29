@@ -90,6 +90,7 @@
     <a class="btn ghost" id="dlMjcf" download>Download MJCF</a>
   </div>
   <p class="facts" id="facts"></p>
+  <p class="facts" id="physics" hidden></p>
   <details id="reportBox" hidden><summary>Muse Spark agent report</summary><pre id="report"></pre></details>
 </main>
 
@@ -241,6 +242,8 @@ async function load(entry) {
   $("dlMjcf").href = base + "model.xml";
   $("dlMjcf").download = `${spec.name}.xml`;
   $("facts").textContent = facts(spec);
+  $("physics").hidden = !spec.physics;
+  $("physics").textContent = spec.physics ? physicsFacts(spec.physics) : "";
   $("reportBox").hidden = !spec.agent_report;
   $("report").textContent = spec.agent_report || "";
 }
@@ -257,6 +260,21 @@ function facts(s) {
       (m.box_sizes_mm && m.box_sizes_mm.drawer1 ? `; front ${m.box_sizes_mm.drawer1[1].toFixed(0)} × ${m.box_sizes_mm.drawer1[2].toFixed(0)} mm.` : ".");
   }
   return `Measured from a side view; ${Object.keys(s.joints).length} joint(s) tracked over ${s.frames} frames.`;
+}
+
+function physicsFacts(p) {
+  const links = Object.entries(p.links).map(([k, l]) => `${k} ${l.mass_kg.toFixed(2)} kg (${l.material})`).join(", ");
+  const deg = (r) => (r * 180 / Math.PI).toFixed(0).replace(/^-0$/, "0");
+  const joints = Object.entries(p.joints).map(([k, j]) => {
+    const name = k.replace(/_joint$/, "");
+    const unit = j.type === "revolute" ? "N·m" : "N";
+    if (!j.friction_measured) return `${name} friction ${j.friction.toFixed(2)} ${unit} (estimated, not measured)`;
+    const worst = (d) => Math.max(...d.map(Math.abs)).toFixed(1);
+    return `${name} holds itself with no hand on it at joint angles ${deg(j.held_range[0])}° to ${deg(j.held_range[1])}°, ` +
+      `so its friction is at least the gravity torque there: ${j.friction.toFixed(3)} ${unit}. ` +
+      `Let go in MuJoCo at those angles, it moves ${worst(j.drift_with_deg)}° (${worst(j.drift_without_deg)}° without that friction)`;
+  }).join(". ");
+  return `Physics: masses judged by Muse Spark from the video: ${links}. ${joints}.`;
 }
 
 let current = null;

@@ -1,19 +1,32 @@
 <mujoco model="stand_2">
-  <compiler angle="radian"/>
-  <visual><global offwidth="1080" offheight="1920"/></visual>
-  <asset><mesh name="base_mesh" file="meshes/base.stl" inertia="exact"/><mesh name="lower_arm_mesh" file="meshes/lower_arm.stl" inertia="exact"/><mesh name="upper_arm_mesh" file="meshes/upper_arm.stl" inertia="exact"/></asset>
+  <compiler angle="radian" />
+  <visual>
+    <global offwidth="1080" offheight="1920" />
+  </visual>
+  <asset>
+    <mesh name="base_mesh" file="meshes/base.stl" inertia="exact" />
+    <mesh name="lower_arm_mesh" file="meshes/lower_arm.stl" inertia="exact" />
+    <mesh name="upper_arm_mesh" file="meshes/upper_arm.stl" inertia="exact" />
+  </asset>
   <worldbody>
-    <camera name="video" pos="0.03287 -5.00000 0.11091" xyaxes="1 0 0 0 0 1" fovy="4.31707"/>
+    <camera name="video" pos="0.03287 -5.00000 0.11091" xyaxes="1 0 0 0 0 1" fovy="4.31707" />
     <body name="base" pos="0.00000 0 0.00000">
-      <geom type="mesh" mesh="base_mesh" rgba="0.710 0.729 0.761 1"/>
+      <inertial pos="0.000709794 8.31021e-19 6.71188e-05" quat="1.29055e-17 0.702758 -1.59603e-17 0.711429" mass="0.45" diaginertia="0.00114864 0.000637651 0.000569014" />
+      <geom type="mesh" mesh="base_mesh" rgba="0.710 0.729 0.761 1" friction="0.4 0.005 0.0001" />
       <body name="lower_arm" pos="0.03973 0 0.01514">
-        <joint name="lower_arm_joint" type="hinge" axis="0 -1 0" range="-0.0114 0.5315" limited="true"/>
-        <geom type="mesh" mesh="lower_arm_mesh" rgba="0.424 0.404 0.400 1"/>
+        <joint name="lower_arm_joint" type="hinge" axis="0 -1 0" range="-0.0114 0.5315" limited="true" frictionloss="0.0278679" solreffriction="0.005 1" solimpfriction="0.99 0.999 0.001" damping="0.02" />
+        <inertial pos="0.0116196 2.01681e-19 0.115613" quat="0.999491 0 0.0319138 0" mass="0.075" diaginertia="0.000309725 0.000307362 2.63711e-06" />
+        <geom type="mesh" mesh="lower_arm_mesh" rgba="0.424 0.404 0.400 1" friction="0.35 0.005 0.0001" />
         <body name="upper_arm" pos="0.01649 0 0.24251">
-          <joint name="upper_arm_joint" type="hinge" axis="0 -1 0" range="-1.4158 0.0137" limited="true"/>
-          <geom type="mesh" mesh="upper_arm_mesh" rgba="0.545 0.565 0.561 1"/>
+          <joint name="upper_arm_joint" type="hinge" axis="0 -1 0" range="-1.4158 0.0137" limited="true" frictionloss="0.122417" solreffriction="0.005 1" solimpfriction="0.99 0.999 0.001" damping="0.02" />
+          <inertial pos="-0.010476 6.5465e-19 -0.110646" quat="0.999354 0 0.0359478 0" mass="0.09" diaginertia="0.000324948 0.00031314 1.21918e-05" />
+          <geom type="mesh" mesh="upper_arm_mesh" rgba="0.545 0.565 0.561 1" friction="0.35 0.005 0.0001" />
         </body>
       </body>
     </body>
   </worldbody>
+  <contact>
+    <exclude body1="base" body2="lower_arm" />
+    <exclude body1="lower_arm" body2="upper_arm" />
+  </contact>
 </mujoco>
