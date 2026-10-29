@@ -51,6 +51,8 @@ def body_tree(el: ET.Element) -> dict:
 
 def joint_tracks(run: Path) -> dict[str, list]:
     """Joint name -> value per video frame (None where unmeasured)."""
+    if (run / "slides.json").exists():
+        return {f"drawer{i + 1}_joint": d["q"] for i, d in enumerate(json.loads((run / "slides.json").read_text())["drawers"])}
     if (run / "hinge.json").exists() and (run / "model3d.json").exists():
         return {"lid_joint": json.loads((run / "hinge.json").read_text())["q"]}
     joints = json.loads((run / "joints.json").read_text())["joints"]

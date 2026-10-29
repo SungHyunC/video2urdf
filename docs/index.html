@@ -251,6 +251,11 @@ function facts(s) {
     return `Measured with iPhone LiDAR, no reference card: lid ${m.plate_size_mm[0].toFixed(0)} × ${m.plate_size_mm[1].toFixed(0)} mm, ` +
       `base ${m.base_thickness_mm.toFixed(0)} mm thick, hinge range ${(m.hinge_range_deg[1] - m.hinge_range_deg[0]).toFixed(0)}°.`;
   }
+  if (s.three_d && m.joints) {
+    return `Measured with iPhone LiDAR, no reference card: ` + m.joints.map((j) =>
+      `${j.name.replace(/_joint$/, "")} pulls out ${j.travel_mm.toFixed(0)} mm`).join(", ") +
+      (m.box_sizes_mm && m.box_sizes_mm.drawer1 ? `; front ${m.box_sizes_mm.drawer1[1].toFixed(0)} × ${m.box_sizes_mm.drawer1[2].toFixed(0)} mm.` : ".");
+  }
   return `Measured from a side view; ${Object.keys(s.joints).length} joint(s) tracked over ${s.frames} frames.`;
 }
 
@@ -281,7 +286,7 @@ function tick() {
 
 const index = await (await fetch("models/index.json")).json();
 const tabs = $("tabs");
-const titles = { laptop_lidar: "Laptop · iPhone LiDAR · agent", notebook: "Laptop · side view", stand: "Desk lamp · side view" };
+const titles = { laptop_lidar: "Laptop · iPhone LiDAR · agent", drawer: "Drawer · iPhone LiDAR", notebook: "Laptop · side view", stand: "Desk lamp · side view" };
 for (const entry of index) {
   const b = document.createElement("button");
   b.textContent = titles[entry.name] || entry.name;

@@ -105,6 +105,20 @@ TOOLS = [
          "joint": {"type": "string", "enum": ["hinge", "slide"],
                    "description": "hinge (a lid, door, flap; default) or slide (a drawer: plate = the drawer)"}},
          "required": ["floor", "base", "plate"]}},
+    {"name": "fit_drawers", "description": "LiDAR captures only: drawers sliding out of a cabinet. Fits each "
+     "drawer's travel (how far its front stands out of the cabinet's front, in every frame), writes the model and "
+     "replays it.",
+     "parameters": {"type": "object", "properties": {
+         "floor": {"type": "string", "description": "tracked part: the static surface the cabinet stands on"},
+         "base": {"type": "array", "items": {"type": "string"},
+                  "description": "tracked parts of the cabinet that never move (its side or top panel, fronts of "
+                                 "drawers that stay shut); they are joined into one base"},
+         "drawers": {"type": "array", "items": {"type": "object", "properties": {
+             "part": {"type": "string", "description": "tracked part: this drawer's front panel"},
+             "first_frame": {"type": "integer"}, "last_frame": {"type": "integer",
+                                                               "description": "frames in which this drawer is operated"}},
+             "required": ["part", "first_frame", "last_frame"]}}},
+         "required": ["base", "drawers"]}},
     {"name": "finish", "description": "End with a report.",
      "parameters": {"type": "object", "properties": {"report": {"type": "string"}}, "required": ["report"]}},
 ]
@@ -114,8 +128,8 @@ LIDAR = """
 
 This is an RGB-D capture (iPhone LiDAR, or a depth camera): every frame has metric depth,
 so the view may be oblique and no card is needed (skip measure_scale). For a hinged
-plate (laptop lid, door, flap) or a sliding part (a drawer: joint="slide", plate = the drawer)
-use fit_lidar, not fit. Track, in one track call:
+plate (laptop lid, door, flap) use fit_lidar, not fit; for drawers use fit_drawers (see the
+end). Track, in one track call:
 - the floor or table the object stands on (static scene),
 - the base the plate hinges on, as seen on frame 0,
 - the plate's inner face (e.g. "laptop screen"). The plate is one rigid piece that turns
@@ -129,7 +143,20 @@ disappears and comes back (a screen that closes and reopens) needs candidates on
 frames, at least one before and one after it disappears. Then call fit_lidar with the
 tracked part names in their roles. Judge the result: the hinge line should sit on the real
 hinge, the opening over time should follow the video, and the replayed model should stay
-on the object. Report sizes in mm; say which numbers are clipped or unmeasured."""
+on the object. Report sizes in mm; say which numbers are clipped or unmeasured.
+
+Drawers (fit_drawers): look at frames across the video first to see WHICH drawer moves and
+WHEN. When a drawer is out, the slot it came from is gone from the row of fronts: count the
+fronts on a shut frame and on an open frame. Track, in one track call:
+- the floor,
+- each moving drawer's FRONT PANEL (segment it while it is out and again on a shut frame, and
+  give both candidates to the same part),
+- cabinet parts that never move (its side or top panel, fronts of drawers that stay shut),
+  each its own part; pass them together as base.
+Give each drawer the frame range in which it is operated. Look-alike fronts can swap
+identities while tracking: in the replay, the drawer's box must sit on that drawer both shut
+and open, and a part in base must not follow the moving drawer (if one does, drop it from
+base and fit again)."""
 
 
 def cap_images(messages: list[dict]) -> None:
@@ -364,6 +391,35 @@ class Agent:
         self.last_fit = summary
         return ("\n".join(lines) + "\nImages: the hinge drawn on the reference frame with the opening over time, "
                 "then the replayed model (colored) over the video at its worst frames and a few others.")
+
+    def tool_fit_drawers(self, base: list, drawers: list, floor: str | None = None) -> str:
+        if self.capture is None:
+            return "fit_drawers needs a LiDAR capture"
+        if not self.tracked:
+            return "track parts first"
+        base = [slug(b) for b in (base if isinstance(base, list) else [base])]
+        spec = [(slug(d["part"]), (int(d["first_frame"]), int(d["last_frame"]))) for d in drawers]
+        c = lidar.open_capture(self.video, self.capture, self.track_dir)
+        missing = [p for p in base + [d for d, _ in spec] + ([slug(floor)] if floor else []) if p not in c.names]
+        if missing:
+            return f"not tracked: {missing}; tracked parts are {c.names}"
+        lines = []
+        if c.moving_camera and floor:
+            fix = c.level_with(slug(floor))
+            lines.append(f"floor levelling removed ARKit drift up to {fix['shift_mm_max']:.0f} mm")
+        b = c.merge("cabinet", base) if len(base) > 1 else base[0]
+        (self.track_dir / "drawers.json").write_text(json.dumps({"floor": floor and slug(floor), "base": base,
+                                                                  "drawers": [[d, list(w)] for d, w in spec]}))
+        summary = lidar.fit_and_build_slides(c, b, slug(floor) if floor else None, spec, log=lines.append)
+        frames = []
+        fitted = json.loads((self.track_dir / "slides.json").read_text())["drawers"]
+        for (d, (t0, t1)), f in zip(spec, fitted):  # each drawer shut and at its most open
+            q = np.array([np.nan if v is None else v for v in f["q"]])
+            frames += [int(np.nanargmin(q)), int(np.nanargmax(q))]
+        sheet = self.video_sheet(self.track_dir / "replay3d.mp4", sorted(set(frames))[:4])
+        self.show(sheet, "fit_drawers: replay (drawers shut and at their most open)", width=sheet.shape[1])
+        self.last_fit = summary
+        return "\n".join(lines) + "\nImage: the replayed model (colored) over the video, each drawer shut and out."
 
     def video_sheet(self, path: Path, frames: list[int]) -> np.ndarray:
         cap = cv2.VideoCapture(str(path))
