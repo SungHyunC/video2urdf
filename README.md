@@ -51,6 +51,7 @@ Two capture paths:
 | **SAM 3.1** (`sam-3.1`, Meta Model API) | `video2urdf/sam.py`, `scripts/track_video.py` | Concept prompts on key frames find each part; one box-anchored video request tracks all parts with stable IDs. |
 | **Muse Spark Open** (open weights, Baseten) | `run_agent.py --open-weights` | The same agent on open weights. |
 | **SAM 3.1 / SAM 3** (open weights `facebook/sam3.1`, `facebook/sam3`, on a Modal GPU) | `modal_apps/sam3_open.py`, `video2urdf/sam_open.py` | Open-weights segmentation (SAM 3.1 concept prompts) and box tracking (SAM 3's tracker), answering in the hosted API's wire format so the rest of the pipeline is unchanged. |
+| **SAM 3D Objects** (open weights `facebook/sam-3d-objects`, on a Modal GPU) | `modal_apps/sam3d_objects.py`, `scripts/sam3d_meshes.py` | A realistic, coloured mesh of each link from one frame and its SAM 3.1 mask, laid out in metres by our LiDAR depth (given as its pointmap), checked against the measured depth points; it becomes the link's visual, the measured shape stays its collision. |
 
 Every model called at runtime is a Meta model. Switching between the Meta API and open
 weights is one flag.
@@ -214,6 +215,21 @@ and URDF/MJCF downloads.
 `--sam api` keeps the hosted segmenter while reasoning runs on open weights. The Modal app
 scales to zero after 2 idle minutes (A10G, about $0.05-0.10 per video).
 
+### Realistic link meshes (SAM 3D Objects)
+
+```bash
+# Request access on huggingface.co/facebook/sam-3d-objects (gated), then
+.venv/bin/modal deploy modal_apps/sam3d_objects.py
+.venv/bin/modal run modal_apps/sam3d_objects.py::download     # 12 GB of checkpoints into a Modal volume
+.venv/bin/python scripts/sam3d_meshes.py data/tracks_agent/laptop_lidar \
+    --video data/real/laptop_lidar/laptop_lidar.mp4 --capture data/real/laptop_lidar
+```
+
+Writes `meshes/<link>_sam3d.{obj,ply}` and `sam3d.json` (how far the part's depth points lie
+from the generated surface), and adds the meshes to `model.xml` / `model.urdf` as visuals. In
+MJCF the measured shapes move to geom group 3 (hidden in the viewer, still colliding). L40S,
+scales to zero after 2 idle minutes.
+
 ### URDF Doctor
 
 ```bash
@@ -239,13 +255,14 @@ cat data/rbo/results/summary.md
 
 ## Built on
 
-Models: Muse Spark, Muse Spark Open, SAM 3.1, SAM 3 (Meta).
+Models: Muse Spark, Muse Spark Open, SAM 3.1, SAM 3, SAM 3D Objects (Meta).
 
 | Project | License | Used for |
 |---|---|---|
 | [MuJoCo](https://github.com/google-deepmind/mujoco) | Apache-2.0 | simulation, rendering the replay |
 | [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) (Franka Panda) | Apache-2.0 | robot demo, fetched by `scripts/fetch_assets.sh`, not committed |
 | [facebookresearch/sam3](https://github.com/facebookresearch/sam3) | SAM License | open-weights SAM on Modal |
+| [facebookresearch/sam-3d-objects](https://github.com/facebookresearch/sam-3d-objects) (SAM 3D Objects) | SAM License | realistic link meshes on Modal; installed into the Modal image, not vendored |
 | [meta-sam-parser](https://pypi.org/project/meta-sam-parser/) | SAM License | parsing SAM API output; `video2urdf/fast_mask.py` is a numba port of its decoder (`LICENSES/SAM_LICENSE`) |
 | [RBO dataset](https://zenodo.org/records/1036660) - R. Martín-Martín, C. Eppner, O. Brock, "The RBO Dataset of Articulated Objects and Interactions", IJRR 2019 | CC BY 4.0 | benchmark; downloaded, not redistributed |
 | [three.js](https://threejs.org) | MIT | web viewer (CDN) |

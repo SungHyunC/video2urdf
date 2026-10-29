@@ -44,7 +44,10 @@ image = (
     .run_commands(
         # requirements.txt minus SKIP; torchaudio is already in, from the torch index
         f"cd {REPO} && grep -v -i -E '^({'|'.join(SKIP)})(=|@| |$)|^torchaudio' requirements.txt > /tmp/req.txt "
-        f"&& pip install -r /tmp/req.txt --extra-index-url {TORCH_INDEX} --extra-index-url https://pypi.ngc.nvidia.com")
+        # (not the repo's pypi.ngc.nvidia.com index: it doesn't resolve from Modal's builders, and
+        # what it served, nvidia-cuda-nvcc-cu12, is on PyPI)
+        # numpy < 2: the torch 2.5 era wheels here (open3d 0.18, spconv, kaolin) are built against 1.x
+        f"&& echo 'numpy<2' >> /tmp/req.txt && pip install -r /tmp/req.txt --extra-index-url {TORCH_INDEX}")
     .env({"FORCE_CUDA": "1", "TORCH_CUDA_ARCH_LIST": "8.0;8.6;8.9", "MAX_JOBS": "8"})
     .pip_install(FLASH_ATTN)  # first: requirements.p3d.txt pins flash_attn, which would build from source
     .run_commands(f"cd {REPO} && pip install --no-build-isolation -r requirements.p3d.txt")
