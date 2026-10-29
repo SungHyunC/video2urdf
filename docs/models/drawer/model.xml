@@ -4,32 +4,34 @@
     <global offwidth="1920" offheight="1440" />
   </visual>
   <asset>
-    <mesh name="base_0" file="meshes/base_0.stl" inertia="exact" />
-    <mesh name="base_1" file="meshes/base_1.stl" inertia="exact" />
-    <mesh name="base_2" file="meshes/base_2.stl" inertia="exact" />
-    <mesh name="base_3" file="meshes/base_3.stl" inertia="exact" />
-    <mesh name="drawer1_0" file="meshes/drawer1_0.stl" inertia="exact" />
-    <mesh name="drawer1_1" file="meshes/drawer1_1.stl" inertia="exact" />
-    <mesh name="drawer1_2" file="meshes/drawer1_2.stl" inertia="exact" />
-    <mesh name="drawer1_3" file="meshes/drawer1_3.stl" inertia="exact" />
-    <mesh name="drawer1_4" file="meshes/drawer1_4.stl" inertia="exact" />
+    <mesh name="base_0" file="meshes/base_0_tex.obj" inertia="exact" />
+    <mesh name="base_1" file="meshes/base_1_tex.obj" inertia="exact" />
+    <mesh name="base_2" file="meshes/base_2_tex.obj" inertia="exact" />
+    <mesh name="base_3" file="meshes/base_3_tex.obj" inertia="exact" />
+    <mesh name="drawer1_0" file="meshes/drawer1_0_tex.obj" inertia="exact" />
+    <mesh name="drawer1_1" file="meshes/drawer1_1_tex.obj" inertia="exact" />
+    <mesh name="drawer1_2" file="meshes/drawer1_2_tex.obj" inertia="exact" />
+    <mesh name="drawer1_3" file="meshes/drawer1_3_tex.obj" inertia="exact" />
+    <mesh name="drawer1_4" file="meshes/drawer1_4_tex.obj" inertia="exact" />
+    <texture name="video_tex" type="2d" file="meshes/video_tex.png" />
+    <material name="video_tex" texture="video_tex" />
   </asset>
   <worldbody>
     <camera name="video" pos="0 0 1" />
     <body name="base" pos="0.00000 0.00000 0.55006">
       <inertial pos="-0.122118 0.00408661 -0.269527" quat="0.999998 -0.000538211 -0.000136351 -0.00188998" mass="13" diaginertia="0.571259 0.501093 0.218996" />
-      <geom type="mesh" mesh="base_0" rgba="0.95294 0.88235 0.76471 1" friction="0.4 0.005 0.0001" />
-      <geom type="mesh" mesh="base_1" rgba="0.95294 0.88235 0.76471 1" friction="0.4 0.005 0.0001" />
-      <geom type="mesh" mesh="base_2" rgba="0.95294 0.88235 0.76471 1" friction="0.4 0.005 0.0001" />
-      <geom type="mesh" mesh="base_3" rgba="0.95294 0.88235 0.76471 1" friction="0.4 0.005 0.0001" />
+      <geom type="mesh" mesh="base_0" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" />
+      <geom type="mesh" mesh="base_1" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" />
+      <geom type="mesh" mesh="base_2" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" />
+      <geom type="mesh" mesh="base_3" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" />
       <body name="drawer1" pos="0.00000 0.00000 0.00000">
         <joint name="drawer1_joint" type="slide" axis="1.00000 0.00000 -0.00000" range="0.0000 0.2480" limited="true" frictionloss="0.981" solreffriction="0.005 1" solimpfriction="0.99 0.999 0.001" damping="1" />
         <inertial pos="-0.104177 -0.0147241 -0.280774" quat="0.485424 0.485424 -0.514163 0.514163" mass="2.5" diaginertia="0.0493126 0.0312277 0.023528" />
-        <geom type="mesh" mesh="drawer1_0" rgba="0.48627 0.40392 0.31765 1" friction="0.4 0.005 0.0001" />
-        <geom type="mesh" mesh="drawer1_1" rgba="0.34039 0.28275 0.22235 1" friction="0.4 0.005 0.0001" />
-        <geom type="mesh" mesh="drawer1_2" rgba="0.34039 0.28275 0.22235 1" friction="0.4 0.005 0.0001" />
-        <geom type="mesh" mesh="drawer1_3" rgba="0.34039 0.28275 0.22235 1" friction="0.4 0.005 0.0001" />
-        <geom type="mesh" mesh="drawer1_4" rgba="0.34039 0.28275 0.22235 1" friction="0.4 0.005 0.0001" />
+        <geom type="mesh" mesh="drawer1_0" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" />
+        <geom type="mesh" mesh="drawer1_1" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" />
+        <geom type="mesh" mesh="drawer1_2" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" />
+        <geom type="mesh" mesh="drawer1_3" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" />
+        <geom type="mesh" mesh="drawer1_4" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" />
       </body>
     </body>
   </worldbody>
