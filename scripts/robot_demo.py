@@ -43,16 +43,19 @@ def object_xml(model_xml: Path, pos, yaw: float) -> tuple[str, str, str, str]:
             mesh.set("file", str((model_xml.parent / mesh.get("file")).resolve()))  # Panda's meshdir is elsewhere
             mesh_xml += ET.tostring(mesh, encoding="unicode")
     root = tree.getroot().find("worldbody").find("body")
+    measured = root.find("inertial") is not None  # physics.apply ran: masses and joint friction are set
     for el in root.iter():
         if "name" in el.attrib:
             el.set("name", "obj_" + el.get("name"))
         if el.tag == "geom":
             if el.get("mesh"):
                 el.set("mesh", "obj_" + el.get("mesh"))
-            el.set("density", "300")
+            if not measured:
+                el.set("density", "300")
         if el.tag == "joint":
-            el.set("damping", "0.3")
-            el.set("frictionloss", "0.5")  # laptop hinges are stiff: the lid holds its angle
+            if not measured:
+                el.set("damping", "0.3")
+                el.set("frictionloss", "0.5")  # laptop hinges are stiff: the lid holds its angle
             el.set("armature", "0.01")
     joint = next(el.get("name") for el in root.iter("joint") if el.get("type") == "hinge")
     # Links overlap at their joints. MuJoCo skips parent-child contacts, except when the
