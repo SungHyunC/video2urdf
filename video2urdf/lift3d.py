@@ -318,6 +318,8 @@ def fit_plane(points: np.ndarray, rng: np.random.Generator, tol: float = 0.004, 
         inl = np.abs((points - a) @ n) < tol
         if best is None or inl.sum() > best.sum():
             best = inl
+    if best is None or best.sum() < 3:  # degenerate (collinear) points: no plane
+        return np.array([0.0, 0.0, 1.0]), 0.0, 0.0
     p = points[best]
     centroid = p.mean(axis=0)
     n = np.linalg.svd(p - centroid, full_matrices=False)[2][2]
