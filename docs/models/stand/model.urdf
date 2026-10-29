@@ -72,7 +72,7 @@
     <origin xyz="0.03973 0 0.01514" rpy="0 0 0" />
     <axis xyz="0 -1 0" />
     <limit lower="-0.0114" upper="0.5315" effort="10" velocity="2" />
-    <dynamics damping="0.02" friction="0.0278679" />
+    <dynamics damping="0.02" friction="0.109883" />
   </joint>
   <joint name="upper_arm_joint" type="revolute">
     <parent link="lower_arm" />

@@ -20,6 +20,7 @@
     --accent: #7aa5ff; --accent-ink: #0d1424; --canvas: #202224;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }  /* .seg sets display: flex */
   body { margin: 0; background: var(--bg); color: var(--ink);
          font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
   header { padding: 20px 16px 8px; max-width: 1280px; margin: 0 auto; }
@@ -108,6 +109,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { PLYLoader } from "three/addons/loaders/PLYLoader.js";
+import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -130,6 +132,8 @@ scene.add(grid);
 
 const stl = new STLLoader();
 const ply = new PLYLoader();
+const obj = new OBJLoader();
+const textures = {};  // file -> THREE.Texture, shared by the meshes on one atlas
 let look = "realistic";  // or "measured": which visuals show when a model has SAM 3D meshes
 let model = null;       // { root, joints: {name: {node, spec, track, value}} }
 let spec = null;
@@ -158,6 +162,17 @@ async function geomObject(g, base) {
     const geo = await ply.loadAsync(base + g.mesh);
     geo.computeVertexNormals();
     mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.05 }));
+  } else if (g.mesh && g.mesh.endsWith(".obj")) {  // the measured shape painted with the video (texture.py)
+    const group = await obj.loadAsync(base + g.mesh);
+    const geo = group.children[0].geometry;
+    geo.computeVertexNormals();
+    let map = null;
+    if (g.texture) {
+      map = textures[base + g.texture] ||= await new THREE.TextureLoader().loadAsync(base + g.texture);
+      map.colorSpace = THREE.SRGBColorSpace;
+      map.anisotropy = 8;
+    }
+    mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map, color: map ? 0xffffff : color, roughness: 0.6, metalness: 0.05 }));
   } else if (g.mesh) {
     const geo = await stl.loadAsync(base + g.mesh);
     geo.computeVertexNormals();

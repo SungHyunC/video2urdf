@@ -4,20 +4,22 @@
     <global offwidth="1920" offheight="1440" />
   </visual>
   <asset>
-    <mesh name="base_0" file="meshes/base.stl" inertia="exact" />
-    <mesh name="lid_0" file="meshes/lid.stl" inertia="exact" />
-    <mesh name="lid_1" file="meshes/screen.stl" inertia="exact" />
+    <mesh name="base_0" file="meshes/base_tex.obj" inertia="exact" />
+    <mesh name="lid_0" file="meshes/lid_tex.obj" inertia="exact" />
+    <mesh name="lid_1" file="meshes/screen_tex.obj" inertia="exact" />
+    <texture name="video_tex" type="2d" file="meshes/video_tex.png" />
+    <material name="video_tex" texture="video_tex" />
   </asset>
   <worldbody>
     <camera name="video" pos="0 0 1" />
     <body name="base" pos="0.00000 0.00000 0.01980">
-      <inertial pos="-0.023215 0.111179 -0.0129873" quat="0.0313872 0.70641 -0.0313872 0.70641" mass="0.9" diaginertia="0.0107799 0.00733006 0.00347765" />
-      <geom type="mesh" mesh="base_0" rgba="0.54902 0.63922 0.69804 1" friction="0.6 0.005 0.0001" />
+      <inertial pos="-0.0232126 0.111179 -0.0129876" quat="0.0313872 0.70641 -0.0313872 0.70641" mass="0.9" diaginertia="0.0107799 0.00733006 0.00347765" />
+      <geom type="mesh" mesh="base_0" rgba="1 1 1 1" friction="0.6 0.005 0.0001" material="video_tex" />
       <body name="lid" pos="0.00000 0.00000 0.00000">
-        <joint name="lid_joint" type="hinge" axis="1.00000 0.00000 0.00000" range="-1.8613 0.1638" limited="true" frictionloss="0.283532" solreffriction="0.005 1" solimpfriction="0.99 0.999 0.001" damping="0.02" />
-        <inertial pos="-0.0276956 -0.0307439 0.108681" quat="0.431346 0.560304 0.427517 0.563231" mass="0.5" diaginertia="0.00612323 0.00400437 0.00212009" />
-        <geom type="mesh" mesh="lid_0" rgba="0.30196 0.40784 0.48627 1" friction="0.4 0.005 0.0001" />
-        <geom type="mesh" mesh="lid_1" rgba="0.22353 0.28235 0.19608 1" contype="0" conaffinity="0" mass="0.001" />
+        <joint name="lid_joint" type="hinge" axis="1.00000 0.00000 0.00000" range="-1.8613 0.1638" limited="true" frictionloss="0.283534" solreffriction="0.005 1" solimpfriction="0.99 0.999 0.001" damping="0.02" />
+        <inertial pos="-0.0276933 -0.030744 0.108682" quat="0.431346 0.560304 0.427516 0.563231" mass="0.5" diaginertia="0.00612324 0.00400437 0.0021201" />
+        <geom type="mesh" mesh="lid_0" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" />
+        <geom type="mesh" mesh="lid_1" rgba="1 1 1 1" contype="0" conaffinity="0" mass="0.001" material="video_tex" />
       </body>
     </body>
   </worldbody>

@@ -38,10 +38,13 @@ def object_xml(model_xml: Path, pos, yaw: float) -> tuple[str, str, str, str]:
     assets = tree.getroot().find("asset")
     mesh_xml = ""
     if assets is not None:
-        for mesh in assets.iter("mesh"):
-            mesh.set("name", "obj_" + mesh.get("name"))
-            mesh.set("file", str((model_xml.parent / mesh.get("file")).resolve()))  # Panda's meshdir is elsewhere
-            mesh_xml += ET.tostring(mesh, encoding="unicode")
+        for el in assets:  # meshes, and the video textures (texture.py) with their materials
+            el.set("name", "obj_" + el.get("name"))
+            if el.get("file"):
+                el.set("file", str((model_xml.parent / el.get("file")).resolve()))  # Panda's meshdir is elsewhere
+            if el.get("texture"):
+                el.set("texture", "obj_" + el.get("texture"))
+            mesh_xml += ET.tostring(el, encoding="unicode")
     root = tree.getroot().find("worldbody").find("body")
     measured = root.find("inertial") is not None  # physics.apply ran: masses and joint friction are set
     for el in root.iter():
@@ -50,6 +53,8 @@ def object_xml(model_xml: Path, pos, yaw: float) -> tuple[str, str, str, str]:
         if el.tag == "geom":
             if el.get("mesh"):
                 el.set("mesh", "obj_" + el.get("mesh"))
+            if el.get("material"):
+                el.set("material", "obj_" + el.get("material"))
             if not measured:
                 el.set("density", "300")
         if el.tag == "joint":

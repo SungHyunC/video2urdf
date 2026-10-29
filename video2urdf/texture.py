@@ -201,7 +201,7 @@ def texture_model(track_dir: Path, video: Path, log=print) -> dict:
         x, row = x + c[6], max(row, c[7])
     atlas_h = y + row + 8
     atlas = np.zeros((atlas_h, ATLAS_W, 3), np.uint8)
-    fill = (ATLAS_W - 8, atlas_h - 8)  # a 8x8 patch per mesh for faces never seen, filled below
+    # one 8x8 patch per mesh along the bottom row, for its faces never seen (filled below)
     cache = {}
     face_uv = {}  # (gi, fi) -> per-triangle-corner uv in atlas pixels
     for gi, fi, t, ab, lo, k, cw, ch, (e1, e2, d, nrm) in cells:
@@ -229,11 +229,13 @@ def texture_model(track_dir: Path, video: Path, log=print) -> dict:
         atlas[ay: ay + ch, ax: ax + cw] = cell
         face_uv[(gi, fi)] = (ab - lo) * k + np.array([ax, ay])
 
-    # Write one textured OBJ per mesh asset; faces never seen take the mean of the seen ones.
+    # One textured OBJ per mesh asset, all on one atlas; faces never seen take the link's colour.
     done, out = {}, {"meshes": {}}
+    mesh_dir = track_dir / Path(files[geoms[0][3]]).parent if geoms else track_dir
     for gi, (g, body, bname, mesh, tris, faces) in enumerate(geoms):
         if mesh in done:
             continue
+        fill = (ATLAS_W - 8 * (gi + 1), atlas_h - 8)
         seen = [(gi, fi) for fi in range(len(faces)) if (gi, fi) in face_uv]
         if seen:  # the link's colour: the median of its largest painted face
             k = max(seen, key=lambda k: np.ptp(face_uv[k], axis=0).prod())
@@ -243,8 +245,7 @@ def texture_model(track_dir: Path, video: Path, log=print) -> dict:
             rgba = model.geom_rgba[g]
             mean = np.array([rgba[2], rgba[1], rgba[0]]) * 255
         stem = Path(files[mesh]).stem + "_tex"
-        mesh_dir = track_dir / Path(files[mesh]).parent
-        lines = [f"mtllib {stem}.mtl", f"usemtl {stem}"]
+        lines = ["mtllib video_tex.mtl", "usemtl video_tex"]
         vt = []
         for fi, face in enumerate(faces):
             if (gi, fi) in face_uv:
@@ -260,12 +261,8 @@ def texture_model(track_dir: Path, video: Path, log=print) -> dict:
         for i in range(len(order)):
             a = 3 * i + 1
             lines.append(f"f {a}/{a} {a + 1}/{a + 1} {a + 2}/{a + 2}")
-        # this mesh's own atlas copy, with its fill patch
-        img = atlas.copy()
-        img[fill[1]:, fill[0]:] = mean
-        cv2.imwrite(str(mesh_dir / f"{stem}.png"), img)
+        atlas[fill[1]:, fill[0]: fill[0] + 8] = mean
         (mesh_dir / f"{stem}.obj").write_text("\n".join(lines) + "\n")
-        (mesh_dir / f"{stem}.mtl").write_text(f"newmtl {stem}\nKd 1 1 1\nmap_Kd {stem}.png\n")
         done[mesh] = str(Path(files[mesh]).parent / f"{stem}.obj")
         out["meshes"][mesh] = {"faces_seen": len(seen), "faces": len(faces),
                                "frames": sorted({best[k][1] for k in seen}),
@@ -273,6 +270,14 @@ def texture_model(track_dir: Path, video: Path, log=print) -> dict:
                                            for _, fi in seen}}
         log(f"{mesh}: {len(seen)}/{len(faces)} faces painted from frames {out['meshes'][mesh]['frames']}")
 
+    cv2.imwrite(str(mesh_dir / "video_tex.png"), atlas)
+    (mesh_dir / "video_tex.mtl").write_text("newmtl video_tex\nKd 1 1 1\nmap_Kd video_tex.png\n")
+    for old in mesh_dir.glob("*_tex.png"):  # per-mesh atlases from before
+        if old.name != "video_tex.png":
+            old.unlink()
+    for old in mesh_dir.glob("*_tex.mtl"):
+        if old.name != "video_tex.mtl":
+            old.unlink()
     for path in [p for p in (xml, track_dir / "model.nophysics.xml") if p.exists()]:
         _switch_mjcf(path, done)
     for path in [p for p in (track_dir / "model.urdf", track_dir / "model.nophysics.urdf") if p.exists()]:
@@ -291,13 +296,13 @@ def _switch_mjcf(path: Path, done: dict[str, str]):
     for old in asset.findall("texture") + asset.findall("material"):
         if old.get("name", "").endswith("_tex"):
             asset.remove(old)
-    for name, obj in done.items():
-        stem = Path(obj).stem
-        ET.SubElement(asset, "texture", name=stem, type="2d", file=str(Path(obj).with_suffix(".png")))
-        ET.SubElement(asset, "material", name=stem, texture=stem)
+    if done:
+        png = str(Path(next(iter(done.values()))).parent / "video_tex.png")
+        ET.SubElement(asset, "texture", name="video_tex", type="2d", file=png)
+        ET.SubElement(asset, "material", name="video_tex", texture="video_tex")
     for g in root.iter("geom"):
         if g.get("mesh") in done:
-            g.set("material", Path(done[g.get("mesh")]).stem)
+            g.set("material", "video_tex")
             g.set("rgba", "1 1 1 1")
     ET.indent(tree, "  ")
     tree.write(path)

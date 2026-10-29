@@ -2,17 +2,14 @@
 <robot name="laptop_lidar">
   <link name="base">
     <inertial>
-      <origin xyz="-0.023215 0.111179 -0.0129873" rpy="0 -1.5708 0" />
+      <origin xyz="-0.0232126 0.111179 -0.0129876" rpy="0 -1.5708 3.14159" />
       <mass value="0.9" />
       <inertia ixx="0.0107799" ixy="0" ixz="0" iyy="0.00733006" iyz="0" izz="0.00347765" />
     </inertial>
     <visual name="base_0">
       <geometry>
-        <mesh filename="meshes/base.stl" />
+        <mesh filename="meshes/base_tex.obj" />
       </geometry>
-      <material name="base_0_color">
-        <color rgba="0.54902 0.63922 0.69804 1" />
-      </material>
     </visual>
     <collision>
       <geometry>
@@ -22,17 +19,14 @@
   </link>
   <link name="lid">
     <inertial>
-      <origin xyz="-0.0276956 -0.0307439 0.108681" rpy="1.56398 -0.265453 1.5708" />
+      <origin xyz="-0.0276933 -0.030744 0.108682" rpy="1.56398 -0.265453 1.5708" />
       <mass value="0.5" />
-      <inertia ixx="0.00612323" ixy="0" ixz="0" iyy="0.00400437" iyz="0" izz="0.00212009" />
+      <inertia ixx="0.00612324" ixy="0" ixz="0" iyy="0.00400437" iyz="0" izz="0.0021201" />
     </inertial>
     <visual name="lid_0">
       <geometry>
-        <mesh filename="meshes/lid.stl" />
+        <mesh filename="meshes/lid_tex.obj" />
       </geometry>
-      <material name="lid_0_color">
-        <color rgba="0.30196 0.40784 0.48627 1" />
-      </material>
     </visual>
     <collision>
       <geometry>
@@ -41,11 +35,8 @@
     </collision>
     <visual name="lid_1">
       <geometry>
-        <mesh filename="meshes/screen.stl" />
+        <mesh filename="meshes/screen_tex.obj" />
       </geometry>
-      <material name="lid_1_color">
-        <color rgba="0.22353 0.28235 0.19608 1" />
-      </material>
     </visual>
   </link>
   <joint name="lid_joint" type="revolute">
@@ -54,6 +45,6 @@
     <origin xyz="0.00000 0.00000 0.00000" rpy="0 0 0" />
     <axis xyz="1.00000 0.00000 0.00000" />
     <limit lower="-1.8613" upper="0.1638" effort="10" velocity="2" />
-    <dynamics damping="0.02" friction="0.283532" />
+    <dynamics damping="0.02" friction="0.283534" />
   </joint>
 </robot>

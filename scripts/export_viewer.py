@@ -46,6 +46,7 @@ def body_tree(el: ET.Element) -> dict:
             "mesh": g.get("mesh"), "type": g.get("type"), "rgba": floats(g.get("rgba"), [0.7, 0.7, 0.7, 1]),
             "pos": floats(g.get("pos"), [0, 0, 0]), "size": floats(g.get("size"), []),
             "axisangle": floats(g.get("axisangle"), None),
+            "material": g.get("material"),  # the video texture (texture.py), resolved in export
             "realistic": (g.get("mesh") or "").endswith("_sam3d"),  # SAM 3D's mesh (scripts/sam3d_meshes.py)
             "measured": g.get("group") == "3"})  # hidden under a realistic visual in MuJoCo
     return out
@@ -82,10 +83,16 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
         shutil.copy(run / file, dst / file)
     tree = body_tree(root.find("worldbody").find("body"))
 
+    textures = {t.get("name"): t.get("file") for t in root.iter("texture") if t.get("file")}
+    materials = {m.get("name"): textures.get(m.get("texture")) for m in root.iter("material")}
+    for file in {f for f in materials.values() if f}:
+        shutil.copy(run / file, dst / file)
+
     def fix_mesh_paths(b):
         for g in b["geoms"]:
             if g["mesh"]:
                 g["mesh"] = meshes[g["mesh"]]
+            g["texture"] = materials.get(g.pop("material"))
         for c in b["children"]:
             fix_mesh_paths(c)
 
