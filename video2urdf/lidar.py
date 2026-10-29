@@ -120,7 +120,12 @@ class Capture:
             n, d, _ = fit_plane(c, rng)
             return n, d
 
-        n0, d0 = plane(self.ref)
+        seen = sorted(self.by.get(floor, {}))
+        if not seen:
+            return {"frames_used": 0, "tilt_deg_max": 0.0, "shift_mm_max": 0.0, "shift_mm_median": 0.0}
+        # The floor's plane on the reference frame, or the nearest frame it is seen on (a hand
+        # or the opened lid can hide it there).
+        n0, d0 = plane(min(seen, key=lambda t: abs(t - self.ref)))
         # Per-frame correction as a small rotation vector (turning that frame's floor normal onto
         # the reference one) and a height shift. Drift is slow and plane fits are noisy (a hand
         # or a chair leg in the floor mask), so implausible frames are dropped and the rest

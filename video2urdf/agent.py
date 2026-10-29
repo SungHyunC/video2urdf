@@ -401,6 +401,9 @@ class Agent:
                  thickness: dict | None = None) -> str:
         if not self.tracked:
             return "track parts first"
+        if self.capture is not None:
+            return ("this is a depth capture: fit is the planar 2D path with an assumed scale. Use fit_lidar "
+                    "(a hinged plate) or fit_drawers")
         if self.px_per_m is None:
             w, h = self.size
             self.px_per_m = max(w, h) / ASSUMED_VIEW_M
