@@ -8,7 +8,8 @@ Writes the model files plus agent/log.md (every step, with the images Spark saw)
 agent/report.md into <out>/<video stem>/. AGENT_MODEL, AGENT_BASE_URL and AGENT_API_KEY_ENV
 switch the reasoning model and SAM_BACKEND the segmenter. --open-weights runs everything on
 open weights: Muse Spark Open on Baseten and SAM 3.1 (facebook/sam3.1) on Modal
-(modal deploy modal_apps/sam3_open.py first).
+(modal deploy modal_apps/sam3_open.py first). --glimmer runs the agent on Muse Glimmer 30B
+(open weights) on our own Modal Dedicated Endpoint (GLIMMER_URL; README has the commands).
 """
 
 import argparse
@@ -34,10 +35,17 @@ def main():
     ap.add_argument("video", type=Path)
     ap.add_argument("--out", type=Path, default=ROOT / "data" / "tracks")
     ap.add_argument("--open-weights", action="store_true", help="Muse Spark Open + SAM 3.1 weights only")
+    ap.add_argument("--glimmer", action="store_true",
+                    help="reasoning on Muse Glimmer 30B on our Modal endpoint (with --open-weights: SAM too)")
     ap.add_argument("--sam", choices=["api", "open"], help="override the segmenter alone")
     args = ap.parse_args()
     if args.open_weights:
         os.environ.update(OPEN_WEIGHTS)
+    if args.glimmer:  # a Modal Dedicated Endpoint: proxy token as "wk-....ws-..." bearer
+        os.environ["GLIMMER_API_KEY"] = f"{os.environ['MODAL_PROXY_TOKEN_ID']}.{os.environ['MODAL_PROXY_TOKEN_SECRET']}"
+        os.environ.update({"AGENT_MODEL": "glimmer", "AGENT_BASE_URL": os.environ["GLIMMER_URL"].rstrip("/") + "/v1",
+                           "AGENT_API_KEY_ENV": "GLIMMER_API_KEY", "AGENT_MAX_IMAGES": "8",
+                           "AGENT_VIDEO": "0"})  # the endpoint drops video input; Glimmer sees frames
     if args.sam:
         os.environ["SAM_BACKEND"] = args.sam
     from video2urdf.agent import Agent  # reads the backend settings on import

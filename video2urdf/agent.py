@@ -29,7 +29,8 @@ MAX_IMAGES = int(os.environ.get("AGENT_MAX_IMAGES", "0"))  # per request; 0 = no
 MAX_VIDEOS = 2  # videos kept in the conversation; older ones become a note
 VIDEO = os.environ.get("AGENT_VIDEO", "1") != "0"  # send Spark whole videos (Muse Spark 1.3 and Spark Open take mp4)
 VIDEO_WIDTH, VIDEO_FPS = 480, 10  # videos shown to Spark are downscaled; timestamps are kept
-MAX_STEPS = 22  # Spark turns; the last one must call finish
+MAX_STEPS = 22  # model turns; the last one must call finish
+WHO = "Spark" if "spark" in MODEL.lower() else MODEL  # log headings
 ASSUMED_VIEW_M = 0.6  # frame's long side in metres when no card sets the scale
 VIEW_WIDTH = 540  # px; frames shown to Spark
 COLORS = [(0, 200, 255), (255, 80, 80), (80, 220, 80), (255, 0, 255), (255, 255, 0), (0, 128, 255)]
@@ -40,12 +41,7 @@ revolute or prismatic joints, written as URDF/MJCF, then proven by replaying it 
 the video. The camera roughly faces the plane of motion, so the model is planar.
 
 Tools:
-- The whole video is attached to the first message: watch it to see what moves, how, and
-  when. Timestamps in it are seconds; frame = seconds x fps.
-- look(frames): see video frames at full resolution, with their frame numbers.
-- watch(what, start_s, end_s): watch a video again: "video" (the source) or "replay" (the
-  latest replay: the fitted model drawn over the video). Watching the replay is how you check
-  a fit over time, not just at a few frames: say where and when the model leaves the object.
+{video_tools}- look(frames): see video frames at full resolution, with their frame numbers.
 - segment(prompt, frame): SAM 3.1 finds every match of a short concept prompt on one frame.
   Returns candidate ids and an annotated image. One concept per call. SAM is literal: short
   visual noun phrases work ("white base", "metal pole", "laptop lid", "laptop keyboard",
@@ -76,12 +72,29 @@ Replay IoU above ~0.7 is good; thin parts score lower. A joint whose range is a 
 probably did not move in this video: say so, and make it fixed only if the object really has
 no joint there. If a part is mis-segmented (wrong region, swallowed by a neighbour) or a
 part's motion is inconsistent, re-segment and re-track rather than accept a bad fit.
-Before finishing: watch the replay once, then set_physics, then finish.
+Before finishing: {check_replay}then set_physics, then finish.
 Budget: about 22 turns and at most 3 track calls; each turn tells you how many remain.
 If the video can't give a good planar model (the part moves toward the camera, a part is
 hidden most of the time, the camera faces the motion plane at a steep angle), stop early:
 finish with the best model you have, say plainly what is wrong, and say how to reshoot.
 Be decisive. Write every message in English."""
+
+VIDEO_TOOLS = """- The whole video is attached to the first message: watch it to see what moves, how, and
+  when. Timestamps in it are seconds; frame = seconds x fps.
+- watch(what, start_s, end_s): watch a video again: "video" (the source) or "replay" (the
+  latest replay: the fitted model drawn over the video). Watching the replay is how you check
+  a fit over time, not just at a few frames: say where and when the model leaves the object.
+"""
+
+
+def system_prompt(lidar_capture: bool) -> str:
+    """SYSTEM for this model: without video input, no watch tool (times come from frames)."""
+    text = (SYSTEM.replace("{video_tools}", VIDEO_TOOLS if VIDEO else "")
+            .replace("{check_replay}", "watch the replay once, " if VIDEO else "look at the replay images, "))
+    if not VIDEO:
+        text = text.replace("time\n  spans (seconds)", "time\n  spans (seconds = frame / fps)")
+    return text + (LIDAR if lidar_capture else "")
+
 
 TOOLS = [
     {"name": "look", "description": "Show video frames (up to 4).",
@@ -545,16 +558,16 @@ class Agent:
         if VIDEO:
             self.tool_watch("video")
         self.tool_look([0, self.n // 3, 2 * self.n // 3, self.n - 1])
-        messages = [{"role": "system", "content": SYSTEM + (LIDAR if self.capture else "")},
+        messages = [{"role": "system", "content": system_prompt(self.capture is not None)},
                     {"role": "user", "content": [{"type": "text", "text": intro}] + self._take_images()}]
-        tools = [{"type": "function", "function": t} for t in TOOLS]
+        tools = [{"type": "function", "function": t} for t in TOOLS if VIDEO or t["name"] != "watch"]
         for step in range(MAX_STEPS):
             t0 = time.time()
             cap_images(messages)
-            r = self.client.chat.completions.create(model=MODEL, messages=messages, tools=tools, max_tokens=6000)
+            r = self._chat(messages=messages, tools=tools)
             msg = r.choices[0].message
             calls = msg.tool_calls or []
-            self.log(f"## Spark ({time.time() - t0:.0f}s)\n\n{(msg.content or '').strip()}")
+            self.log(f"## {WHO} ({time.time() - t0:.0f}s)\n\n{(msg.content or '').strip()}")
             messages.append({"role": "assistant", "content": msg.content or "",
                              **({"tool_calls": [c.model_dump() for c in calls]} if calls else {})})
             if not calls:
@@ -575,16 +588,34 @@ class Agent:
                 break
             left = MAX_STEPS - step - 1
             note = f"{left} turns left." + (" Call finish now with your report." if left <= 1 else "")
+            if not self.tracked and left <= MAX_STEPS // 2:
+                note += (" Nothing is tracked yet: call track now with the candidates you have (you can "
+                         "segment and track again later if the result is wrong).")
             messages.append({"role": "user", "content": [{"type": "text", "text": note}] + self._take_images()})
         if self.report is None:  # out of turns; the API can't force a finish call, so ask for text
             messages.append({"role": "user", "content": "Out of turns. Write your final report now as plain text."})
             cap_images(messages)
-            r = self.client.chat.completions.create(model=MODEL, messages=messages, max_tokens=6000)
+            r = self._chat(messages=messages)
             self.report = (r.choices[0].message.content or "").strip() or "(no report)"
-            self.log(f"## Spark (final report, out of turns)\n\n{self.report}")
+            self.log(f"## {WHO} (final report, out of turns)\n\n{self.report}")
         report = self.report
         (self.out / "report.md").write_text(report + "\n")
         return report
+
+    def _chat(self, **kw):
+        """One completion, waiting out a scaled-to-zero endpoint (503 while a GPU starts) and
+        dropped connections."""
+        from openai import APIConnectionError, APIStatusError
+        for attempt in range(8):
+            try:
+                return self.client.chat.completions.create(model=MODEL, max_tokens=6000, **kw)
+            except (APIConnectionError, APIStatusError) as e:
+                status = getattr(e, "status_code", None)
+                if status is not None and status < 500 and status != 429 or attempt == 7:
+                    raise
+                wait = min(120, 15 * 2 ** attempt)
+                self.log(f"(model call failed: {type(e).__name__} {status or ''}; retrying in {wait}s)")
+                time.sleep(wait)
 
     def _take_images(self) -> list[dict]:
         out = ([{"type": "video_url", "video_url": {"url": u}} for u in self.videos]
