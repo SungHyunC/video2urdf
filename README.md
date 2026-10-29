@@ -122,6 +122,24 @@ taken modulo 360 deg. Per-sequence results: `scripts/rbo_bench.py` writes `data/
   fragments (keyboard, trackpad), so its thickness could not be measured; the pipeline and
   Spark's report both flag it instead of passing on a wrong number.
 
+### URDF Doctor: checking an existing URDF against the video
+
+Given a URDF written some other way (by hand, from CAD, by a vendor; any frame convention),
+`scripts/urdf_doctor.py` registers its base to the measured base by geometry, finds which of
+its joint values reproduces each opening seen in the video, and reports what disagrees. Test
+on the LiDAR laptop with URDFs in `examples/doctor/` (bugs injected on purpose):
+
+| URDF under test | Doctor's verdict |
+|---|---|
+| `laptop_spec.urdf`, from the published 13" MacBook Pro dimensions | consistent: axis 2.3 deg / 8 mm from the measured hinge, +q opens, limits cover the 1..117 deg seen |
+| `laptop_buggy.urdf`: hinge moved 25 mm, axis tilted 6 deg, upper limit 90 deg | 3 problems: axis 7.6 deg off, hinge 18 mm off, limits stop at 90 but the video needs 127 |
+| spec + `joint_log_flipped.csv` (encoder sign reversed) | log = -1.00 x expected: sign flip |
+| spec + `joint_log_offset.csv` (12 deg zero offset) | log offset by 11.3 deg |
+
+The axis's turn *within* the base's top plane is only as sure as the measured base outline
+(a few degrees on this capture); tilts out of that plane, positions, signs, offsets and limits
+are what it checks reliably.
+
 ## Run it
 
 Requires macOS or Linux, [uv](https://docs.astral.sh/uv/), ffmpeg. No local GPU.
@@ -189,6 +207,14 @@ and URDF/MJCF downloads.
 
 `--sam api` keeps the hosted segmenter while reasoning runs on open weights. The Modal app
 scales to zero after 2 idle minutes (A10G, about $0.05-0.10 per video).
+
+### URDF Doctor
+
+```bash
+.venv/bin/python scripts/urdf_doctor.py examples/doctor/laptop_buggy.urdf data/tracks_agent/laptop_lidar
+.venv/bin/python scripts/urdf_doctor.py examples/doctor/laptop_spec.urdf data/tracks_agent/laptop_lidar \
+    --joint-log examples/doctor/joint_log_flipped.csv
+```
 
 ### The RBO benchmark
 

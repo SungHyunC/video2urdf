@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!-- laptop_spec.urdf with three bugs injected on purpose: the hinge 25 mm too far forward, its axis tilted 6 deg up out of the base's top plane (a wrong rpy), and the upper limit 90 deg. -->
+<robot name="laptop_buggy">
+  <!-- Frame: origin at the base's bottom centre, x toward the front edge, y left, z up.
+       Sizes: 13" MacBook Pro spec, 304.1 x 212.4 mm; base 10.5 mm, lid 5 mm. -->
+  <link name="base">
+    <inertial><origin xyz="0 0 0.00525"/><mass value="0.9"/><inertia ixx="0.0034" iyy="0.0069" izz="0.0103" ixy="0" ixz="0" iyz="0"/></inertial>
+    <visual><origin xyz="0 0 0.00525"/><geometry><box size="0.2124 0.3041 0.0105"/></geometry></visual>
+    <collision><origin xyz="0 0 0.00525"/><geometry><box size="0.2124 0.3041 0.0105"/></geometry></collision>
+  </link>
+  <link name="lid">
+    <inertial><origin xyz="0.1062 0 0.0025"/><mass value="0.47"/><inertia ixx="0.0036" iyy="0.0018" izz="0.0054" ixy="0" ixz="0" iyz="0"/></inertial>
+    <visual><origin xyz="0.1062 0 0.0025"/><geometry><box size="0.2124 0.3041 0.005"/></geometry></visual>
+    <collision><origin xyz="0.1062 0 0.0025"/><geometry><box size="0.2124 0.3041 0.005"/></geometry></collision>
+  </link>
+  <joint name="display_hinge" type="revolute">
+    <parent link="base"/>
+    <child link="lid"/>
+    <origin xyz="-0.0812 0 0.0105" rpy="0 0 0"/>
+    <axis xyz="0 -0.99452 0.10453"/>
+    <limit lower="0" upper="1.5708" effort="2" velocity="2"/>
+  </joint>
+</robot>
