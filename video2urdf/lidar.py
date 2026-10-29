@@ -120,6 +120,8 @@ class Capture:
             n, d, _ = fit_plane(c, rng)
             return n, d
 
+        if not self.has(floor, self.ref):  # no floor on the reference frame to level against
+            return {"frames_used": 0, "tilt_deg_max": 0.0, "shift_mm_max": 0.0, "shift_mm_median": 0.0}
         n0, d0 = plane(self.ref)
         # Per-frame correction as a small rotation vector (turning that frame's floor normal onto
         # the reference one) and a height shift. Drift is slow and plane fits are noisy (a hand
