@@ -97,11 +97,27 @@ class Capture:
         self.world = self.world @ np.linalg.inv(self.world[t])
         self.ref = t
 
-    def ref_with(self, base: str, plate: str) -> int:
+    def ref_with(self, base: str, plate: str, closed: str | None = None) -> int:
         """A reference frame showing both parts: the one where the plate's mask is largest.
         Angles are measured from it, so a frame with only a sliver of plate (barely open)
-        would offset every angle."""
+        would offset every angle. Frames where the plate's mask is the ``closed`` part's (a
+        plate track that slid onto the shut lid's back, largest when shut) don't count, nor
+        frames where the base shows less than half its median area."""
         both = set(self.by[base]) & set(self.by[plate]) or set(self.by[plate]) or set(self.by[base])
+        if both <= set(self.by[base]):  # the base well in view: a shut lid hides the base's top
+            half = 0.5 * np.median([self.by[base][t].area for t in both])
+            both = {t for t in both if self.by[base][t].area >= half} or both
+        if closed and closed != plate:
+            def shut(t):
+                if t not in self.by.get(closed, {}) or t not in self.by[plate]:
+                    return False
+                a, b = self.by[plate][t].full_mask(self.h, self.w), self.by[closed][t].full_mask(self.h, self.w)
+                return (a & b).sum() > 0.8 * (a | b).sum()
+            # largest first; skip shut ones (checking masks is slow, so stop at the first open one)
+            part = self.by[plate] if set(self.by[plate]) & both else self.by[base]
+            for t in sorted(both, key=lambda t: -part[t].area):
+                if not shut(t):
+                    return t
         if not both:
             raise ValueError(f"neither {base} nor {plate} is tracked with a usable mask")
         part = self.by[plate] if set(self.by[plate]) & both else self.by[base]

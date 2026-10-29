@@ -314,6 +314,9 @@ class Agent:
     def tool_set_physics(self, parts: list[dict], released: list[dict]) -> str:
         if self.last_fit is None or not (self.track_dir / "model.xml").exists():
             return "fit a model first"
+        parts = json.loads(parts) if isinstance(parts, str) else parts  # models sometimes send JSON strings
+        released = json.loads(released) if isinstance(released, str) else released
+        released = [released] if isinstance(released, dict) else released
         props = {slug(p["link"]): {"material": p["material"], "mass_kg": float(p["mass_kg"]),
                                    "friction": float(p["friction"])} for p in parts}
         windows: dict[str, list] = {}
@@ -322,7 +325,13 @@ class Agent:
             name = name if name.endswith("_joint") else f"{name}_joint"
             windows.setdefault(name, []).append((int(r["start_s"] * self.fps), int(r["end_s"] * self.fps)))
         lines = []
-        physics.apply(self.track_dir, props, windows, self.fps, log=lines.append)
+        report = physics.apply(self.track_dir, props, windows, self.fps, log=lines.append)
+        for link, r in report["links"].items():
+            rho = r["implied_density_kg_m3"]
+            if rho and not 150 <= rho <= 3000:  # beyond wood foam .. aluminium-and-glass
+                lines.append(f"WARNING: {link}'s mass over its measured solid gives {rho} kg/m^3, which no ordinary "
+                             f"object has: either the mass is off or the measured solid is (a clipped thickness?). "
+                             f"Say which in the report.")
         return "\n".join(lines)
 
     def tool_segment(self, prompt: str, frame: int) -> str:
@@ -462,7 +471,7 @@ class Agent:
             self.show(sheet, "fit_lidar (slide): 3D replay from the camera", width=sheet.shape[1])
             self.last_fit = summary
             return "\n".join(lines) + "\nImage: the replayed model (colored) over the video."
-        ref = c.ref_with(roles.base, roles.plate)
+        ref = c.ref_with(roles.base, roles.plate, roles.plate_closed)
         if ref != c.ref:
             c.set_ref(ref)
             lines.append(f"reference frame {c.ref}: where the plate is seen largest")
@@ -476,6 +485,7 @@ class Agent:
                              f"turned {moved['turned_deg_max']:.1f} deg")
         lidar.fit_hinge(c, roles, log=lines.append)
         summary = lidar.build_model(c, roles, log=lines.append)
+        lines += self.mask_checks(c, roles, summary)
         hinge_img = cv2.imread(str(self.track_dir / "hinge.jpg"))
         self.show(hinge_img, "fit_lidar: measured hinge and opening over time", width=VIEW_WIDTH * 2)
         frames = sorted(set(summary["worst_frames"].values()) | {int(f) for f in np.linspace(0, self.n - 1, 3)})[:4]
@@ -484,6 +494,38 @@ class Agent:
         self.last_fit = summary
         return ("\n".join(lines) + "\nImages: the hinge drawn on the reference frame with the opening over time, "
                 "then the replayed model (colored) over the video at its worst frames and a few others.")
+
+    def mask_checks(self, c, roles, summary: dict) -> list[str]:
+        """Plain warnings about the part choice that the numbers show: a base candidate that is
+        the whole object (lid included), and parts whose mask the replayed model barely covers."""
+        out = []
+        both = sorted(set(c.by[roles.base]) & set(c.by[roles.plate]))
+        if both:
+            ratios = []
+            for t in both[:: max(1, len(both) // 40)]:
+                plate = c.by[roles.plate][t].full_mask(c.h, c.w)
+                if plate.any():
+                    ratios.append((plate & c.by[roles.base][t].full_mask(c.h, c.w)).sum() / plate.sum())
+            inside = float(np.median(ratios)) if ratios else 0.0
+            if inside > 0.5:
+                out.append(f"WARNING: on frames showing both, {100 * inside:.0f}% of the plate's mask lies inside the "
+                           f"base's mask: the base candidate is the whole object, plate included. Segment the base's own "
+                           f"surface instead (its top face or keyboard, on an open frame), track again and refit.")
+        if roles.plate_closed and roles.plate_closed != roles.plate:
+            shared = sorted(set(c.by[roles.plate]) & set(c.by[roles.plate_closed]))
+            same = []
+            for t in shared[:: max(1, len(shared) // 60)]:
+                a, b = c.by[roles.plate][t].full_mask(c.h, c.w), c.by[roles.plate_closed][t].full_mask(c.h, c.w)
+                same.append((a & b).sum() / max(1, (a | b).sum()) > 0.8)
+            if same and np.mean(same) > 0.3 and len(shared) > 0.3 * c.n:
+                out.append(f"WARNING: the plate's mask is the same as plate_closed's on {100 * np.mean(same):.0f}% of the "
+                           f"frames showing both: the plate track slid onto the lid's back when it closed. The plate is "
+                           f"its inner face only (e.g. the screen): give it candidates only on open frames and track again.")
+        for part, cover in summary.get("mask_coverage", {}).items():
+            if cover < 0.5:
+                out.append(f"WARNING: the replayed {part} covers only {100 * cover:.0f}% of its SAM mask: the mask is "
+                           f"much bigger than the fitted {part} (wrong candidate) or the fit is off. Check that mask.")
+        return out
 
     def tool_fit_drawers(self, base: list, drawers: list, floor: str | None = None) -> str:
         if self.capture is None:
