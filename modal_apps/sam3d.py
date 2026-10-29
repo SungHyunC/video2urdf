@@ -7,8 +7,8 @@ measured part is. It also completes the sides the camera never saw.
 
 Setup (once): request access on huggingface.co/facebook/sam-3d-objects, then
     modal secret create huggingface HF_TOKEN=hf_...      (already there for sam3_open.py)
-    modal deploy modal_apps/sam3d_objects.py
-    modal run modal_apps/sam3d_objects.py::download     (12 GB of checkpoints into a volume)
+    modal deploy modal_apps/sam3d.py
+    modal run modal_apps/sam3d.py::download     (12 GB of checkpoints into a volume)
 Client: scripts/sam3d_meshes.py.
 
 GPU: the repo asks for >= 32 GB; an L40S (48 GB) fits. Its environment is CUDA 12.1 /
@@ -48,14 +48,18 @@ image = (
         # what it served, nvidia-cuda-nvcc-cu12, is on PyPI)
         # numpy < 2: the torch 2.5 era wheels here (open3d 0.18, spconv, kaolin) are built against 1.x
         f"&& echo 'numpy<2' >> /tmp/req.txt && pip install -r /tmp/req.txt --extra-index-url {TORCH_INDEX}")
-    .env({"FORCE_CUDA": "1", "TORCH_CUDA_ARCH_LIST": "8.0;8.6;8.9", "MAX_JOBS": "8"})
+    # add_python's interpreter was built with clang and names it as the compiler; the image has gcc
+    .env({"FORCE_CUDA": "1", "TORCH_CUDA_ARCH_LIST": "8.0;8.6;8.9", "MAX_JOBS": "8", "CC": "gcc", "CXX": "g++"})
+    .pip_install("wheel==0.45.1", "ninja==1.13.0")  # the source builds below run without build isolation
     .pip_install(FLASH_ATTN)  # first: requirements.p3d.txt pins flash_attn, which would build from source
     .run_commands(f"cd {REPO} && pip install --no-build-isolation -r requirements.p3d.txt")
     .run_commands(f"cd {REPO} && pip install --no-build-isolation -r requirements.inference.txt "
                   f"--find-links {KAOLIN_LINKS} --extra-index-url {TORCH_INDEX}")
     .run_commands(f"cd {REPO} && pip install --no-deps -e . && python patching/hydra")
-    .pip_install("huggingface_hub[cli]<1.0", "trimesh==4.5.3")
-    .env({"HF_HUB_DISABLE_TELEMETRY": "1", "PYTHONPATH": f"{REPO}/notebook"})
+    # notebook/inference.py sets CUDA_HOME from CONDA_PREFIX (the repo assumes its conda env)
+    # LIDRA_SKIP_INIT: sam3d_objects/__init__ imports an internal init module the public repo lacks
+    .env({"HF_HUB_DISABLE_TELEMETRY": "1", "PYTHONPATH": f"{REPO}/notebook", "CONDA_PREFIX": "/usr/local/cuda",
+          "LIDRA_SKIP_INIT": "1"})
 )
 volume = modal.Volume.from_name("sam3d-weights", create_if_missing=True)
 app = modal.App(APP, image=image)
@@ -66,13 +70,14 @@ def download():
     """Checkpoints into the volume, laid out as the repo's doc/setup.md says (checkpoints/hf)."""
     import os
     import shutil
-    import subprocess
+
+    from huggingface_hub import snapshot_download  # the version gradio/transformers pulled in (1.x)
 
     if (CKPT / "pipeline.yaml").exists():
         return "already there"
     tmp = WEIGHTS / "hf-download"
-    subprocess.run(["huggingface-cli", "download", "facebook/sam-3d-objects", "--repo-type", "model",
-                    "--local-dir", str(tmp), "--include", "checkpoints/*", "--token", os.environ["HF_TOKEN"]], check=True)
+    snapshot_download("facebook/sam-3d-objects", local_dir=str(tmp), allow_patterns=["checkpoints/*"],
+                      token=os.environ["HF_TOKEN"])
     CKPT.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(tmp / "checkpoints"), str(CKPT))
     shutil.rmtree(tmp, ignore_errors=True)

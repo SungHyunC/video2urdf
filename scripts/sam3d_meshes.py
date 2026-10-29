@@ -1,7 +1,7 @@
 """Realistic link meshes from SAM 3D Objects, placed and checked against the LiDAR measurement.
 
 For each link of a fitted LiDAR model: one frame, the link's SAM 3.1 mask and that frame's
-LiDAR depth as the pointmap go to SAM 3D (modal_apps/sam3d_objects.py), which returns a
+LiDAR depth as the pointmap go to SAM 3D (modal_apps/sam3d.py), which returns a
 coloured mesh in the camera frame, in metres. It is moved into the link's frame (the model's
 camera_to_model, with the joint's value on that frame undone) and scored against the part's
 own depth points: how far each measured point lies from the generated surface. The mesh is
@@ -10,7 +10,7 @@ added to the model as the link's visual; the measured geometry stays as its coll
 Usage: .venv/bin/python scripts/sam3d_meshes.py data/tracks_agent/laptop_lidar
            [--video data/real/laptop_lidar/laptop_lidar.mp4] [--capture data/real/laptop_lidar]
            [--links base lid] [--frame lid=850] [--no-pointmap]
-Needs: modal deploy modal_apps/sam3d_objects.py, and its weights (see that file).
+Needs: modal deploy modal_apps/sam3d.py, and its weights (see that file).
 """
 
 import argparse
