@@ -128,6 +128,28 @@ taken modulo 360 deg. Per-sequence results: `scripts/rbo_bench.py` writes `data/
   fragments (keyboard, trackpad), so its thickness could not be measured; the pipeline and
   Spark's report both flag it instead of passing on a wrong number.
 
+### Physics: masses, inertia, and joint friction measured from the video
+
+A model a robot can push needs mass and friction, not just a shape. Muse Spark watches the
+video and judges each link's material and mass from what the object is (the tool returns the
+density that mass implies over the measured solid, as a check); inertia follows from the link's
+measured mesh. Joint friction is measured where the video allows it: when a part stands still
+with **no hand on it** (Spark finds those spans in the video), the hinge alone is holding it
+against gravity, so its friction is at least the gravity torque at those angles (MuJoCo
+computes it; the model gets 1.25x the largest). The resting end (a closed lid lying on its
+base) is left out. The check: release the model in MuJoCo at the held angles for 2 s.
+
+| Model | Masses (Spark) | Joint friction | Released at the held angles, 2 s |
+|---|---|---|---|
+| 13" MacBook Pro, LiDAR | base 0.90 kg + lid 0.50 kg (spec: 1.4 kg in all) | lid hinge 0.284 N·m, measured | moves 0.1 deg (11.5 deg without it) |
+| Laptop, 2D side view | 0.95 + 0.45 kg | 0.038 N·m, measured (held only near upright: a lower bound) | 0.0 deg (76 deg without) |
+| Monitor stand, 2D | base 0.45, arms 0.075 / 0.09 kg | 0.028 / 0.122 N·m, measured | 0.0 / 3.4 deg (21 / 56 deg without) |
+| Pedestal drawer, LiDAR | cabinet 13 kg, drawer 2.5 kg | 0.98 N, estimated (gravity doesn't load a horizontal slide) | |
+
+URDF gets `<inertial>` and `<dynamics>`, MJCF explicit inertials, `frictionloss` (stiffened:
+MuJoCo's default soft friction lets a loaded hinge creep 7 deg in 2 s) and contact friction.
+The robot demo uses them. Damping is not measured (the hand drives every motion we see).
+
 ### URDF Doctor: checking an existing URDF against the video
 
 Given a URDF written some other way (by hand, from CAD, by a vendor; any frame convention),
@@ -180,6 +202,10 @@ the folder, then:
 .venv/bin/python scripts/run_agent.py data/real/laptop_lidar --out data/tracks_agent
 open data/tracks_agent/laptop_lidar/replay3d.mp4   # the model rendered from the phone's pose
 ```
+
+The agent ends with `set_physics` (masses, friction). For a run made without it:
+`.venv/bin/python scripts/add_physics.py data/tracks_agent/laptop_lidar` (Spark watches the
+video once, structured output; `--reuse` re-applies the saved estimate).
 
 ### Robot demo and viewer
 
