@@ -102,7 +102,7 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
     _, n, fps = video_info(video)
     videos = {}
     for key, src in (("phone", video), ("replay", run / "replay3d.mp4"), ("replay", run / "replay.mp4"),
-                     ("robot", run / "robot_demo.mp4")):
+                     ("robot", run / "robot_demo.mp4"), ("physics", run / "physics_demo.mp4")):
         if key not in videos and src.exists():
             web_video(src, dst / f"{key}.mp4")
             videos[key] = f"{key}.mp4"

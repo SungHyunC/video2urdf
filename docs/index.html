@@ -265,8 +265,8 @@ async function load(entry) {
 
   const vt = $("videoTabs");
   vt.innerHTML = "";
-  const labels = { phone: "Phone video", replay: "Model over video", robot: "Robot uses it" };
-  const order = ["phone", "replay", "robot"].filter((k) => spec.videos[k]);
+  const labels = { phone: "Phone video", replay: "Model over video", robot: "Robot uses it", physics: "Physics check" };
+  const order = ["phone", "replay", "robot", "physics"].filter((k) => spec.videos[k]);
   for (const k of order) {
     const b = document.createElement("button");
     b.textContent = labels[k];
@@ -322,7 +322,7 @@ function showVideo(key, base) {
   for (const b of $("videoTabs").children) b.setAttribute("aria-pressed", String(b.dataset.key === key));
   const t = video.currentTime;
   video.src = base + spec.videos[key];
-  video.onloadedmetadata = () => { if (key !== "robot") video.currentTime = Math.min(t, video.duration - 0.05); video.play().catch(() => {}); };
+  video.onloadedmetadata = () => { if (key !== "robot" && key !== "physics") video.currentTime = Math.min(t, video.duration - 0.05); video.play().catch(() => {}); };
 }
 
 function setFollow(on) {
