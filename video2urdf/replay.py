@@ -116,7 +116,14 @@ def replay3d(model_xml: Path, cam_to_world: np.ndarray, intr, joint_q: dict[str,
     model.cam_fovy[cam] = np.rad2deg(2 * np.arctan(h / 2 / intr.f))
     renderer = mujoco.Renderer(model, h, w)
     renderer.enable_segmentation_rendering()
-    qs = {j: _hold(q) for j, q in joint_q.items()}
+    # Frames without a measurement (the lid edge-on, say) get the value interpolated between
+    # their measured neighbours, and the label says so.
+    gaps = np.zeros(len(cam_to_world), bool)
+    qs = {}
+    for j, q in joint_q.items():
+        known = np.flatnonzero(~np.isnan(q))
+        gaps[: len(q)] |= np.isnan(q)
+        qs[j] = np.interp(np.arange(len(q)), known, q[known]) if len(known) else np.zeros_like(q)
     body_ids = {b: model.body(b).id for b in masks}
     n = len(cam_to_world)
     cover = {b: np.full(n, np.nan) for b in masks}
@@ -149,7 +156,7 @@ def replay3d(model_xml: Path, cam_to_world: np.ndarray, intr, joint_q: dict[str,
             cv2.drawContours(img, contours, -1, color.tolist(), 3)
         label = "MuJoCo replay of the depth-measured model  " + "  ".join(
             f"{j} {np.rad2deg(q[t]):.0f} deg" if model.jnt_type[model.joint(j).id] == mujoco.mjtJoint.mjJNT_HINGE
-            else f"{j} {1000 * q[t]:.0f} mm" for j, q in qs.items())
+            else f"{j} {1000 * q[t]:.0f} mm" for j, q in qs.items()) + ("  (interpolated)" if gaps[t] else "")
         k = w / 1920  # text scales with the frame
         cv2.putText(img, label, (int(30 * k), int(60 * k)), cv2.FONT_HERSHEY_SIMPLEX, 1.4 * k, (0, 0, 0), max(1, int(6 * k)))
         cv2.putText(img, label, (int(30 * k), int(60 * k)), cv2.FONT_HERSHEY_SIMPLEX, 1.4 * k, (255, 255, 255), max(1, int(2 * k)))
