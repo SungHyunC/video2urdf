@@ -589,6 +589,40 @@ def front_travel(c: Capture, base: str, part: str, window: tuple[int, int], axis
     return {"ref": max(seen, key=lambda t: c.by[part][t].area), "q": q}
 
 
+PANEL_M = 0.012  # drawer and carcass panels, where a front view can't measure them
+FRONT_M = 0.018  # drawer front thickness
+GAP_M = 0.003  # between a drawer and its slot
+INSET_M = 0.008  # a drawer's tray inside its front's outline
+
+
+def _subtract(rect: tuple, holes: list[tuple]) -> list[tuple]:
+    """Rectangles (y0, z0, y1, z1) covering ``rect`` minus ``holes``."""
+    out = [rect]
+    for hy0, hz0, hy1, hz1 in holes:
+        nxt = []
+        for y0, z0, y1, z1 in out:
+            if hy0 >= y1 or hy1 <= y0 or hz0 >= z1 or hz1 <= z0:
+                nxt.append((y0, z0, y1, z1))
+                continue
+            if hy0 > y0:
+                nxt.append((y0, z0, hy0, z1))
+            if hy1 < y1:
+                nxt.append((hy1, z0, y1, z1))
+            if hz0 > z0:
+                nxt.append((max(y0, hy0), z0, min(y1, hy1), hz0))
+            if hz1 < z1:
+                nxt.append((max(y0, hy0), hz1, min(y1, hy1), z1))
+        out = nxt
+    return [r for r in out if r[2] - r[0] > 1e-3 and r[3] - r[1] > 1e-3]
+
+
+def _box_visual(mesh_dir: Path, name: str, lo, hi, rgb) -> "emit3d.Visual":
+    rect = np.array([[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]])
+    v, fc = prism(rect, np.zeros(3), np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.array([0, 0, 1.0]), lo[2], hi[2])
+    write_stl(mesh_dir / f"{name}.stl", v, fc)
+    return emit3d.Visual(f"meshes/{name}.stl", rgb)
+
+
 def fit_and_build_slides(c: Capture, base: str, floor: str | None, drawers: list[tuple[str, tuple[int, int]]],
                          log=print) -> dict:
     """Several parts sliding out of one base (a chest of drawers), each operated in its own
@@ -646,38 +680,54 @@ def fit_and_build_slides(c: Capture, base: str, floor: str | None, drawers: list
     t_base = max(closed or list(c.by[base]), key=lambda t: c.by[base][t].area)
     mesh_dir = c.track_dir / "meshes"
     mesh_dir.mkdir(exist_ok=True)
-    links, sizes, masks, joint_q = [], {}, {"base": c.by[base]}, {}
-    # Drawers first: each one's box (shut, q = 0), then the base, at least as deep as its
-    # drawers (a front view doesn't show how deep the cabinet is).
-    geom = {}
-    for k, f in enumerate(fits):
-        pts = to_model(c.cloud(f["part"], f["ref"]))
-        lo_b, hi_b = box_of(pts)
-        front = pts[pts[:, 0] > hi_b[0] - 0.02]  # its front face: an open drawer's mask also takes in the opening
-        if len(front) >= 50:
-            lo_b[1:], hi_b[1:] = np.percentile(front[:, 1:], 2, axis=0), np.percentile(front[:, 1:], 98, axis=0)
-        lo_b[0] = min(lo_b[0], hi_b[0] - f["hi"])  # the hidden rest is at least as deep as it travels
-        lo_b[0] -= f["at_ref"]  # seen pulled out by at_ref; shut at q = 0
-        hi_b[0] -= f["at_ref"]
-        geom[f"drawer{k + 1}"] = (f["part"], f["ref"], f, lo_b, hi_b)
-    lo_b, hi_b = box_of(to_model(c.cloud(base, t_base)))
-    for _, _, _, dl, dh in geom.values():  # only deeper: its cross-section stays as seen, so the
-        lo_b[0] = min(lo_b[0], dl[0])  # drawers' slots stay free (no overlapping solids in MuJoCo)
-    geom = {"base": (base, t_base, None, lo_b, hi_b), **geom}
-    for name, (part, t, f, lo_b, hi_b) in geom.items():
-        rect = np.array([[lo_b[0], lo_b[1]], [hi_b[0], lo_b[1]], [hi_b[0], hi_b[1]], [lo_b[0], hi_b[1]]])
-        v, fc = prism(rect, np.zeros(3), np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.array([0, 0, 1.0]),
-                      lo_b[2], hi_b[2])
-        write_stl(mesh_dir / f"{name}.stl", v, fc)
-        sizes[name] = (1000 * (hi_b - lo_b)).round().tolist()
-        rgb = part_color(read_frame(c.video, t), c.by[part][t].full_mask(c.h, c.w))
-        link = emit3d.Link3D(name, [emit3d.Visual(f"meshes/{name}.stl", rgb)], parent=None if f is None else "base")
-        if f is not None:
-            link.joint_type, link.axis, link.limits = "prismatic", rot @ f["axis"], (0.0, f["hi"])
-            masks[name], joint_q[f"{name}_joint"] = c.by[part], f["q"]
-        links.append(link)
     floor_z = float(np.percentile(to_model(c.cloud(floor, c.ref))[:, 2], 50)) if floor else \
         float(box_of(to_model(c.cloud(base, t_base)))[0][2])
+    # Each drawer, shut (q = 0): its front face's cross-section, as deep as it travels at least.
+    boxes = []
+    for f in fits:
+        pts = to_model(c.cloud(f["part"], f["ref"]))
+        lo_b, hi_b = box_of(pts)
+        front = pts[pts[:, 0] > hi_b[0] - 0.02]  # an open drawer's mask also takes in the opening
+        if len(front) >= 50:
+            lo_b[1:], hi_b[1:] = np.percentile(front[:, 1:], 2, axis=0), np.percentile(front[:, 1:], 98, axis=0)
+        lo_b[0] = min(lo_b[0], hi_b[0] - f["hi"])
+        lo_b[0], hi_b[0] = lo_b[0] - f["at_ref"], hi_b[0] - f["at_ref"]
+        boxes.append((lo_b, hi_b))
+    # The cabinet: one carcass from the floor up, around what was seen of it and its drawers,
+    # with a slot for each drawer (a front view shows neither its depth nor its lower part, so
+    # it is as deep as its drawers and stands on the floor).
+    b_lo, b_hi = box_of(to_model(c.cloud(base, t_base)))
+    out_lo = np.min([b_lo] + [lo for lo, _ in boxes], axis=0)
+    out_hi = np.max([b_hi] + [hi for _, hi in boxes], axis=0)
+    out_lo[0] -= PANEL_M  # a back panel behind the deepest drawer
+    if floor:
+        out_lo[2] = floor_z
+    slots = [(lo[1] - GAP_M, lo[2] - GAP_M, hi[1] + GAP_M, hi[2] + GAP_M) for lo, hi in boxes]
+    slot_back = min(lo[0] for lo, _ in boxes) - GAP_M
+    pieces = [((out_lo[0], out_lo[1], out_lo[2]), (slot_back, out_hi[1], out_hi[2]))]  # behind the slots
+    for y0, z0, y1, z1 in _subtract((out_lo[1], out_lo[2], out_hi[1], out_hi[2]), slots):  # around them
+        pieces.append(((slot_back, y0, z0), (out_hi[0], y1, z1)))
+    rgb = part_color(read_frame(c.video, t_base), c.by[base][t_base].full_mask(c.h, c.w))
+    links = [emit3d.Link3D("base", [_box_visual(mesh_dir, f"base_{k}", lo, hi, rgb) for k, (lo, hi) in enumerate(pieces)])]
+    sizes = {"base": (1000 * (out_hi - out_lo)).round().tolist()}
+    masks, joint_q = {"base": c.by[base]}, {}
+    # Each drawer: an open tray behind its front panel.
+    for k, (f, (lo, hi)) in enumerate(zip(fits, boxes)):
+        name = f"drawer{k + 1}"
+        rgb = part_color(read_frame(c.video, f["ref"]), c.by[f["part"]][f["ref"]].full_mask(c.h, c.w))
+        inner = tuple(0.7 * np.array(rgb))
+        xf = hi[0] - FRONT_M
+        y0, y1, z0, z1 = lo[1] + INSET_M, hi[1] - INSET_M, lo[2] + INSET_M, hi[2] - 2 * INSET_M
+        parts = [((xf, lo[1], lo[2]), (hi[0], hi[1], hi[2]), rgb),  # front panel
+                 ((lo[0], y0, z0), (xf, y1, z0 + PANEL_M), inner),  # bottom
+                 ((lo[0], y0, z0), (xf, y0 + PANEL_M, z1), inner),  # sides
+                 ((lo[0], y1 - PANEL_M, z0), (xf, y1, z1), inner),
+                 ((lo[0], y0, z0), (lo[0] + PANEL_M, y1, z1), inner)]  # back
+        link = emit3d.Link3D(name, [_box_visual(mesh_dir, f"{name}_{i}", a, b, col) for i, (a, b, col) in enumerate(parts)],
+                             parent="base", joint_type="prismatic", axis=rot @ f["axis"], limits=(0.0, f["hi"]))
+        links.append(link)
+        sizes[name] = (1000 * (hi - lo)).round().tolist()
+        masks[name], joint_q[f"{name}_joint"] = c.by[f["part"]], f["q"]
     root_pos = np.array([0, 0, -floor_z])
     (c.track_dir / "model.urdf").write_text(emit3d.urdf(c.video.stem, links))
     (c.track_dir / "model.xml").write_text(emit3d.mjcf(c.video.stem, links, root_pos, (c.w, c.h)))
