@@ -72,7 +72,7 @@ def main():
         est = {"model": MODEL, **json.loads(r.choices[0].message.content)}
         saved.write_text(json.dumps(est, indent=2))
         print(json.dumps(est, indent=2))
-    parts = {p["link"]: {k: p[k] for k in ("material", "mass_kg", "friction", "why")} for p in est["parts"]}
+    parts = {p["link"]: {k: p[k] for k in ("material", "mass_kg", "friction", "why") if k in p} for p in est["parts"]}
     windows: dict[str, list] = {}
     for s in est["released"]:
         name = s["joint"] if s["joint"].endswith("_joint") else f"{s['joint']}_joint"

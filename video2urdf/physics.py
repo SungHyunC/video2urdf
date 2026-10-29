@@ -21,7 +21,8 @@ import numpy as np
 HOLD_MARGIN = 1.25  # friction = margin x the largest gravity torque the joint was seen to hold
 STILL_DEG_S = 3.0  # a hinge moving slower than this (smoothed) counts as still
 STILL_M_S = 0.005
-AT_STOP = (np.deg2rad(10.0), 0.005)  # this close to its resting end, a part lies on its parent (rad, m)
+LYING_M = 0.01  # a part within this of its parent's bounding box lies on it (a closed lid on its base)
+LYING_MARGIN = (np.deg2rad(5.0), 0.005)  # closed frames read a few degrees (mm) off: widen the lying region
 # MuJoCo's dry friction is a soft constraint: at the default softness a loaded hinge creeps
 # (a lid sank 7 deg in 2 s at 1.25x its holding torque). These keep it under 0.3 deg.
 SOLREF_FRICTION, SOLIMP_FRICTION = "0.005 1", "0.99 0.999 0.001"
@@ -136,25 +137,70 @@ def release_drift(model_xml: Path, joint: str, q0: list[float], frictionloss: fl
     return out
 
 
-def resting_end(model_xml: Path, joint: str, limits: tuple[float, float]) -> float | None:
-    """The end of the joint's range where the moving part sits lowest (a closed lid lying on
-    its base), or None if gravity doesn't care (a horizontal drawer)."""
+def _surface_points(model: mujoco.MjModel, data: mujoco.MjData, body: int, rng, n: int = 1500) -> np.ndarray:
+    """Points spread over a body's collidable mesh surfaces (area-weighted), in world."""
+    tris = []
+    for g in np.flatnonzero((model.geom_bodyid == body) & (model.geom_contype != 0)):
+        if model.geom_type[g] != mujoco.mjtGeom.mjGEOM_MESH:
+            continue
+        m = model.geom_dataid[g]
+        v = model.mesh_vert[model.mesh_vertadr[m]: model.mesh_vertadr[m] + model.mesh_vertnum[m]]
+        f = model.mesh_face[model.mesh_faceadr[m]: model.mesh_faceadr[m] + model.mesh_facenum[m]]
+        v = v @ data.geom_xmat[g].reshape(3, 3).T + data.geom_xpos[g]
+        tris.append(v[f])
+    if not tris:
+        return np.zeros((0, 3))
+    tris = np.concatenate(tris)
+    area = 0.5 * np.linalg.norm(np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]), axis=1)
+    pick = rng.choice(len(tris), n, p=area / area.sum())
+    a, b = rng.random((2, n, 1))
+    flip = a + b > 1
+    a, b = np.where(flip, 1 - a, a), np.where(flip, 1 - b, b)
+    t = tris[pick]
+    return t[:, 0] + a * (t[:, 1] - t[:, 0]) + b * (t[:, 2] - t[:, 0])
+
+
+def lying_on_parent(model_xml: Path, joint: str, qs: np.ndarray) -> np.ndarray:
+    """For each joint value: does the moving part lie on (or in) its parent, like a closed lid
+    on its base? Then the parent holds it up, not joint friction. True when most of the part's
+    surface is within LYING_M of the parent's bounding box."""
     model = mujoco.MjModel.from_xml_path(str(model_xml))
     data = mujoco.MjData(model)
     j = model.joint(joint)
-    z = []
-    for v in limits:
+    child, parent = j.bodyid[0], model.body_parentid[j.bodyid[0]]
+    rng = np.random.default_rng(0)
+    out = []
+    for v in qs:
         data.qpos[:] = 0
         data.qpos[j.qposadr[0]] = v
         mujoco.mj_forward(model, data)
-        z.append(data.subtree_com[j.bodyid[0]][2])
-    return None if abs(z[0] - z[1]) < 0.001 else limits[int(np.argmin(z))]
+        pp, cp = _surface_points(model, data, parent, rng), _surface_points(model, data, child, rng)
+        if not len(pp) or not len(cp):
+            out.append(False)
+            continue
+        lo, hi = pp.min(axis=0) - LYING_M, pp.max(axis=0) + LYING_M
+        out.append(bool(np.mean(np.all((cp >= lo) & (cp <= hi), axis=1)) > 0.5))
+    return np.array(out, bool)
 
 
-def still_frames(q: np.ndarray, fps: float, windows: list[tuple[int, int]], revolute: bool,
-                 rest: float | None = None) -> np.ndarray:
-    """Frames inside the given windows where the measured joint is still, away from its resting
-    end ``rest``: there a closed lid lies on its base, not on hinge friction."""
+def lying_region(model_xml: Path, joint: str, limits: tuple[float, float], revolute: bool, steps: int = 61):
+    """Joint values where the part lies on its parent, as a test function. The part lies on it
+    from the innermost lying value on a half of the range out to that end: past a closed lid,
+    a measured range can run on into the base (the closed end reads noisily), and there it
+    pokes out of the parent's box instead of lying in it."""
+    grid = np.linspace(limits[0], limits[1], steps)
+    lying = lying_on_parent(model_xml, joint, grid)
+    mid = (limits[0] + limits[1]) / 2
+    low = grid[lying & (grid <= mid)]
+    high = grid[lying & (grid > mid)]
+    margin = LYING_MARGIN[0] if revolute else LYING_MARGIN[1]
+    lo_edge = low.max() + margin if len(low) else -np.inf
+    hi_edge = high.min() - margin if len(high) else np.inf
+    return lambda q: (np.asarray(q) <= lo_edge) | (np.asarray(q) >= hi_edge)
+
+
+def still_frames(q: np.ndarray, fps: float, windows: list[tuple[int, int]], revolute: bool) -> np.ndarray:
+    """Frames inside the given windows where the measured joint is still."""
     t = np.arange(len(q))
     valid = ~np.isnan(q)
     if valid.sum() < 3:
@@ -167,10 +213,7 @@ def still_frames(q: np.ndarray, fps: float, windows: list[tuple[int, int]], revo
     inside = np.zeros(len(q), bool)
     for a, b in windows:
         inside[max(0, a): min(len(q), b + 1)] = True
-    keep = inside & valid & (speed < limit)
-    if rest is not None:
-        keep &= np.abs(qi - rest) > (AT_STOP[0] if revolute else AT_STOP[1])
-    return np.flatnonzero(keep)
+    return np.flatnonzero(inside & valid & (speed < limit))
 
 
 def _joints(model_xml: Path) -> dict[str, tuple[str, tuple[float, float]]]:
@@ -215,9 +258,13 @@ def apply(track_dir: Path, parts: dict[str, dict], released: dict[str, list[tupl
     for name, (jtype, limits) in types.items():
         q = q_all.get(name)
         info = {"type": jtype, "damping": DEFAULT_DAMPING[jtype], "damping_measured": False}
-        still = still_frames(q, fps, released.get(name, []), jtype == "revolute",
-                             resting_end(xml, name, limits)) if q is not None else np.array([], int)
+        still = still_frames(q, fps, released.get(name, []), jtype == "revolute") if q is not None else np.array([], int)
         tau = np.abs(gravity_torque(xml, name, q[still])) if len(still) else np.array([])
+        loaded = len(tau) and tau.max() > 1e-4
+        if loaded:  # where the part lies on its parent (a closed lid), the parent holds it, not friction
+            free = ~lying_region(xml, name, limits, jtype == "revolute")(q[still])
+            info["lying_frames"] = int((~free).sum())
+            still, tau = still[free], tau[free]
         if len(tau) and tau.max() > 1e-4:
             f = HOLD_MARGIN * float(tau.max())
             probe = sorted({float(q[t]) for t in still[np.linspace(0, len(still) - 1, 5).astype(int)]})
@@ -231,7 +278,8 @@ def apply(track_dir: Path, parts: dict[str, dict], released: dict[str, list[tupl
             mu = float(parts.get(child, {}).get("friction", 0.3))
             load = 9.81 * float(parts.get(child, {}).get("mass_kg", 0.1))
             f = 0.1 * mu * load if jtype == "prismatic" else 0.02
-            why = ("gravity does not load it" if len(still) else "no hand-free still frames off its stops")
+            why = ("gravity does not load it" if not loaded and len(still) else
+                   "no hand-free still frames where it isn't lying on its parent")
             info.update(friction=f, friction_measured=False, held_frames=int(len(still)), why_not=why)
         joints[name] = info
     _write_mjcf(xml, inert, parts, joints)
