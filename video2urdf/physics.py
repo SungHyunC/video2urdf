@@ -266,7 +266,13 @@ def _fmt(x) -> str:
 
 def _write_mjcf(path: Path, inert: dict, parts: dict, joints: dict):
     tree = ET.parse(path)
-    for body in tree.getroot().iter("body"):
+    root = tree.getroot()
+    if root.find("contact") is None:  # models written before emit added these (see emit3d.contact_excludes)
+        contact = ET.SubElement(root, "contact")
+        for parent in root.iter("body"):
+            for child in parent.findall("body"):
+                ET.SubElement(contact, "exclude", body1=parent.get("name"), body2=child.get("name"))
+    for body in root.iter("body"):
         name = body.get("name")
         for old in body.findall("inertial"):
             body.remove(old)
