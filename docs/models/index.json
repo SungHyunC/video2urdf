@@ -1,1 +1,1 @@
-[{"name": "laptop_lidar", "path": "models/laptop_lidar/model.json", "three_d": true}, {"name": "notebook", "path": "models/notebook/model.json", "three_d": false}, {"name": "stand", "path": "models/stand/model.json", "three_d": false}]
+[{"name": "laptop_lidar", "path": "models/laptop_lidar/model.json", "three_d": true}, {"name": "drawer", "path": "models/drawer/model.json", "three_d": true}, {"name": "notebook", "path": "models/notebook/model.json", "three_d": false}, {"name": "stand", "path": "models/stand/model.json", "three_d": false}]

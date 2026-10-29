@@ -1,0 +1,23 @@
+<mujoco model="drawer2_lidar">
+  <compiler angle="radian"/>
+  <visual><global offwidth="1920" offheight="1440"/></visual>
+  <asset><mesh name="base_0" file="meshes/base_0.stl" inertia="exact"/><mesh name="base_1" file="meshes/base_1.stl" inertia="exact"/><mesh name="base_2" file="meshes/base_2.stl" inertia="exact"/><mesh name="base_3" file="meshes/base_3.stl" inertia="exact"/><mesh name="base_4" file="meshes/base_4.stl" inertia="exact"/><mesh name="drawer1_0" file="meshes/drawer1_0.stl" inertia="exact"/><mesh name="drawer1_1" file="meshes/drawer1_1.stl" inertia="exact"/><mesh name="drawer1_2" file="meshes/drawer1_2.stl" inertia="exact"/><mesh name="drawer1_3" file="meshes/drawer1_3.stl" inertia="exact"/><mesh name="drawer1_4" file="meshes/drawer1_4.stl" inertia="exact"/></asset>
+  <worldbody>
+    <camera name="video" pos="0 0 1"/>
+    <body name="base" pos="0.00000 0.00000 0.46690">
+      <geom type="mesh" mesh="base_0" rgba="0.54902 0.43922 0.31765 1"/>
+      <geom type="mesh" mesh="base_1" rgba="0.54902 0.43922 0.31765 1"/>
+      <geom type="mesh" mesh="base_2" rgba="0.54902 0.43922 0.31765 1"/>
+      <geom type="mesh" mesh="base_3" rgba="0.54902 0.43922 0.31765 1"/>
+      <geom type="mesh" mesh="base_4" rgba="0.54902 0.43922 0.31765 1"/>
+      <body name="drawer1" pos="0.00000 0.00000 0.00000">
+        <joint name="drawer1_joint" type="slide" axis="1.00000 0.00000 0.00000" range="0.0000 0.2530" limited="true"/>
+        <geom type="mesh" mesh="drawer1_0" rgba="0.48627 0.40392 0.31765 1"/>
+        <geom type="mesh" mesh="drawer1_1" rgba="0.34039 0.28275 0.22235 1"/>
+        <geom type="mesh" mesh="drawer1_2" rgba="0.34039 0.28275 0.22235 1"/>
+        <geom type="mesh" mesh="drawer1_3" rgba="0.34039 0.28275 0.22235 1"/>
+        <geom type="mesh" mesh="drawer1_4" rgba="0.34039 0.28275 0.22235 1"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
