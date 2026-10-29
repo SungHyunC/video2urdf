@@ -7,6 +7,8 @@ Every step lands in <track_dir>/agent/log.md with the images Spark saw.
 import base64
 import json
 import os
+import subprocess
+import tempfile
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -16,7 +18,7 @@ import cv2
 import numpy as np
 from openai import OpenAI
 
-from . import lidar
+from . import lidar, physics
 from .pipeline import CARD_LONG_SIDE, Fit, fit, long_side_px, read_frame, slug, video_info
 from .sam import Detection, SamClient, parse, sam_client
 
@@ -24,7 +26,10 @@ MODEL = os.environ.get("AGENT_MODEL", "muse-spark-1.3-contributor")
 BASE_URL = os.environ.get("AGENT_BASE_URL", "https://api.meta.ai/v1")
 API_KEY_ENV = os.environ.get("AGENT_API_KEY_ENV", "MODEL_API_KEY")
 MAX_IMAGES = int(os.environ.get("AGENT_MAX_IMAGES", "0"))  # per request; 0 = no cap (Baseten allows 8)
-MAX_STEPS = 20  # Spark turns; the last one must call finish
+MAX_VIDEOS = 2  # videos kept in the conversation; older ones become a note
+VIDEO = os.environ.get("AGENT_VIDEO", "1") != "0"  # send Spark whole videos (Muse Spark 1.3 and Spark Open take mp4)
+VIDEO_WIDTH, VIDEO_FPS = 480, 10  # videos shown to Spark are downscaled; timestamps are kept
+MAX_STEPS = 22  # Spark turns; the last one must call finish
 ASSUMED_VIEW_M = 0.6  # frame's long side in metres when no card sets the scale
 VIEW_WIDTH = 540  # px; frames shown to Spark
 COLORS = [(0, 200, 255), (255, 80, 80), (80, 220, 80), (255, 0, 255), (255, 255, 0), (0, 128, 255)]
@@ -35,7 +40,12 @@ revolute or prismatic joints, written as URDF/MJCF, then proven by replaying it 
 the video. The camera roughly faces the plane of motion, so the model is planar.
 
 Tools:
-- look(frames): see video frames, to understand the object and how it moves.
+- The whole video is attached to the first message: watch it to see what moves, how, and
+  when. Timestamps in it are seconds; frame = seconds x fps.
+- look(frames): see video frames at full resolution, with their frame numbers.
+- watch(what, start_s, end_s): watch a video again: "video" (the source) or "replay" (the
+  latest replay: the fitted model drawn over the video). Watching the replay is how you check
+  a fit over time, not just at a few frames: say where and when the model leaves the object.
 - segment(prompt, frame): SAM 3.1 finds every match of a short concept prompt on one frame.
   Returns candidate ids and an annotated image. One concept per call. SAM is literal: short
   visual noun phrases work ("white base", "metal pole", "laptop lid", "laptop keyboard",
@@ -53,6 +63,12 @@ Tools:
   thickness {part: metres} when an oblique view makes a part's silhouette too thick.
   Returns joints, a fit residual and per-part
   silhouette IoU, plus an image of the worst replay frames.
+- set_physics(parts, released): after the final fit, give each link its material, mass (kg)
+  and contact friction, judged from what the object is and its measured size, and the time
+  spans (seconds) when a moving part stood still with NO hand touching it. A hinge that holds
+  its part against gravity there gets its joint friction measured from those spans; the tool
+  checks it by releasing the model in MuJoCo. Masses are your estimate: the tool returns the
+  density they imply over the measured solid, so check that it is plausible for the material.
 - finish(report): end with a short report for a robotics developer.
 
 How to judge a fit: the tree must make physical sense (each joint where two parts touch).
@@ -60,7 +76,8 @@ Replay IoU above ~0.7 is good; thin parts score lower. A joint whose range is a 
 probably did not move in this video: say so, and make it fixed only if the object really has
 no joint there. If a part is mis-segmented (wrong region, swallowed by a neighbour) or a
 part's motion is inconsistent, re-segment and re-track rather than accept a bad fit.
-Budget: about 20 turns and at most 3 track calls; each turn tells you how many remain.
+Before finishing: watch the replay once, then set_physics, then finish.
+Budget: about 22 turns and at most 3 track calls; each turn tells you how many remain.
 If the video can't give a good planar model (the part moves toward the camera, a part is
 hidden most of the time, the camera faces the motion plane at a steep angle), stop early:
 finish with the best model you have, say plainly what is wrong, and say how to reshoot.
@@ -70,6 +87,10 @@ TOOLS = [
     {"name": "look", "description": "Show video frames (up to 4).",
      "parameters": {"type": "object", "properties": {"frames": {"type": "array", "items": {"type": "integer"}}},
                     "required": ["frames"]}},
+    {"name": "watch", "description": "Watch the source video or the latest replay (model over video), whole or a span.",
+     "parameters": {"type": "object", "properties": {
+         "what": {"type": "string", "enum": ["video", "replay"]},
+         "start_s": {"type": "number"}, "end_s": {"type": "number"}}, "required": ["what"]}},
     {"name": "segment", "description": "Run SAM 3.1 with one concept prompt on one frame.",
      "parameters": {"type": "object", "properties": {"prompt": {"type": "string"}, "frame": {"type": "integer"}},
                     "required": ["prompt", "frame"]}},
@@ -119,6 +140,20 @@ TOOLS = [
                                                                "description": "frames in which this drawer is operated"}},
              "required": ["part", "first_frame", "last_frame"]}}},
          "required": ["base", "drawers"]}},
+    {"name": "set_physics", "description": "Masses, inertia and friction for the fitted model. Joint friction is "
+     "measured where a part stood still on its own.",
+     "parameters": {"type": "object", "properties": {
+         "parts": {"type": "array", "items": {"type": "object", "properties": {
+             "link": {"type": "string", "description": "a link of the fitted model"},
+             "material": {"type": "string"},
+             "mass_kg": {"type": "number"},
+             "friction": {"type": "number", "description": "sliding friction coefficient of its surface"}},
+             "required": ["link", "material", "mass_kg", "friction"]}},
+         "released": {"type": "array", "items": {"type": "object", "properties": {
+             "joint": {"type": "string"}, "start_s": {"type": "number"}, "end_s": {"type": "number"}},
+             "required": ["joint", "start_s", "end_s"]},
+             "description": "spans where a moving part stands still and no hand touches it"}},
+         "required": ["parts", "released"]}},
     {"name": "finish", "description": "End with a report.",
      "parameters": {"type": "object", "properties": {"report": {"type": "string"}}, "required": ["report"]}},
 ]
@@ -160,18 +195,30 @@ base and fit again)."""
 
 
 def cap_images(messages: list[dict]) -> None:
-    """Keep only the newest MAX_IMAGES images in the conversation; older ones become a note."""
-    if not MAX_IMAGES:
-        return
-    seen = 0
+    """Keep only the newest MAX_IMAGES images and MAX_VIDEOS videos in the conversation; older
+    ones become a note."""
+    seen = {"image_url": 0, "video_url": 0}
+    cap = {"image_url": MAX_IMAGES or 10 ** 6, "video_url": MAX_VIDEOS}
     for m in reversed(messages):
         if not isinstance(m["content"], list):
             continue
         for i in range(len(m["content"]) - 1, -1, -1):
-            if m["content"][i]["type"] == "image_url":
-                seen += 1
-                if seen > MAX_IMAGES:
-                    m["content"][i] = {"type": "text", "text": "(older image dropped)"}
+            kind = m["content"][i]["type"]
+            if kind in seen:
+                seen[kind] += 1
+                if seen[kind] > cap[kind]:
+                    m["content"][i] = {"type": "text", "text": f"(older {kind.split('_')[0]} dropped)"}
+
+
+def mp4_url(path: Path, start_s: float | None = None, end_s: float | None = None) -> str:
+    """A small H.264 copy of a video (or a span of it) as a data URL, for Spark."""
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "v.mp4"
+        span = (["-ss", f"{start_s:.2f}"] if start_s else []) + (["-to", f"{end_s:.2f}"] if end_s else [])
+        subprocess.run(["ffmpeg", "-v", "error", "-y", *span, "-i", str(path), "-vf",
+                        f"scale={VIDEO_WIDTH}:-2,fps={VIDEO_FPS}", "-an", "-c:v", "libx264", "-crf", "30",
+                        "-pix_fmt", "yuv420p", str(out)], check=True)
+        return "data:video/mp4;base64," + base64.b64encode(out.read_bytes()).decode()
 
 
 def jpeg_url(img: np.ndarray, width: int = VIEW_WIDTH) -> str:
@@ -201,6 +248,7 @@ class Agent:
     last_fit: Fit | None = None
     report: str | None = None
     images: list[str] = field(default_factory=list)  # data URLs queued for the next user turn
+    videos: list[str] = field(default_factory=list)
     n_segment: int = 0
     log_lines: list[str] = field(default_factory=list)
 
@@ -234,6 +282,35 @@ class Agent:
         strip = cv2.hconcat([cv2.resize(i, (VIEW_WIDTH, round(i.shape[0] * VIEW_WIDTH / i.shape[1]))) for i in imgs])
         self.show(strip, f"look {frames}", width=strip.shape[1])
         return f"Showing frames {frames} (left to right)."
+
+    def tool_watch(self, what: str = "video", start_s: float | None = None, end_s: float | None = None) -> str:
+        if not VIDEO:
+            return "video input is off for this model; use look"
+        path = self.video
+        if what == "replay":
+            replays = [p for p in (self.track_dir / "replay3d.mp4", self.track_dir / "replay.mp4") if p.exists()]
+            if self.last_fit is None or not replays:
+                return "no replay yet: fit first"
+            path = max(replays, key=lambda p: p.stat().st_mtime)
+        self.videos.append(mp4_url(path, start_s, end_s))
+        span = f" {start_s or 0:.1f}-{end_s or self.n / self.fps:.1f} s" if start_s or end_s else ""
+        self.log(f"watch {what}{span} ({path.name})")
+        return (f"The {what}{span} is attached to the next message"
+                + (" (fitted model in colour over the video)." if what == "replay" else "."))
+
+    def tool_set_physics(self, parts: list[dict], released: list[dict]) -> str:
+        if self.last_fit is None or not (self.track_dir / "model.xml").exists():
+            return "fit a model first"
+        props = {slug(p["link"]): {"material": p["material"], "mass_kg": float(p["mass_kg"]),
+                                   "friction": float(p["friction"])} for p in parts}
+        windows: dict[str, list] = {}
+        for r in released:
+            name = slug(r["joint"])
+            name = name if name.endswith("_joint") else f"{name}_joint"
+            windows.setdefault(name, []).append((int(r["start_s"] * self.fps), int(r["end_s"] * self.fps)))
+        lines = []
+        physics.apply(self.track_dir, props, windows, self.fps, log=lines.append)
+        return "\n".join(lines)
 
     def tool_segment(self, prompt: str, frame: int) -> str:
         frame = max(0, min(self.n - 1, int(frame)))
@@ -460,9 +537,13 @@ class Agent:
     # --- loop ----------------------------------------------------------------------------
     def run(self) -> str:
         w, h = self.size
-        intro = (f"Video {self.video.name}: {self.n} frames at {self.fps:.0f} fps, {w}x{h}. "
-                 "Build its kinematic model. Frames below are spread over the video.")
+        intro = (f"Video {self.video.name}: {self.n} frames at {self.fps:.2f} fps ({self.n / self.fps:.1f} s), "
+                 f"{w}x{h}. Build its kinematic model. "
+                 + ("The whole video is attached, then frames spread over it." if VIDEO else
+                    "Frames below are spread over the video."))
         self.log(f"# Video2URDF agent: {self.video.name}\n\nmodel {MODEL}")
+        if VIDEO:
+            self.tool_watch("video")
         self.tool_look([0, self.n // 3, 2 * self.n // 3, self.n - 1])
         messages = [{"role": "system", "content": SYSTEM + (LIDAR if self.capture else "")},
                     {"role": "user", "content": [{"type": "text", "text": intro}] + self._take_images()}]
@@ -506,6 +587,7 @@ class Agent:
         return report
 
     def _take_images(self) -> list[dict]:
-        out = [{"type": "image_url", "image_url": {"url": u}} for u in self.images]
-        self.images = []
+        out = ([{"type": "video_url", "video_url": {"url": u}} for u in self.videos]
+               + [{"type": "image_url", "image_url": {"url": u}} for u in self.images])
+        self.images, self.videos = [], []
         return out
