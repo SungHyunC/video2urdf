@@ -509,3 +509,157 @@ def fit_and_build_slide(c: Capture, roles: Roles, log=print) -> dict:
         f"(its hidden depth is assumed equal to the travel); replay covers "
         + ", ".join(f"{k} {100 * v:.0f}%" for k, v in summary["mask_coverage"].items()) + " of the SAM masks")
     return summary
+
+
+def _planes(points: np.ndarray, rng, k: int = 4, min_frac: float = 0.08):
+    """Up to k largest planes (normal, offset) by sequential RANSAC."""
+    out, rest = [], points
+    for _ in range(k):
+        if len(rest) < max(100, min_frac * len(points)):
+            break
+        n, d, _ = fit_plane(rest, rng, tol=0.006)
+        on = np.abs(rest @ n - d) < 0.006
+        if on.sum() < min_frac * len(points):
+            break
+        out.append((n, d))
+        rest = rest[~on]
+    return out
+
+
+def front_normal(c: Capture, base: str, part: str, window: tuple[int, int], up: np.ndarray):
+    """The base's upright face a drawer comes out of, on the frame where the drawer is seen
+    largest: (outward normal, that frame), or None if no upright face is in view."""
+    rng = np.random.default_rng(0)
+    seen = [t for t in range(window[0], min(c.n, window[1] + 1)) if c.has(part, t) and c.has(base, t)]
+    if not seen:
+        return None
+    ref = max(seen, key=lambda t: c.by[part][t].area)
+    gm = c.cloud(part, ref).mean(axis=0)
+    upright = [(n, d) for n, d in _planes(c.cloud(base, ref), rng) if abs(n @ up) < 0.35]
+    if not upright:
+        return None
+    n, d = max(upright, key=lambda nd: abs(gm @ nd[0] - nd[1]))
+    return (n if gm @ n - d > 0 else -n), ref
+
+
+def front_travel(c: Capture, base: str, part: str, window: tuple[int, int], axis: np.ndarray) -> dict:
+    """How far a drawer stands out of the base along ``axis`` (the front's outward normal), in
+    each frame: the drawer's outermost points against the base's (its front face, or its top's
+    front edge when only the top is seen). Both come from the same frame's depth, so camera
+    drift cancels; a frame where the drawer isn't seen at all is shut (0)."""
+    t0, t1 = window
+    q = np.full(c.n, np.nan)
+    for t in range(t0, min(c.n, t1 + 1)):
+        if not c.has(base, t):
+            continue
+        if not c.has(part, t):
+            q[t] = 0.0  # not seen: shut
+            continue
+        dr, cab = c.cloud(part, t), c.cloud(base, t)
+        if len(dr) < 50 or len(cab) < 200:
+            continue
+        q[t] = max(0.0, float(np.percentile(dr @ axis, 98) - np.percentile(cab @ axis, 97)))
+    seen = [t for t in range(t0, min(c.n, t1 + 1)) if c.has(part, t)]
+    return {"ref": max(seen, key=lambda t: c.by[part][t].area), "q": q}
+
+
+def fit_and_build_slides(c: Capture, base: str, floor: str | None, drawers: list[tuple[str, tuple[int, int]]],
+                         log=print) -> dict:
+    """Several parts sliding out of one base (a chest of drawers), each operated in its own
+    stretch of the video: ``drawers`` is [(tracked part, (first frame, last frame))]. Each
+    drawer's travel is how far it stands out of the base's front in each frame (front_travel),
+    so all drawers slide along the front's normal; outside its window a drawer is shut.
+    q = 0 is shut, positive pulls it out. Writes slides.json, model.urdf, model.xml, meshes/,
+    model3d.json and replay3d.mp4."""
+    rng = np.random.default_rng(0)
+    if floor:
+        f = c.cloud(floor, c.ref)
+        up, _, _ = fit_plane(f, rng)
+        if up @ (-f.mean(axis=0)) < 0:
+            up = -up
+    else:
+        up = np.array([0.0, -1.0, 0.0])
+    # One outward direction for all: drawers of one base slide parallel. Take it where a drawer
+    # comes out of an upright face that is in view.
+    found = [fn for part, w in drawers if (fn := front_normal(c, base, part, w, up)) is not None]
+    if not found:
+        raise ValueError(f"no upright face of {base} seen next to a drawer")
+    axis = found[0][0] - (found[0][0] @ up) * up
+    axis /= np.linalg.norm(axis)
+    fits = []
+    for part, (t0, t1) in drawers:
+        m = front_travel(c, base, part, (t0, t1), axis)
+        m["axis"] = axis
+        q = clean_angles(m["q"], max_dev=0.03)  # 3 cm off its neighbours is a bad frame
+        hi = float(np.nanpercentile(q, 99))
+        full = np.zeros(c.n)  # shut outside its window
+        full[t0: t1 + 1] = q[t0: t1 + 1]
+        fits.append({"part": part, "window": (t0, t1), "ref": m["ref"], "axis": m["axis"], "q": full, "hi": hi,
+                     "at_ref": float(q[m["ref"]]) if not np.isnan(q[m["ref"]]) else hi,
+                     "frames_measured": int((~np.isnan(q[t0: t1 + 1])).sum())})
+
+    # Model frame: z up off the floor, x along the travel (out of the base).
+    x = axis - (axis @ up) * up
+    x /= np.linalg.norm(x)
+    rot = np.stack([x, np.cross(up, x), up])
+    origin = c.cloud(base, min(c.by[base], key=lambda t: abs(t - c.ref))).mean(axis=0)
+
+    def to_model(p):
+        return (p - origin) @ rot.T
+
+    def box_of(p):
+        return np.percentile(p, 2, axis=0), np.percentile(p, 98, axis=0)
+
+    # The base's shape on a frame with every drawer closed (else its mask holds an open drawer).
+    closed = [t for t in c.by[base] if all(not (f["window"][0] <= t <= f["window"][1]) for f in fits)]
+    t_base = max(closed or list(c.by[base]), key=lambda t: c.by[base][t].area)
+    mesh_dir = c.track_dir / "meshes"
+    mesh_dir.mkdir(exist_ok=True)
+    links, sizes, masks, joint_q = [], {}, {"base": c.by[base]}, {}
+    parts = [("base", base, t_base, None)] + [(f"drawer{i + 1}", f["part"], f["ref"], f) for i, f in enumerate(fits)]
+    for name, part, t, f in parts:
+        lo_b, hi_b = box_of(to_model(c.cloud(part, t)))
+        rect = np.array([[lo_b[0], lo_b[1]], [hi_b[0], lo_b[1]], [hi_b[0], hi_b[1]], [lo_b[0], hi_b[1]]])
+        if f is not None:  # seen pulled out by at_ref: the hidden rest is at least that deep; shut at q = 0
+            rect[[0, 3], 0] = np.minimum(rect[[0, 3], 0], rect[[1, 2], 0] - f["hi"])
+            rect[:, 0] -= f["at_ref"]
+        v, fc = prism(rect, np.zeros(3), np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.array([0, 0, 1.0]),
+                      lo_b[2], hi_b[2])
+        write_stl(mesh_dir / f"{name}.stl", v, fc)
+        sizes[name] = (1000 * (np.array([hi_b[0] - rect[0, 0], hi_b[1] - lo_b[1], hi_b[2] - lo_b[2]]))).round().tolist()
+        rgb = part_color(read_frame(c.video, t), c.by[part][t].full_mask(c.h, c.w))
+        link = emit3d.Link3D(name, [emit3d.Visual(f"meshes/{name}.stl", rgb)], parent=None if f is None else "base")
+        if f is not None:
+            link.joint_type, link.axis, link.limits = "prismatic", rot @ f["axis"], (0.0, f["hi"])
+            masks[name], joint_q[f"{name}_joint"] = c.by[part], f["q"]
+        links.append(link)
+    floor_z = float(np.percentile(to_model(c.cloud(floor, c.ref))[:, 2], 50)) if floor else \
+        float(box_of(to_model(c.cloud(base, t_base)))[0][2])
+    root_pos = np.array([0, 0, -floor_z])
+    (c.track_dir / "model.urdf").write_text(emit3d.urdf(c.video.stem, links))
+    (c.track_dir / "model.xml").write_text(emit3d.mjcf(c.video.stem, links, root_pos, (c.w, c.h)))
+
+    summary = {"joints": [{"name": f"drawer{i + 1}_joint", "part": f["part"], "window": list(f["window"]),
+                           "travel_mm": 1000 * f["hi"], "frames_measured": f["frames_measured"],
+                           "axis_vs_first_deg": float(np.rad2deg(np.arccos(min(1.0, abs(f["axis"] @ axis)))))}
+                          for i, f in enumerate(fits)], "box_sizes_mm": sizes}
+    (c.track_dir / "slides.json").write_text(json.dumps({
+        "drawers": [{"part": f["part"], "reference_frame": f["ref"], "axis": f["axis"].tolist(),
+                     "q": [None if np.isnan(v) else float(v) for v in f["q"]]} for f in fits], **summary}))
+    (c.track_dir / "model3d.json").write_text(json.dumps({
+        "reference_frame": c.ref, "camera_to_model": {"rotation": rot.tolist(), "hinge_point": origin.tolist(),
+                                                      "root_pos": root_pos.tolist()}, **summary}))
+    a = np.eye(4)
+    a[:3, :3], a[:3, 3] = rot, -rot @ origin + root_pos
+    cam_to_world = np.array([a @ np.linalg.inv(c.world[t]) for t in range(c.n)])
+    cover = replay3d(c.track_dir / "model.xml", cam_to_world, c.cap.intrinsics, joint_q, masks, c.video,
+                     c.track_dir / "replay3d.mp4")
+    summary["mask_coverage"] = {k: float(np.nanmean(v)) for k, v in cover.items()}
+    for j in summary["joints"]:
+        log(f"{j['name']} ({j['part']}, frames {j['window'][0]}..{j['window'][1]}): pulled out up to "
+            f"{j['travel_mm']:.0f} mm, measured on {j['frames_measured']} frames; axis {j['axis_vs_first_deg']:.1f} deg "
+            f"from drawer 1's")
+    log("boxes (mm, along travel x across x up): " + ", ".join(f"{k} {v}" for k, v in sizes.items())
+        + "; replay covers " + ", ".join(f"{k} {100 * v:.0f}%" for k, v in summary["mask_coverage"].items())
+        + " of the SAM masks")
+    return summary
