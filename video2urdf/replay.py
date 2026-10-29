@@ -131,6 +131,7 @@ def replay3d(model_xml: Path, cam_to_world: np.ndarray, intr, joint_q: dict[str,
     cover = {b: np.full(n, np.nan) for b in masks}
     writer = cv2.VideoWriter(str(out_video), cv2.VideoWriter_fourcc(*"avc1"), cap.get(cv2.CAP_PROP_FPS) or 30, (w, h))
     flip = np.diag([1.0, -1.0, -1.0])  # camera axes: OpenCV -> MuJoCo (y up, looking along -z)
+    plot = _plot(model, joint_q, n, w, h)
     for t in range(n):
         ok, img = cap.read()
         if not ok:
@@ -156,6 +157,8 @@ def replay3d(model_xml: Path, cam_to_world: np.ndarray, intr, joint_q: dict[str,
             img[pred] = (0.5 * img[pred] + 0.5 * color).astype(np.uint8)
             contours, _ = cv2.findContours(pred.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             cv2.drawContours(img, contours, -1, color.tolist(), 3)
+        img = _inset(img, plot, t, n, [f"{b} covers {100 * cover[b][t]:.0f}% of its mask" for b in body_ids
+                                       if not np.isnan(cover[b][t])])
         label = "MuJoCo replay of the depth-measured model  " + "  ".join(
             f"{j} {np.rad2deg(q[t]):.0f} deg" if model.jnt_type[model.joint(j).id] == mujoco.mjtJoint.mjJNT_HINGE
             else f"{j} {1000 * q[t]:.0f} mm" for j, q in qs.items()) + ("  (interpolated)" if gaps[t] else "")
@@ -166,3 +169,49 @@ def replay3d(model_xml: Path, cam_to_world: np.ndarray, intr, joint_q: dict[str,
     writer.release()
     renderer.close()
     return cover
+
+
+def _plot(model, joint_q: dict[str, np.ndarray], n: int, w: int, h: int) -> dict:
+    """The measured joint values over the whole video, drawn once (deg or mm)."""
+    pw, ph = int(0.36 * w), int(0.2 * h)
+    pad = int(0.012 * w)
+    img = np.full((ph, pw, 3), 255, np.uint8)
+    curves = []
+    for i, (j, q) in enumerate(joint_q.items()):
+        hinge = model.jnt_type[model.joint(j).id] == mujoco.mjtJoint.mjJNT_HINGE
+        v = np.rad2deg(q) if hinge else 1000 * q
+        curves.append((j, v, "deg" if hinge else "mm", COLORS[(i + 1) % len(COLORS)]))
+    allv = np.concatenate([v[~np.isnan(v)] for _, v, _, _ in curves]) if curves else np.zeros(1)
+    lo, hi = float(allv.min()), float(allv.max())
+    hi = hi if hi > lo else lo + 1
+    xs = lambda t: pad + (pw - 2 * pad) * t / max(1, n - 1)
+    ys = lambda v: ph - pad - (ph - 3 * pad) * (v - lo) / (hi - lo)
+    for _, v, _, color in curves:
+        for t in np.flatnonzero(~np.isnan(v)):
+            cv2.circle(img, (int(xs(t)), int(ys(v[t]))), max(1, w // 960), color, -1)
+    k = w / 1920
+    cv2.putText(img, f"measured from the video: {lo:.0f}..{hi:.0f} {curves[0][2] if curves else ''}",
+                (pad, int(2.2 * pad)), cv2.FONT_HERSHEY_SIMPLEX, 0.8 * k, (60, 60, 60), max(1, int(2 * k)))
+    return {"img": img, "xs": xs, "ys": ys, "curves": curves}
+
+
+def _inset(img: np.ndarray, plot: dict, t: int, n: int, lines: list[str]) -> np.ndarray:
+    """Paste the joint plot bottom-left with a cursor at frame t, and the per-frame coverage."""
+    h, w = img.shape[:2]
+    p = plot["img"].copy()
+    ph, pw = p.shape[:2]
+    k = w / 1920
+    x = int(plot["xs"](t))
+    cv2.line(p, (x, 0), (x, ph), (40, 40, 40), max(1, int(2 * k)))
+    for _, v, _, color in plot["curves"]:
+        if t < len(v) and not np.isnan(v[t]):
+            cv2.circle(p, (x, int(plot["ys"](v[t]))), int(9 * k), color, -1)
+            cv2.circle(p, (x, int(plot["ys"](v[t]))), int(9 * k), (40, 40, 40), max(1, int(2 * k)))
+    y0, x0 = h - ph - int(30 * k), int(30 * k)
+    roi = img[y0: y0 + ph, x0: x0 + pw]
+    img[y0: y0 + ph, x0: x0 + pw] = (0.15 * roi + 0.85 * p).astype(np.uint8)
+    for i, text in enumerate(lines):
+        y = y0 - int((24 + 46 * (len(lines) - 1 - i)) * k)
+        cv2.putText(img, text, (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2 * k, (0, 0, 0), max(1, int(6 * k)))
+        cv2.putText(img, text, (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2 * k, (255, 255, 255), max(1, int(2 * k)))
+    return img
