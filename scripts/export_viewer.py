@@ -70,6 +70,27 @@ def web_video(src: Path, dst: Path, crf: int = 30):
                     str(dst)], check=True)
 
 
+def front(model_xml: Path) -> list[float] | None:
+    """Where to look from, in the model's frame (horizontal): a hinged part's inner face looks
+    toward its parent (a screen toward the keyboard), so from the child's centre toward the
+    root's; a slide pulls out toward the viewer."""
+    import mujoco
+    import numpy as np
+    model = mujoco.MjModel.from_xml_path(str(model_xml))
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    if model.njnt == 0:
+        return None
+    j = 0
+    if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_SLIDE:
+        v = data.xaxis[j].copy()
+    else:
+        v = data.subtree_com[1] - data.subtree_com[model.jnt_bodyid[j]]
+    v[2] = 0
+    n = np.linalg.norm(v)
+    return (v / n).tolist() if n > 1e-6 else None
+
+
 def export(name: str, run: Path, video: Path, out: Path) -> dict:
     dst = out / "models" / name
     if dst.exists():
@@ -121,7 +142,8 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
                            for k, v in p["joints"].items()}}
     spec = {"name": name, "fps": fps, "frames": n, "tree": tree, "joints": joint_tracks(run), "videos": videos,
             "measured": meta, "agent_report": report.read_text() if report.exists() else None,
-            "three_d": (run / "model3d.json").exists(), "physics": phys}
+            "three_d": (run / "model3d.json").exists(), "physics": phys,
+            "front": front(run / "model.xml") if (run / "model3d.json").exists() else None}
     (dst / "model.json").write_text(json.dumps(spec))
     size = sum(f.stat().st_size for f in dst.rglob("*") if f.is_file())
     print(f"{name}: {size / 1e6:.1f} MB -> {dst}")

@@ -230,7 +230,10 @@ function frameCamera(root) {
   const size = box.getSize(new THREE.Vector3()).length();
   const center = box.getCenter(new THREE.Vector3());
   controls.target.copy(center);
-  camera.position.copy(center).add(new THREE.Vector3(0.9, 0.7, 1.1).multiplyScalar(size));
+  // from the model's front (export_viewer.front, model frame z-up -> three.js y-up), a little to the side
+  const f = spec && spec.front ? new THREE.Vector3(spec.front[0], 0, -spec.front[1]) : new THREE.Vector3(0.6, 0, 0.8);
+  const side = new THREE.Vector3(-f.z, 0, f.x).multiplyScalar(0.45);
+  camera.position.copy(center).add(f.add(side).normalize().multiplyScalar(1.4 * size).add(new THREE.Vector3(0, 0.6 * size, 0)));
   camera.near = size / 100; camera.far = size * 20; camera.updateProjectionMatrix();
   grid.position.y = box.min.y;
   grid.scale.setScalar(Math.max(size, 0.2));

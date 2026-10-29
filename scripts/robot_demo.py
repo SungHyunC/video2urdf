@@ -236,8 +236,8 @@ def main():
     total = sum(d for _, d in phases)
     renderer = mujoco.Renderer(model, H, W)
     cam = mujoco.MjvCamera()
-    cam.lookat[:] = [0.42, 0, 0.38]
-    cam.distance, cam.azimuth, cam.elevation = 1.75, 115, -18
+    cam.lookat[:] = [0.45, 0, 0.36]  # close enough to see the object's video texture
+    cam.distance, cam.azimuth, cam.elevation = 1.3, 125, -20
     out = args.out or (args.run / "robot_demo.mp4")
     writer = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"avc1"), FPS, (W, H))
     steps_per_frame = round(1 / FPS / model.opt.timestep)
