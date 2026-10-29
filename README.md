@@ -53,6 +53,7 @@ Two capture paths:
 | **Muse Glimmer 30B** (open weights `meta-models/Muse-Glimmer-30B`, our own Modal Dedicated Endpoint, SGLang) | `run_agent.py --glimmer` | The same agent on a 30B dense open model we serve ourselves: tool calls and images (the endpoint drops video, so it works from frames). |
 | **SAM 3.1 / SAM 3** (open weights `facebook/sam3.1`, `facebook/sam3`, on a Modal GPU) | `modal_apps/sam3_open.py`, `video2urdf/sam_open.py` | Open-weights segmentation (SAM 3.1 concept prompts) and box tracking (SAM 3's tracker), answering in the hosted API's wire format so the rest of the pipeline is unchanged. |
 | **SAM 3D Objects** (open weights `facebook/sam-3d-objects`, on a Modal GPU) | `modal_apps/sam3d.py`, `scripts/sam3d_meshes.py` | A realistic, coloured mesh of each link from one frame and its SAM 3.1 mask, laid out in metres by our LiDAR depth (given as its pointmap), checked against the measured depth points; it becomes the link's visual, the measured shape stays its collision. |
+| **MapAnything** (open weights `facebook/map-anything-apache`, on a Modal GPU) | `modal_apps/mapanything_open.py`, `video2urdf/pseudo_depth.py` | Metric depth, intrinsics and camera poses from a plain RGB video, written as a LiDAR-style capture so the 3D path runs without LiDAR (experimental, see below). |
 
 Every model called at runtime is a Meta model. Switching between the Meta API and open
 weights is one flag.
@@ -216,6 +217,33 @@ The agent ends with `set_physics` (masses, friction). For a run made without it:
 `.venv/bin/python scripts/add_physics.py data/tracks_agent/laptop_lidar` (Spark watches the
 video once, structured output; `--reuse` re-applies the saved estimate).
 
+### Any phone video, no LiDAR (MapAnything, experimental)
+
+[MapAnything](https://github.com/facebookresearch/map-anything) (Meta, Apache-2.0 weights
+`facebook/map-anything-apache`) predicts metric depth, intrinsics and camera poses from RGB
+alone. `scripts/video_to_capture.py` runs it on Modal over chunks of the video that share
+anchor frames, stitches the chunks with a similarity fitted on the anchors' points, and writes
+the result in the Stray Scanner layout, so the LiDAR path runs on it unchanged:
+
+```bash
+.venv/bin/modal deploy modal_apps/mapanything_open.py            # once; A10G, scales to zero
+.venv/bin/python scripts/video_to_capture.py my_video.mov --focal-35mm 26   # iPhone 1x is ~26 mm
+.venv/bin/python scripts/run_agent.py data/real/my_video_mapanything --sam open
+# sizes off? rescale the capture by one known length (no new inference), then fit again:
+.venv/bin/python scripts/video_to_capture.py my_video.mov --scale KNOWN_M/MEASURED_M
+```
+
+Checked against the LiDAR laptop by running its RGB alone (`scripts/eval_pseudo_depth.py`,
+`scripts/compare_hinges.py`, same SAM tracks): MapAnything's metric scale was 3.6x too large on
+this close top-down shot, but steady over the video (p10-p90 within +-4%), so one known length
+fixes it. After that, depth is within 5% of the LiDAR (median), camera rotation within 2 deg of
+ARKit (median), and the hinge axis direction within 2.0-2.3 deg of the LiDAR fit; the opening
+angle is off by 8-12 deg (median) and the base thickness is not measurable. Use it for a hinge's
+axis and range from any video; use LiDAR for millimetres. Film obliquely, as for LiDAR: on a
+side view (`notebook_2.MOV`, no LiDAR) the agent put the hinge on the real hinge, but the lid is
+seen edge-on, its plane fits were poor (replay covers 13% of the lid) and Spark said so and
+asked for a reshoot; side views go through the 2D path instead.
+
 ### Robot demo and viewer
 
 ```bash
@@ -304,7 +332,7 @@ cat data/rbo/results/summary.md
 
 ## Built on
 
-Models: Muse Spark, Muse Spark Open, Muse Glimmer, SAM 3.1, SAM 3, SAM 3D Objects (Meta).
+Models: Muse Spark, Muse Spark Open, Muse Glimmer, SAM 3.1, SAM 3, SAM 3D Objects, MapAnything (Meta).
 
 | Project | License | Used for |
 |---|---|---|
@@ -312,6 +340,7 @@ Models: Muse Spark, Muse Spark Open, Muse Glimmer, SAM 3.1, SAM 3, SAM 3D Object
 | [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) (Franka Panda) | Apache-2.0 | robot demo, fetched by `scripts/fetch_assets.sh`, not committed |
 | [facebookresearch/sam3](https://github.com/facebookresearch/sam3) | SAM License | open-weights SAM on Modal |
 | [facebookresearch/sam-3d-objects](https://github.com/facebookresearch/sam-3d-objects) (SAM 3D Objects) | SAM License | realistic link meshes on Modal; installed into the Modal image, not vendored |
+| [MapAnything](https://github.com/facebookresearch/map-anything) (Meta), weights `facebook/map-anything-apache` | Apache-2.0 | depth, intrinsics and camera poses for videos without LiDAR, on Modal |
 | [meta-sam-parser](https://pypi.org/project/meta-sam-parser/) | SAM License | parsing SAM API output; `video2urdf/fast_mask.py` is a numba port of its decoder (`LICENSES/SAM_LICENSE`) |
 | [RBO dataset](https://zenodo.org/records/1036660) - R. Martín-Martín, C. Eppner, O. Brock, "The RBO Dataset of Articulated Objects and Interactions", IJRR 2019 | CC BY 4.0 | benchmark; downloaded, not redistributed |
 | [three.js](https://threejs.org) | MIT | web viewer (CDN) |

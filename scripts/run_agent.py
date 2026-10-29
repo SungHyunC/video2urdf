@@ -50,7 +50,7 @@ def main():
         os.environ["SAM_BACKEND"] = args.sam
     from video2urdf.agent import Agent  # reads the backend settings on import
     video, capture = args.video, None
-    if args.video.is_dir() and (args.video / "depth.npz").exists():  # fixed-camera RGB-D (rbo_eval.py --prepare-only)
+    if args.video.is_dir() and (args.video / "intrinsics.json").exists():  # fixed-camera RGB-D (rbo_eval.py --prepare-only)
         capture, video = args.video, next(args.video.glob("*.mp4"))
     elif args.video.is_dir():  # an iPhone LiDAR capture (Stray Scanner export, possibly nested)
         capture = args.video
