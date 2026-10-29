@@ -45,7 +45,9 @@ def body_tree(el: ET.Element) -> dict:
         out["geoms"].append({
             "mesh": g.get("mesh"), "type": g.get("type"), "rgba": floats(g.get("rgba"), [0.7, 0.7, 0.7, 1]),
             "pos": floats(g.get("pos"), [0, 0, 0]), "size": floats(g.get("size"), []),
-            "axisangle": floats(g.get("axisangle"), None)})
+            "axisangle": floats(g.get("axisangle"), None),
+            "realistic": (g.get("mesh") or "").endswith("_sam3d"),  # SAM 3D's mesh (scripts/sam3d_meshes.py)
+            "measured": g.get("group") == "3"})  # hidden under a realistic visual in MuJoCo
     return out
 
 
@@ -74,7 +76,9 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
     (dst / "meshes").mkdir(parents=True)
     root = ET.parse(run / "model.xml").getroot()
     meshes = {m.get("name"): m.get("file") for m in root.iter("mesh")}
-    for file in set(meshes.values()):
+    for name_, file in meshes.items():
+        if file.endswith(".obj") and (run / file).with_suffix(".ply").exists():  # the web gets vertex colours
+            file = meshes[name_] = str(Path(file).with_suffix(".ply"))
         shutil.copy(run / file, dst / file)
     tree = body_tree(root.find("worldbody").find("body"))
 
