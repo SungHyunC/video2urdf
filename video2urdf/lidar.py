@@ -73,7 +73,9 @@ class Capture:
     def from_stray(cls, video: Path, capture: Path, track_dir: Path, ref: int = 0) -> "Capture":
         """An iPhone capture: the scene's motion comes from ARKit odometry."""
         cap = stray.load(capture)
-        return cls(video, track_dir, cap, stray.ref_to_frame_poses(capture, len(cap.depth), ref), ref)
+        c = cls(video, track_dir, cap, stray.ref_to_frame_poses(capture, len(cap.depth), ref), ref)
+        c.source = capture
+        return c
 
     @classmethod
     def fixed_camera(cls, video: Path, track_dir: Path, depth: np.ndarray, intrinsics, ref: int = 0) -> "Capture":
@@ -83,6 +85,12 @@ class Capture:
         return c
 
     moving_camera = True  # ARKit odometry drifts and gets levelled against the floor
+    source: Path | None = None  # the Stray Scanner capture, when there is one
+
+    @property
+    def up(self) -> np.ndarray | None:
+        """Gravity's up in reference-camera coordinates, from ARKit (None without odometry)."""
+        return stray.gravity_up(self.source, self.ref) if self.source is not None else None
 
     def set_ref(self, t: int):
         """Use frame t as the reference: the scene's motion is re-expressed from it."""
@@ -558,7 +566,8 @@ def front_normal(c: Capture, base: str, part: str, window: tuple[int, int], up: 
         return None
     # Which face: the one whose normal follows how the drawer moved (seen smallest = shut, to
     # seen largest = out); a side panel is upright too, and the drawer may stand far from it.
-    shut = min(seen, key=lambda t: c.by[part][t].area)
+    with_depth = [t for t in seen if len(c.cloud(part, t)) >= 50] or [ref]
+    shut = min(with_depth, key=lambda t: c.by[part][t].area)
     moved = gm - c.cloud(part, shut).mean(axis=0)
     moved -= (moved @ up) * up
     if np.linalg.norm(moved) > 0.03:
@@ -632,7 +641,9 @@ def fit_and_build_slides(c: Capture, base: str, floor: str | None, drawers: list
     q = 0 is shut, positive pulls it out. Writes slides.json, model.urdf, model.xml, meshes/,
     model3d.json and replay3d.mp4."""
     rng = np.random.default_rng(0)
-    if floor:
+    if c.up is not None:  # gravity from ARKit: right whatever was picked as the floor
+        up = c.up
+    elif floor:
         f = c.cloud(floor, c.ref)
         up, _, _ = fit_plane(f, rng)
         if up @ (-f.mean(axis=0)) < 0:
@@ -680,7 +691,13 @@ def fit_and_build_slides(c: Capture, base: str, floor: str | None, drawers: list
     t_base = max(closed or list(c.by[base]), key=lambda t: c.by[base][t].area)
     mesh_dir = c.track_dir / "meshes"
     mesh_dir.mkdir(exist_ok=True)
-    floor_z = float(np.percentile(to_model(c.cloud(floor, c.ref))[:, 2], 50)) if floor else \
+    floor_pts = None
+    if floor:  # the floor's height, from the frame nearest the reference where its depth is seen
+        for t in sorted(c.by.get(floor, {}), key=lambda t: abs(t - c.ref)):
+            if len(cl := c.cloud(floor, t)) >= 50:
+                floor_pts = cl
+                break
+    floor_z = float(np.percentile(to_model(floor_pts)[:, 2], 50)) if floor_pts is not None else \
         float(box_of(to_model(c.cloud(base, t_base)))[0][2])
     # Each drawer, shut (q = 0): its front face's cross-section, as deep as it travels at least.
     boxes = []
@@ -700,7 +717,7 @@ def fit_and_build_slides(c: Capture, base: str, floor: str | None, drawers: list
     out_lo = np.min([b_lo] + [lo for lo, _ in boxes], axis=0)
     out_hi = np.max([b_hi] + [hi for _, hi in boxes], axis=0)
     out_lo[0] -= PANEL_M  # a back panel behind the deepest drawer
-    if floor:
+    if floor_pts is not None:
         out_lo[2] = floor_z
     slots = [(lo[1] - GAP_M, lo[2] - GAP_M, hi[1] + GAP_M, hi[2] + GAP_M) for lo, hi in boxes]
     slot_back = min(lo[0] for lo, _ in boxes) - GAP_M

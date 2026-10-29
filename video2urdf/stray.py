@@ -55,3 +55,11 @@ def ref_to_frame_poses(path: Path, n: int, ref: int) -> np.ndarray:
     c[:, :3, :3] = Rotation.from_quat(od[:, 5:9]).as_matrix()
     c[:, :3, 3] = od[:, 2:5]
     return np.linalg.inv(c) @ c[ref]
+
+
+def gravity_up(path: Path, ref: int) -> np.ndarray:
+    """Up (against gravity) in the reference camera's coordinates: ARKit's world frame has +y
+    up, so this needs no floor in view."""
+    od = np.genfromtxt(find_capture(path) / "odometry.csv", delimiter=",", skip_header=1)
+    r = Rotation.from_quat(od[ref, 5:9]).as_matrix()  # camera-to-world
+    return r.T @ np.array([0.0, 1.0, 0.0])

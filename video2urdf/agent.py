@@ -411,6 +411,24 @@ class Agent:
         (self.track_dir / "drawers.json").write_text(json.dumps({"floor": floor and slug(floor), "base": base,
                                                                   "drawers": [[d, list(w)] for d, w in spec]}))
         summary = lidar.fit_and_build_slides(c, b, slug(floor) if floor else None, spec, log=lines.append)
+        # Look-alike fronts swap identities while tracking, and a drawer that is out hides the
+        # front next to it: check that nothing in base stands out of the cabinet like a drawer.
+        axis = np.array(json.loads((self.track_dir / "slides.json").read_text())["drawers"][0]["axis"])
+        for p in base:
+            rest = [o for o in base if o != p]
+            if not rest:
+                continue
+            ref_base = c.merge(f"_without_{p}", rest) if len(rest) > 1 else rest[0]
+            m = lidar.front_travel(c, ref_base, p, (0, c.n - 1), axis)
+            out = float(np.nanpercentile(m["q"], 95))
+            if out > 0.05:
+                lines.append(f"WARNING: base part {p!r} stands {1000 * out:.0f} mm out of the rest of the cabinet on some "
+                             f"frames: it moves like a drawer, so it is probably the drawer that moves (or its mask "
+                             f"swapped onto it). Check the masks and fit again.")
+        for j in summary["joints"]:
+            if j["travel_mm"] < 30:
+                lines.append(f"WARNING: {j['part']!r} barely moves ({j['travel_mm']:.0f} mm): it may be a front that "
+                             f"stays shut, not the drawer that moves.")
         frames = []
         fitted = json.loads((self.track_dir / "slides.json").read_text())["drawers"]
         for (d, (t0, t1)), f in zip(spec, fitted):  # each drawer shut and at its most open
