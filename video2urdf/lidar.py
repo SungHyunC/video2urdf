@@ -29,6 +29,7 @@ from . import emit3d, stray
 from .lift3d import clean_angles, fit_plane, fit_planar_hinge, fit_slide, mask_cloud, part_poses_3d
 from .motion import load_gray
 from .pipeline import load_parts, read_frame, video_info
+from .sam import Detection
 from .replay import replay3d
 from .shape import part_color, prism, write_stl
 
@@ -173,6 +174,23 @@ class Capture:
         moved = np.linalg.norm(motion[:, :3, 3], axis=1)
         turned = np.rad2deg(np.arccos(np.clip((np.trace(motion[:, :3, :3], axis1=1, axis2=2) - 1) / 2, -1, 1)))
         return {"frames": int((~gap).sum()), "moved_mm_max": float(1000 * moved.max()), "turned_deg_max": float(turned.max())}
+
+    def merge(self, name: str, parts: list[str]) -> str:
+        """A part made of several tracked ones (a cabinet seen as its side panel and its fixed
+        drawer fronts): on each frame, the union of their masks. Returns ``name``."""
+        merged = {}
+        for t in sorted(set().union(*(self.by[p] for p in parts))):
+            m = np.zeros((self.h, self.w), bool)
+            for p in parts:
+                if t in self.by[p]:
+                    m |= self.by[p][t].full_mask(self.h, self.w)
+            ys, xs = np.nonzero(m)
+            if len(xs):
+                box = (int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
+                merged[t] = Detection(t, -1, box, m[box[1]: box[3] + 1, box[0]: box[2] + 1])
+        self.by[name] = merged
+        self.names.append(name)
+        return name
 
     def has(self, part: str | None, t: int) -> bool:
         return part is not None and part in self.by and t in self.by[part]
@@ -538,6 +556,14 @@ def front_normal(c: Capture, base: str, part: str, window: tuple[int, int], up: 
     upright = [(n, d) for n, d in _planes(c.cloud(base, ref), rng) if abs(n @ up) < 0.35]
     if not upright:
         return None
+    # Which face: the one whose normal follows how the drawer moved (seen smallest = shut, to
+    # seen largest = out); a side panel is upright too, and the drawer may stand far from it.
+    shut = min(seen, key=lambda t: c.by[part][t].area)
+    moved = gm - c.cloud(part, shut).mean(axis=0)
+    moved -= (moved @ up) * up
+    if np.linalg.norm(moved) > 0.03:
+        n, d = max(upright, key=lambda nd: abs(nd[0] @ moved))
+        return (n if n @ moved > 0 else -n), ref
     n, d = max(upright, key=lambda nd: abs(gm @ nd[0] - nd[1]))
     return (n if gm @ n - d > 0 else -n), ref
 
@@ -586,9 +612,14 @@ def fit_and_build_slides(c: Capture, base: str, floor: str | None, drawers: list
         raise ValueError(f"no upright face of {base} seen next to a drawer")
     axis = found[0][0] - (found[0][0] @ up) * up
     axis /= np.linalg.norm(axis)
+    # Which way is out: drawers only ever stand out of the front, so out is the sign along
+    # which they stand out farther (how a drawer's centroid moves is no guide: opening it also
+    # reveals its inside, behind its front).
+    trials = {sg: [front_travel(c, base, part, w, sg * axis) for part, w in drawers] for sg in (1.0, -1.0)}
+    sign = max(trials, key=lambda sg: sum(np.nanpercentile(m["q"], 95) for m in trials[sg]))
+    axis = sign * axis
     fits = []
-    for part, (t0, t1) in drawers:
-        m = front_travel(c, base, part, (t0, t1), axis)
+    for (part, (t0, t1)), m in zip(drawers, trials[sign]):
         m["axis"] = axis
         q = clean_angles(m["q"], max_dev=0.03)  # 3 cm off its neighbours is a bad frame
         hi = float(np.nanpercentile(q, 99))
@@ -618,7 +649,12 @@ def fit_and_build_slides(c: Capture, base: str, floor: str | None, drawers: list
     links, sizes, masks, joint_q = [], {}, {"base": c.by[base]}, {}
     parts = [("base", base, t_base, None)] + [(f"drawer{i + 1}", f["part"], f["ref"], f) for i, f in enumerate(fits)]
     for name, part, t, f in parts:
-        lo_b, hi_b = box_of(to_model(c.cloud(part, t)))
+        pts = to_model(c.cloud(part, t))
+        lo_b, hi_b = box_of(pts)
+        if f is not None:  # a drawer's cross-section is its front face (an open drawer's mask also
+            front = pts[pts[:, 0] > hi_b[0] - 0.02]  # takes in the opening's walls behind it)
+            if len(front) >= 50:
+                lo_b[1:], hi_b[1:] = np.percentile(front[:, 1:], 2, axis=0), np.percentile(front[:, 1:], 98, axis=0)
         rect = np.array([[lo_b[0], lo_b[1]], [hi_b[0], lo_b[1]], [hi_b[0], hi_b[1]], [lo_b[0], hi_b[1]]])
         if f is not None:  # seen pulled out by at_ref: the hidden rest is at least that deep; shut at q = 0
             rect[[0, 3], 0] = np.minimum(rect[[0, 3], 0], rect[[1, 2], 0] - f["hi"])
