@@ -90,6 +90,16 @@ weights is one flag.
 - Monitor stand, 2D: base -> lower arm (0-30 deg) -> upper arm (-81-0 deg), residuals
   1.0 / 0.9 mm.
 
+### Repeatability: the agent three times on the same laptop
+
+Three fresh Muse Spark runs on the LiDAR laptop (`data/repeat/`, 13-19 turns each, all ended
+with a model and physics): lid 316 x 216, 304 x 215, 304 x 214 mm (spec 304 x 212). In all
+three SAM's screen track slid onto the lid's back as it shut (52-77% of the frames that show
+both); re-tracking doesn't change that, so `fit_lidar` now measures those frames from the
+closed-lid part instead. The same tracks refit with that: lid 316 x 217 / 305 x 209 /
+303 x 212 mm, lid replay 75 / 95 / 92%, base 86 / 86 / 31% (run 3's base candidate was the
+whole laptop; the tool flags it). The base candidate is what still varies between runs.
+
 ### Benchmark: RBO dataset (real RGB-D with motion capture)
 
 The [RBO dataset](https://zenodo.org/records/1036660) (TU Berlin, CC BY 4.0) has Kinect RGB-D
@@ -321,6 +331,55 @@ LM Studio with 24 GB+ of VRAM; point `AGENT_BASE_URL`/`AGENT_MODEL` at it.
 
 ### Realistic link meshes (SAM 3D Objects)
 
+Object-aware appearance completion: Spark identifies the object and likely materials from
+the video. Seen faces use video texture, unseen faces get a synthetic material. Laptop base
+and lid get a small inferred bevel on the measured outline; the drawer builder completes a
+cabinet and open tray with assumed hidden dimensions. When Spark can count the fronts and
+see handles, the drawer template also adds plausible visual-only fronts and handles for
+other closed drawers; their exact positions are guessed. Other object types retain the
+fitted shape. A single command can fit an RGB-D capture and complete its appearance:
+
+```bash
+.venv/bin/python scripts/video_to_model.py data/real/laptop_lidar --out data/new_run --viewer-out data/new_viewer
+```
+
+For a plain video, deploy `modal_apps/mapanything_open.py` first and pass the video path to
+the same command. MapAnything predicts depth and an uncertain scale, not LiDAR: calibrate
+with a known length (`--scale KNOWN_LENGTH/MEASURED_LENGTH`, evaluated as a number) and
+independently check dimensions. Depth and camera errors remain after scale calibration.
+For a new video capture, `--reference FRAME X1 Y1 X2 Y2 LENGTH_MM` instead calculates that
+scale from the estimated depth at two RGB-frame pixels whose real distance is known. Pick
+both points on visible surfaces, away from depth edges. This is one global scale correction,
+not a cure for depth or focal-length errors; the points and correction are recorded in
+`mapanything.json` and `measurement_source.json`.
+The optional viewer export writes a self-contained ZIP with URDF, MJCF, meshes and textures;
+serve it locally as printed by the command. Use new output directories so earlier results
+are not overwritten.
+
+For an existing successful 3D fit, run appearance completion separately:
+
+```bash
+.venv/bin/python scripts/infer_appearance.py data/tracks_agent/laptop_lidar data/real/laptop_lidar/laptop_lidar.mp4
+```
+
+`appearance.json` records the model's classification and material guesses; `texture.json`
+identifies synthetic faces and `shape_inference.json` records the shape hypothesis.
+Measured collision geometry and joint physics do not change. These synthetic surfaces and
+shapes are guesses, not observations of hidden features. `--reuse` reuses the saved
+classification. The classification call uses the configured Spark API and sends the video
+(Glimmer uses sample frames). These templates do not reconstruct arbitrary object classes.
+
+For SAM 3D meshes add `--sam3d` to `video_to_model.py`. Each mesh is checked against observed
+depth points; a part whose median distance exceeds 5 mm or p90 exceeds 15 mm is saved for
+inspection but not activated. Passing this check does not validate unobserved surfaces.
+We also require each generated extent to be within 0.8–1.2 times the fitted extent; fitted
+dimensions can themselves include assumptions, especially for hidden drawer depth.
+The default passes captured or MapAnything depth to SAM 3D. Do not use the experimental
+`--no-pointmap` option in a Meta-model-only submission: SAM 3D then invokes MoGe, a non-Meta
+depth model.
+See [appearance validation](docs/appearance_validation.md) for the tested captures and
+examples of generated meshes that failed the checks.
+
 ```bash
 # Request access on huggingface.co/facebook/sam-3d-objects (gated), then
 .venv/bin/modal deploy modal_apps/sam3d.py
@@ -329,8 +388,9 @@ LM Studio with 24 GB+ of VRAM; point `AGENT_BASE_URL`/`AGENT_MODEL` at it.
     --video data/real/laptop_lidar/laptop_lidar.mp4 --capture data/real/laptop_lidar
 ```
 
-Writes `meshes/<link>_sam3d.{obj,ply}` and `sam3d.json` (how far the part's depth points lie
-from the generated surface), and adds the meshes to `model.xml` / `model.urdf` as visuals. In
+Writes candidate meshes and `sam3d.json` (depth and size checks). Accepted candidates become
+`meshes/<link>_sam3d.{obj,ply}` and visuals in `model.xml` / `model.urdf`; rejected candidates
+leave the prior visual in place. In
 MJCF the measured shapes move to geom group 3 (hidden in the viewer, still colliding). L40S,
 scales to zero after 2 idle minutes.
 
@@ -359,7 +419,8 @@ cat data/rbo/results/summary.md
 
 ## Built on
 
-Models: Muse Spark, Muse Spark Open, Muse Glimmer, SAM 3.1, SAM 3, SAM 3D Objects, MapAnything (Meta).
+Models: Muse Spark, Muse Spark Open, Muse Glimmer, SAM 3.1, SAM 3, SAM 3D Objects,
+DINOv2 (used inside SAM 3D Objects), MapAnything (Meta).
 
 | Project | License | Used for |
 |---|---|---|
@@ -367,6 +428,7 @@ Models: Muse Spark, Muse Spark Open, Muse Glimmer, SAM 3.1, SAM 3, SAM 3D Object
 | [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) (Franka Panda) | Apache-2.0 | robot demo, fetched by `scripts/fetch_assets.sh`, not committed |
 | [facebookresearch/sam3](https://github.com/facebookresearch/sam3) | SAM License | open-weights SAM on Modal |
 | [facebookresearch/sam-3d-objects](https://github.com/facebookresearch/sam-3d-objects) (SAM 3D Objects) | SAM License | realistic link meshes on Modal; installed into the Modal image, not vendored |
+| [facebookresearch/dinov2](https://github.com/facebookresearch/dinov2) | Apache-2.0 | visual encoder used by SAM 3D Objects |
 | [MapAnything](https://github.com/facebookresearch/map-anything) (Meta), weights `facebook/map-anything-apache` | Apache-2.0 | depth, intrinsics and camera poses for videos without LiDAR, on Modal |
 | [meta-sam-parser](https://pypi.org/project/meta-sam-parser/) | SAM License | parsing SAM API output; `video2urdf/fast_mask.py` is a numba port of its decoder (`LICENSES/SAM_LICENSE`) |
 | [RBO dataset](https://zenodo.org/records/1036660) - R. Martín-Martín, C. Eppner, O. Brock, "The RBO Dataset of Articulated Objects and Interactions", IJRR 2019 | CC BY 4.0 | benchmark; downloaded, not redistributed |

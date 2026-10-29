@@ -471,6 +471,10 @@ class Agent:
             self.show(sheet, "fit_lidar (slide): 3D replay from the camera", width=sheet.shape[1])
             self.last_fit = summary
             return "\n".join(lines) + "\nImage: the replayed model (colored) over the video."
+        slid = c.drop_where_same(roles.plate, roles.plate_closed)
+        if slid:
+            lines.append(f"{slid} frames where the plate's mask was plate_closed's (the track slid onto the shut lid's "
+                         f"back) are measured from plate_closed instead")
         ref = c.ref_with(roles.base, roles.plate, roles.plate_closed)
         if ref != c.ref:
             c.set_ref(ref)
@@ -486,6 +490,7 @@ class Agent:
         lidar.fit_hinge(c, roles, log=lines.append)
         summary = lidar.build_model(c, roles, log=lines.append)
         lines += self.mask_checks(c, roles, summary)
+        self.record_fit_warnings(lines)
         hinge_img = cv2.imread(str(self.track_dir / "hinge.jpg"))
         self.show(hinge_img, "fit_lidar: measured hinge and opening over time", width=VIEW_WIDTH * 2)
         frames = sorted(set(summary["worst_frames"].values()) | {int(f) for f in np.linspace(0, self.n - 1, 3)})[:4]
@@ -564,6 +569,7 @@ class Agent:
             if j["travel_mm"] < 30:
                 lines.append(f"WARNING: {j['part']!r} barely moves ({j['travel_mm']:.0f} mm): it may be a front that "
                              f"stays shut, not the drawer that moves.")
+        self.record_fit_warnings(lines)
         frames = []
         fitted = json.loads((self.track_dir / "slides.json").read_text())["drawers"]
         for (d, (t0, t1)), f in zip(spec, fitted):  # each drawer shut and at its most open
@@ -573,6 +579,12 @@ class Agent:
         self.show(sheet, "fit_drawers: replay (drawers shut and at their most open)", width=sheet.shape[1])
         self.last_fit = summary
         return "\n".join(lines) + "\nImage: the replayed model (colored) over the video, each drawer shut and out."
+
+    def record_fit_warnings(self, lines: list[str]):
+        path = self.track_dir / "model3d.json"
+        info = json.loads(path.read_text())
+        info["fit_warnings"] = [line for line in lines if line.startswith("WARNING:")]
+        path.write_text(json.dumps(info, indent=2))
 
     def video_sheet(self, path: Path, frames: list[int]) -> np.ndarray:
         cap = cv2.VideoCapture(str(path))

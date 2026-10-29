@@ -102,21 +102,31 @@ class Capture:
         Angles are measured from it, so a frame with only a sliver of plate (barely open)
         would offset every angle. Frames where the plate's mask is the ``closed`` part's (a
         plate track that slid onto the shut lid's back, largest when shut) don't count, nor
-        frames where the base shows less than half its median area."""
+        frames where the base is much smaller than its well-visible views or its mask
+        swallows most of the plate."""
         both = set(self.by[base]) & set(self.by[plate]) or set(self.by[plate]) or set(self.by[base])
         if both <= set(self.by[base]):  # the base well in view: a shut lid hides the base's top
-            half = 0.5 * np.median([self.by[base][t].area for t in both])
-            both = {t for t in both if self.by[base][t].area >= half} or both
-        if closed and closed != plate:
-            def shut(t):
-                if t not in self.by.get(closed, {}) or t not in self.by[plate]:
+            factor = 0.75 if self.moving_camera else 0.5
+            well_seen = factor * np.median([self.by[base][t].area for t in both])
+            both = {t for t in both if self.by[base][t].area >= well_seen} or both
+        if base != plate:
+            def unsuitable(t):
+                if t not in self.by[plate]:
                     return False
-                a, b = self.by[plate][t].full_mask(self.h, self.w), self.by[closed][t].full_mask(self.h, self.w)
-                return (a & b).sum() > 0.8 * (a | b).sum()
+                a = self.by[plate][t].full_mask(self.h, self.w)
+                if closed and closed != plate and t in self.by.get(closed, {}):
+                    b = self.by[closed][t].full_mask(self.h, self.w)
+                    if (a & b).sum() > 0.8 * (a | b).sum():
+                        return True
+                if self.moving_camera and t in self.by[base] and a.any():
+                    base_mask = self.by[base][t].full_mask(self.h, self.w)
+                    if (a & base_mask).sum() > 0.5 * a.sum():
+                        return True
+                return False
             # largest first; skip shut ones (checking masks is slow, so stop at the first open one)
             part = self.by[plate] if set(self.by[plate]) & both else self.by[base]
             for t in sorted(both, key=lambda t: -part[t].area):
-                if not shut(t):
+                if not unsuitable(t):
                     return t
         if not both:
             raise ValueError(f"neither {base} nor {plate} is tracked with a usable mask")
@@ -220,6 +230,22 @@ class Capture:
         self.by[name] = merged
         self.names.append(name)
         return name
+
+    def drop_where_same(self, part: str, other: str | None, iou: float = 0.8) -> int:
+        """Forget ``part`` on frames where its mask is ``other``'s. SAM keeps a screen's identity
+        as the lid shuts, so a plate (inner face) track slides onto the closed lid's back, which
+        is plate_closed; those frames then go through the plate_closed path, built for them.
+        Returns how many frames were dropped."""
+        if not other or other == part or part not in self.by or other not in self.by:
+            return 0
+        drop = []
+        for t in sorted(set(self.by[part]) & set(self.by[other])):
+            a, b = self.by[part][t].full_mask(self.h, self.w), self.by[other][t].full_mask(self.h, self.w)
+            if (a & b).sum() > iou * (a | b).sum():
+                drop.append(t)
+        for t in drop:
+            del self.by[part][t]
+        return len(drop)
 
     def has(self, part: str | None, t: int) -> bool:
         return part is not None and part in self.by and t in self.by[part]
@@ -474,6 +500,10 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
                      only_when={"base": lambda t: c.has(roles.open_indicator, t) if roles.open_indicator else True})
     summary["mask_coverage"] = {k: float(np.nanmean(v)) for k, v in cover.items()}
     summary["worst_frames"] = {k: int(np.nanargmin(v)) for k, v in cover.items() if not np.isnan(v).all()}
+    metadata = json.loads((c.track_dir / "model3d.json").read_text())
+    metadata["mask_coverage"] = {k: v if np.isfinite(v) else None for k, v in summary["mask_coverage"].items()}
+    metadata["worst_frames"] = summary["worst_frames"]
+    (c.track_dir / "model3d.json").write_text(json.dumps(metadata, indent=2))
     log(f"model: base {summary['base_thickness_mm']:.0f} mm thick; plate {summary['plate_size_mm'][0]:.0f} x "
         f"{summary['plate_size_mm'][1]:.0f} mm, {summary['plate_thickness_mm']:.1f} mm thick"
         f"{' (clipped: not really measured)' if summary['plate_thickness_clipped'] else ''}; hinge "
@@ -551,6 +581,9 @@ def fit_and_build_slide(c: Capture, roles: Roles, log=print) -> dict:
     cover = replay3d(c.track_dir / "model.xml", cam_to_world, c.cap.intrinsics, {"drawer_joint": q},
                      {"drawer": c.by[roles.plate], "base": c.by[roles.base]}, c.video, c.track_dir / "replay3d.mp4")
     summary["mask_coverage"] = {k: float(np.nanmean(v)) for k, v in cover.items()}
+    metadata = json.loads((c.track_dir / "model3d.json").read_text())
+    metadata["mask_coverage"] = {k: v if np.isfinite(v) else None for k, v in summary["mask_coverage"].items()}
+    (c.track_dir / "model3d.json").write_text(json.dumps(metadata, indent=2))
     log(f"slide: travel {1000 * lo:.0f}..{1000 * hi:.0f} mm measured on {summary['frames_measured']}/{c.n} frames, "
         f"{1000 * slide.residual:.1f} mm off a straight line; boxes (mm) base {sizes['base']}, drawer {sizes['drawer']} "
         f"(its hidden depth is assumed equal to the travel); replay covers "
@@ -786,6 +819,9 @@ def fit_and_build_slides(c: Capture, base: str, floor: str | None, drawers: list
     cover = replay3d(c.track_dir / "model.xml", cam_to_world, c.cap.intrinsics, joint_q, masks, c.video,
                      c.track_dir / "replay3d.mp4")
     summary["mask_coverage"] = {k: float(np.nanmean(v)) for k, v in cover.items()}
+    metadata = json.loads((c.track_dir / "model3d.json").read_text())
+    metadata["mask_coverage"] = {k: v if np.isfinite(v) else None for k, v in summary["mask_coverage"].items()}
+    (c.track_dir / "model3d.json").write_text(json.dumps(metadata, indent=2))
     for j in summary["joints"]:
         log(f"{j['name']} ({j['part']}, frames {j['window'][0]}..{j['window'][1]}): pulled out up to "
             f"{j['travel_mm']:.0f} mm, measured on {j['frames_measured']} frames; axis {j['axis_vs_first_deg']:.1f} deg "
