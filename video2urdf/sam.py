@@ -31,7 +31,9 @@ _RECORD = re.compile(r"(\d+)<\|box;([^|]*)\|><\|mask;([^|]*)\|>")
 
 
 MIN_MASK_FRAC = 5e-4  # of the frame; smaller masks count as lost
-TRACK_MAX_SIDE = int(os.environ.get("SAM_TRACK_MAX_SIDE", "960"))  # px; videos are tracked at most this big (0 = as is)
+# px; videos are tracked at most this big (0 = as is). 960 tracks the LiDAR laptop ~3x faster with the same
+# masks (IoU 0.99) on parts in view, but parts that vanish and return (a screen) were found on different frames.
+TRACK_MAX_SIDE = int(os.environ.get("SAM_TRACK_MAX_SIDE", "0"))
 
 
 @dataclass(frozen=True)
