@@ -233,7 +233,8 @@ def apply(track_dir: Path, parts: dict[str, dict], released: dict[str, list[tupl
     their friction from it; the rest keep a small default and are reported as not measured."""
     xml, urdf = track_dir / "model.xml", track_dir / "model.urdf"
     original = track_dir / "model.nophysics.xml"
-    if not original.exists():  # keep the geometry-only model, so applying twice starts from it
+    fresh = ET.parse(xml).getroot().find(".//inertial") is None  # just written by a fit: no physics yet
+    if fresh or not original.exists():  # keep the geometry-only model, so applying twice starts from it
         original.write_text(xml.read_text())
         (track_dir / "model.nophysics.urdf").write_text(urdf.read_text())
     else:

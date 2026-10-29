@@ -31,6 +31,7 @@ _RECORD = re.compile(r"(\d+)<\|box;([^|]*)\|><\|mask;([^|]*)\|>")
 
 
 MIN_MASK_FRAC = 5e-4  # of the frame; smaller masks count as lost
+TRACK_MAX_SIDE = int(os.environ.get("SAM_TRACK_MAX_SIDE", "960"))  # px; videos are tracked at most this big (0 = as is)
 
 
 @dataclass(frozen=True)
@@ -52,13 +53,14 @@ class Detection:
         return self.area >= MIN_MASK_FRAC * width * height
 
     def full_mask(self, height: int, width: int) -> np.ndarray:
-        """The mask in a full frame. SAM caps the raster at 1024 px on its long side, so a
-        larger box comes back downscaled and is stretched back over the box here."""
+        """The mask in a full frame. SAM caps the raster at 1024 px on its long side, and
+        tracks from a downscaled video (track_boxes) come back small, so a raster that doesn't
+        match its box is stretched back over the box here."""
         m = np.zeros((height, width), bool)
         x1, y1, x2, y2 = self.box
         crop = self.crop
         bw, bh = x2 - x1 + 1, y2 - y1 + 1
-        if max(bw, bh) > 1024 and crop.shape != (bh, bw):
+        if abs(crop.shape[0] - bh) > 2 or abs(crop.shape[1] - bw) > 2:
             crop = cv2.resize(crop.astype(np.uint8), (bw, bh), interpolation=cv2.INTER_NEAREST).astype(bool)
         h, w = crop.shape
         m[y1:y1 + h, x1:x1 + w] = crop[: height - y1, : width - x1]
@@ -241,6 +243,14 @@ class SamClient:
         """
         anchors = {oid: [fb] if isinstance(fb, tuple) and isinstance(fb[0], int) else [tuple(x) for x in fb]
                    for oid, fb in boxes.items()}
+        k = TRACK_MAX_SIDE / max(size) if TRACK_MAX_SIDE and max(size) > TRACK_MAX_SIDE else 1.0
+        if k < 1:  # track a smaller copy (much faster), then put the boxes back in source pixels
+            with tempfile.TemporaryDirectory() as tmp:
+                small, small_size = scaled_clip(video, k, Path(tmp) / "small.mp4")
+                k = small_size[0] / size[0]
+                text = self.track_boxes(small, small_size, {
+                    oid: [(f, tuple(int(round(v * k)) for v in box)) for f, box in fb] for oid, fb in anchors.items()})
+            return rescale_boxes(text, 1 / k, size)
         text = self._track_forward(video, size, anchors)
         first = {oid: min(f for f, _ in fb) for oid, fb in anchors.items()}
         last = max(first.values())
@@ -268,6 +278,31 @@ class SamClient:
                 records.setdefault(frame, {}).setdefault(int(r.group(1)), r.group(0))
         return "\n".join(f"<{f}f>" + ",".join(records[f][o] for o in sorted(records[f]))
                          for f in sorted(records)) + "\n"
+
+
+def rescale_boxes(text: str, k: float, size: tuple[int, int]) -> str:
+    """SAM output with every box scaled by ``k`` into a frame of ``size``. Mask rasters keep
+    their size; Detection.full_mask stretches them over the box."""
+    w, h = size
+
+    def box(m):
+        f = _fields(m.group(1))
+        x1, y1 = (max(0, int(round(float(f[c]) * k))) for c in ("x1", "y1"))
+        x2, y2 = min(w - 1, int(round((float(f["x2"]) + 1) * k)) - 1), min(h - 1, int(round((float(f["y2"]) + 1) * k)) - 1)
+        rest = "".join(f";{key}={v}" for key, v in f.items() if key not in ("x1", "y1", "x2", "y2", "w", "h"))
+        return f"<|box;x1={x1};y1={y1};x2={x2};y2={y2};w={w};h={h}{rest}|>"
+    return re.sub(r"<\|box;([^|]*)\|>", box, text)
+
+
+def scaled_clip(video: Path, k: float, out: Path) -> tuple[Path, tuple[int, int]]:
+    """``video`` scaled by ``k`` (even sides), rotation applied, one output frame per input frame."""
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-vf", f"scale=trunc(iw*{k}/2)*2:-2",
+                    "-fps_mode", "passthrough", "-an", "-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p",
+                    str(out)], check=True)
+    cap = cv2.VideoCapture(str(out))
+    size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    cap.release()
+    return out, size
 
 
 def reversed_clip(video: Path, last: int, out: Path) -> Path:

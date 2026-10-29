@@ -126,6 +126,8 @@ def replay3d(model_xml: Path, cam_to_world: np.ndarray, intr, joint_q: dict[str,
         qs[j] = np.interp(np.arange(len(q)), known, q[known]) if len(known) else np.zeros_like(q)
     body_ids = {b: model.body(b).id for b in masks}
     n = len(cam_to_world)
+    np.savez(out_video.with_suffix(".npz"), cam_to_world=cam_to_world, f=intr.f, cx=intr.cx, cy=intr.cy,
+             **{f"q_{j}": q for j, q in qs.items()})
     cover = {b: np.full(n, np.nan) for b in masks}
     writer = cv2.VideoWriter(str(out_video), cv2.VideoWriter_fourcc(*"avc1"), cap.get(cv2.CAP_PROP_FPS) or 30, (w, h))
     flip = np.diag([1.0, -1.0, -1.0])  # camera axes: OpenCV -> MuJoCo (y up, looking along -z)
