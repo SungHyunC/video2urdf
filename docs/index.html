@@ -65,7 +65,7 @@
 <body>
 <header>
   <h1>Video2URDF</h1>
-  <p class="tagline">A phone video of a real object in, a measured joint model a robot can use out.</p>
+  <p class="tagline">Turn a video of an object into an approximate 3D model for a robot.</p>
   <nav class="tabs" id="tabs" aria-label="Objects"></nav>
 </header>
 <main>
@@ -79,7 +79,7 @@
     </div>
     <div class="card">
       <div class="card-head">
-        <h2>Measured model</h2>
+        <h2 id="modelTitle">3D model</h2>
         <div class="seg">
           <span class="seg" id="looks" hidden><button data-look="realistic" aria-pressed="true">Realistic</button><button data-look="measured" aria-pressed="false">Measured</button></span>
           <button id="follow" aria-pressed="true">Follow video</button>
@@ -92,8 +92,11 @@
   <div class="row" style="margin-top:16px">
     <a class="btn" id="dlUrdf" download>Download URDF</a>
     <a class="btn ghost" id="dlMjcf" download>Download MJCF</a>
+    <a class="btn ghost" id="dlBundle" download hidden>Download model + meshes</a>
   </div>
   <p class="facts" id="facts"></p>
+  <p class="facts" id="appearance" hidden></p>
+  <p class="facts" id="quality" hidden></p>
   <p class="facts" id="physics" hidden></p>
   <details id="reportBox" hidden><summary>Muse Spark agent report</summary><pre id="report"></pre></details>
 </main>
@@ -241,6 +244,8 @@ function frameCamera(root) {
 
 async function load(entry) {
   spec = await (await fetch(entry.path)).json();
+  $("modelTitle").textContent = spec.measurement_source?.depth === "MapAnything estimated from RGB video"
+    ? "3D model (estimated RGB depth)" : "3D model";
   const base = entry.path.replace(/model\.json$/, "");
   if (model) scene.remove(model.root);
   const joints = {};
@@ -257,7 +262,10 @@ async function load(entry) {
   const jc = $("joints");
   jc.innerHTML = "";
   for (const j of Object.values(joints)) {
-    const [lo, hi] = j.spec.range;
+    let [lo, hi] = j.spec.range;
+    const assumedClosed = spec.experimental_alignment?.closed_angle_deg * Math.PI / 180;
+    if (j.spec.name === "lid_joint" && Number.isFinite(assumedClosed) && assumedClosed < hi)
+      lo = Math.max(lo, assumedClosed);
     jc.insertAdjacentHTML("beforeend",
       `<label for="slider-${j.spec.name}">${j.spec.name.replace(/_joint$/, "")} (${j.spec.type === "slide" ? "slide" : "hinge"})</label>
        <div class="row"><input type="range" id="slider-${j.spec.name}" min="${lo}" max="${hi}" step="0.001" value="0">
@@ -268,7 +276,8 @@ async function load(entry) {
 
   const vt = $("videoTabs");
   vt.innerHTML = "";
-  const labels = { phone: "Phone video", replay: "Model over video", robot: "Robot uses it", physics: "Physics check" };
+  const hasCompletedVisual = spec.shape_inference?.active === true && spec.shape_inference?.inferred_visuals?.length > 0;
+  const labels = { phone: "Phone video", replay: spec.replay_experimental ? "Experimental model over video" : hasCompletedVisual ? "Fitted model over video" : "Model over video", robot: "Robot uses it", physics: "Physics check" };
   const order = ["phone", "replay", "robot", "physics"].filter((k) => spec.videos[k]);
   for (const k of order) {
     const b = document.createElement("button");
@@ -283,28 +292,69 @@ async function load(entry) {
   $("dlUrdf").download = `${spec.name}.urdf`;
   $("dlMjcf").href = base + "model.xml";
   $("dlMjcf").download = `${spec.name}.xml`;
+  $("dlBundle").hidden = !spec.bundle;
+  $("dlBundle").href = base + "model.zip";
+  $("dlBundle").download = `${spec.name}.zip`;
   $("facts").textContent = facts(spec);
+  const textureMeshes = Object.values(spec.texture?.meshes || {});
+  const seenFaces = textureMeshes.reduce((sum, mesh) => sum + (mesh.faces_seen || 0), 0);
+  const totalFaces = textureMeshes.reduce((sum, mesh) => sum + (mesh.faces || 0), 0);
+  const appearanceNotes = [
+    spec.appearance ? `Object identified as ${spec.appearance.object}. Materials and unseen surfaces are estimates.` : "",
+    spec.shape_inference?.shape || "", spec.measurement_source?.note || "",
+    spec.replay_experimental && spec.videos.replay ? "The replay shows the experimental visual and adjusted angles; they are not validated physics." :
+      hasCompletedVisual && spec.videos.replay ? "The replay shows the earlier fitted geometry, before visual completion." : "",
+    spec.experimental_comparison ? `Same-frame tracked-mask comparison: ${spec.experimental_comparison.rejected_links?.length ? "candidate needs review" : "no sampled regression detected"}; masks are not ground truth.` : "",
+    spec.measured?.static_envelope && Number.isFinite(spec.shape_inference?.visual_coverage_check?.links?.base?.inferred_iou)
+      ? `Sampled model–mask IoU: ${spec.shape_inference.visual_coverage_check.links.base.inferred_iou.toFixed(2)}; masks are not independent ground truth.` : "",
+    totalFaces ? `Video texture: ${seenFaces} of ${totalFaces} mesh face groups use observed video; remaining faces use inferred or fallback colours.` : "",
+    !spec.quality && spec.measured?.mask_coverage ? Object.entries(spec.measured.mask_coverage).filter(([, v]) => v !== null && v < .5)
+      .map(([link, v]) => `Warning: ${link} covers only ${(100 * v).toFixed(0)}% of its tracked mask.`).join(" ") : "",
+    spec.sam3d ? "SAM 3D: " + Object.entries(spec.sam3d).map(([link, r]) => {
+      const median = r.measured_to_mesh_mm?.median;
+      return `${link} ${r.accepted ? "accepted" : "not accepted"}` +
+        (Number.isFinite(median) ? `, observed depth-to-mesh median ${median.toFixed(1)} mm` : "");
+    }).join("; ") +
+      ". Unobserved surfaces are generated, not measured." : ""
+  ].filter(Boolean);
+  $("appearance").hidden = !appearanceNotes.length;
+  $("appearance").textContent = appearanceNotes.join(" ");
+  $("quality").hidden = !spec.quality || !spec.quality.warnings.length;
+  $("quality").textContent = spec.quality ? spec.quality.warnings.join(" ") : "";
   $("physics").hidden = !spec.physics;
-  $("physics").textContent = spec.physics ? physicsFacts(spec.physics) : "";
+  $("physics").textContent = spec.physics ? physicsFacts(spec.physics, spec.physics_input_provenance) : "";
   $("reportBox").hidden = !spec.agent_report;
   $("report").textContent = spec.agent_report || "";
 }
 
 function facts(s) {
   const m = s.measured || {};
+  const depth = s.measurement_source?.depth === "MapAnything estimated from RGB video"
+    ? (s.measurement_source.reference_calibration || s.measurement_source.scale_applied !== 1
+      ? "Estimated from RGB video (scale corrected; verify dimensions)"
+      : "Estimated from RGB video (metric scale must be calibrated)")
+    : "Measured from RGB-D depth";
+  if (m.static_envelope && m.observed_box_size_mm) {
+    return `Observed depth envelope: ${m.observed_box_size_mm.map(v => v.toFixed(0)).join(" × ")} mm. ` +
+      "Hidden surfaces and full dimensions are not verified.";
+  }
   if (s.three_d && m.plate_size_mm) {
-    return `Measured with iPhone LiDAR, no reference card: lid ${m.plate_size_mm[0].toFixed(0)} × ${m.plate_size_mm[1].toFixed(0)} mm, ` +
-      `base ${m.base_thickness_mm.toFixed(0)} mm thick, hinge range ${(m.hinge_range_deg[1] - m.hinge_range_deg[0]).toFixed(0)}°.`;
+    const base = m.base_thickness_measured === false
+      ? `base ${m.base_thickness_mm.toFixed(0)} mm thick (assumed)`
+      : `base ${m.base_thickness_mm.toFixed(0)} mm thick`;
+    const lidNote = m.plate_thickness_clipped ? " Lid thickness was assumed or clipped." : "";
+    return `${depth}: lid ${m.plate_size_mm[0].toFixed(0)} × ${m.plate_size_mm[1].toFixed(0)} mm, ` +
+      `${base}, hinge range ${(m.hinge_range_deg[1] - m.hinge_range_deg[0]).toFixed(0)}°.${lidNote}`;
   }
   if (s.three_d && m.joints) {
-    return `Measured with iPhone LiDAR, no reference card: ` + m.joints.map((j) =>
+    return `${depth}: ` + m.joints.map((j) =>
       `${j.name.replace(/_joint$/, "")} pulls out ${j.travel_mm.toFixed(0)} mm`).join(", ") +
       (m.box_sizes_mm && m.box_sizes_mm.drawer1 ? `; front ${m.box_sizes_mm.drawer1[1].toFixed(0)} × ${m.box_sizes_mm.drawer1[2].toFixed(0)} mm.` : ".");
   }
-  return `Measured from a side view; ${Object.keys(s.joints).length} joint(s) tracked over ${s.frames} frames.`;
+  return `Model estimated from a side view; ${Object.keys(s.joints).length} joint(s) tracked over ${s.frames} frames. Depth and scale may be assumed.`;
 }
 
-function physicsFacts(p) {
+function physicsFacts(p, provenance) {
   const links = Object.entries(p.links).map(([k, l]) => `${k} ${l.mass_kg.toFixed(2)} kg (${l.material})`).join(", ");
   const deg = (r) => (r * 180 / Math.PI).toFixed(0).replace(/^-0$/, "0");
   const joints = Object.entries(p.joints).map(([k, j]) => {
@@ -312,8 +362,9 @@ function physicsFacts(p) {
     const unit = j.type === "revolute" ? "N·m" : "N";
     if (!j.friction_measured) return `${name} friction ${j.friction.toFixed(2)} ${unit} (estimated, not measured)`;
     const worst = (d) => Math.max(...d.map(Math.abs)).toFixed(1);
-    return `${name} holds itself with no hand on it at joint angles ${deg(j.held_range[0])}° to ${deg(j.held_range[1])}°, ` +
-      `so its friction is at least the gravity torque there: ${j.friction.toFixed(3)} ${unit}. ` +
+    const premise = provenance ? `Selected frames suggest ${name} holds itself without a hand` : `${name} holds itself with no hand on it`;
+    return `${premise} at joint angles ${deg(j.held_range[0])}° to ${deg(j.held_range[1])}°; ` +
+      `estimated friction from those frames is ${j.friction.toFixed(3)} ${unit}. ` +
       `Let go in MuJoCo at those angles, it moves ${worst(j.drift_with_deg)}° (${worst(j.drift_without_deg)}° without that friction)`;
   }).join(". ");
   return `Physics: masses judged by Muse Spark from the video: ${links}. ${joints}.`;
@@ -346,10 +397,10 @@ function tick() {
 
 const index = await (await fetch("models/index.json")).json();
 const tabs = $("tabs");
-const titles = { laptop_lidar: "Laptop · iPhone LiDAR · agent", drawer: "Drawer · iPhone LiDAR", notebook: "Laptop · side view", stand: "Desk lamp · side view" };
+const titles = { laptop_lidar: "Laptop · iPhone LiDAR · agent", drawer: "Drawer · iPhone LiDAR", notebook: "Laptop · side view", stand: "Monitor stand · side view" };
 for (const entry of index) {
   const b = document.createElement("button");
-  b.textContent = titles[entry.name] || entry.name;
+  b.textContent = entry.label || titles[entry.name] || entry.name;
   b.onclick = async () => { for (const x of tabs.children) x.setAttribute("aria-pressed", String(x === b)); await load(entry); };
   tabs.append(b);
 }

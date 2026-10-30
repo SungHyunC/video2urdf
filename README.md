@@ -99,6 +99,11 @@ both); re-tracking doesn't change that, so `fit_lidar` now measures those frames
 closed-lid part instead. The same tracks refit with that: lid 316 x 217 / 305 x 209 /
 303 x 212 mm, lid replay 75 / 95 / 92%, base 86 / 86 / 31% (run 3's base candidate was the
 whole laptop; the tool flags it). The base candidate is what still varies between runs.
+After tightening reference selection, a separate refit of the same run 2 and 3 tracks at
+quarter-resolution replay improved base mask coverage from 15.6% to 86.0% and 31.1% to
+95.0% respectively. This is not a new independent run; one refit produced a suspect 24 mm
+lid thickness and remains flagged. Coverage is computed only on the usable tracked frames,
+not against independent ground truth. See [validation details](docs/appearance_validation.md).
 
 ### Benchmark: RBO dataset (real RGB-D with motion capture)
 
@@ -266,13 +271,20 @@ the result in the Stray Scanner layout, so the LiDAR path runs on it unchanged:
 Checked against the LiDAR laptop by running its RGB alone (`scripts/eval_pseudo_depth.py`,
 `scripts/compare_hinges.py`, same SAM tracks): MapAnything's metric scale was 3.6x too large on
 this close top-down shot, but steady over the video (p10-p90 within +-4%), so one known length
-fixes it. After that, depth is within 5% of the LiDAR (median), camera rotation within 2 deg of
+can correct the overall scale. It does not eliminate local depth or camera errors. After that,
+depth is within 5% of the LiDAR (median), camera rotation within 2 deg of
 ARKit (median), and the hinge axis direction within 2.0-2.3 deg of the LiDAR fit; the opening
-angle is off by 8-12 deg (median) and the base thickness is not measurable. Use it for a hinge's
-axis and range from any video; use LiDAR for millimetres. Film obliquely, as for LiDAR: on a
+angle is off by 8-12 deg (median) and the base thickness is not measurable. It can provide an
+approximate hinge estimate when the reconstruction is good; use measured depth for more reliable
+dimensions. Film obliquely, as for LiDAR: on a
 side view (`notebook_2.MOV`, no LiDAR) the agent put the hinge on the real hinge, but the lid is
 seen edge-on, its plane fits were poor (replay covers 13% of the lid) and Spark said so and
 asked for a reshoot; side views go through the 2D path instead.
+
+These are aggregate results for earlier fits, not a guarantee for each region. A later
+same-video experiment found opposite local depth errors on the floor and laptop base, with
+a resulting 78 mm base thickness and badly undersized lid despite global scale adjustment.
+See [validation details](docs/appearance_validation.md) before relying on RGB-only dimensions.
 
 ### Robot demo and viewer
 
@@ -332,16 +344,35 @@ LM Studio with 24 GB+ of VRAM; point `AGENT_BASE_URL`/`AGENT_MODEL` at it.
 ### Realistic link meshes (SAM 3D Objects)
 
 Object-aware appearance completion: Spark identifies the object and likely materials from
-the video. Seen faces use video texture, unseen faces get a synthetic material. Laptop base
-and lid get a small inferred bevel on the measured outline; the drawer builder completes a
-cabinet and open tray with assumed hidden dimensions. When Spark can count the fronts and
-see handles, the drawer template also adds plausible visual-only fronts and handles for
-other closed drawers; their exact positions are guessed. Other object types retain the
-fitted shape. A single command can fit an RGB-D capture and complete its appearance:
+the video. By default it uses a simple visual; with `--video-texture`, observed faces can
+use projected video colours and unseen faces get a synthetic material. Laptop base
+and lid get straight-edged inferred panels on the fitted outline; the drawer builder completes a
+cabinet and open tray with assumed hidden dimensions. The drawer template also adds
+plausible visual-only fronts for other closed drawers and handles when visible; their
+exact positions are guessed. If the visible drawer count is uncertain, the visual assumes
+three drawers and flags that assumption in the quality report. For a book, the visible inner cover
+and hinge define a hypothesized rectangular outer cover. These templates can be wrong and
+leave the fitted collisions unchanged. For an apparently stationary rigid box or upright
+cylinder, the RGB-D agent can generate a simple single-link shape from visible depth. Its
+hidden sides and any circular cross-section are assumptions; `quality.json` flags them.
+The stationarity check can mistake viewpoint or mask changes for motion, and cylinder
+fitting has only been tested on synthetic depth. Other object types retain the fitted shape;
+arbitrary objects and RGB-only metric dimensions are not validated. A single
+command can fit an RGB-D capture and complete its appearance:
 
 ```bash
 .venv/bin/python scripts/video_to_model.py data/real/laptop_lidar --out data/new_run --viewer-out data/new_viewer
 ```
+
+For an articulated object filmed approximately from the side, an explicit planar path
+is also available: `.venv/bin/python scripts/video_to_model.py data/real/stand.mov --planar --out data/stand_run --viewer-out data/stand_viewer`.
+It classifies the object and uses a side-view silhouette model; hidden depth, thickness,
+and possibly metric scale are assumed. Classification and the resulting shape must be
+reviewed. This path does not use RGB depth reconstruction, SAM 3D, or video texturing.
+
+This default creates a recognizable simplified visual and retains the fitted geometry and
+articulation. Add `--video-texture` to project video colours; that optional step takes
+additional time. SAM 3D is also optional.
 
 For a plain video, deploy `modal_apps/mapanything_open.py` first and pass the video path to
 the same command. MapAnything predicts depth and an uncertain scale, not LiDAR: calibrate
@@ -351,10 +382,44 @@ For a new video capture, `--reference FRAME X1 Y1 X2 Y2 LENGTH_MM` instead calcu
 scale from the estimated depth at two RGB-frame pixels whose real distance is known. Pick
 both points on visible surfaces, away from depth edges. This is one global scale correction,
 not a cure for depth or focal-length errors; the points and correction are recorded in
-`mapanything.json` and `measurement_source.json`.
+`mapanything.json` and `measurement_source.json`. Add repeatable
+`--check-reference FRAME X1 Y1 X2 Y2 LENGTH_MM` arguments for independently measured
+lengths: these are not used to fit scale, and their residual errors are recorded. Errors
+over 5% are flagged for review; passing checks at a few points does not validate all depths.
+To correct an already reconstructed MapAnything capture without rerunning depth inference
+or modifying the original, make a new calibrated copy (replace the example pixels and
+lengths with your own measurements):
+
+```bash
+.venv/bin/python scripts/calibrate_capture.py data/item_mapanything data/item_calibrated \
+  --reference 8 245 115 245 225 148.1 --check-reference 8 240 140 285 140 52.9
+.venv/bin/python scripts/video_to_model.py data/item.mp4 --capture-out data/item_calibrated \
+  --out data/item_run --viewer-out data/item_viewer
+```
+
+The new path must not exist. The points and lengths must describe visible rigid surfaces;
+the check uses a different pair and is not a substitute for measuring the finished model.
 The optional viewer export writes a self-contained ZIP with URDF, MJCF, meshes and textures;
 serve it locally as printed by the command. Use new output directories so earlier results
 are not overwritten.
+
+For an accepted SAM 3D visual, an experimental manual texture transfer can be run on a
+new copy. Select a textured fitted mesh and a replay frame where that particular surface
+is visible; repeat `--view` for distinct sides. For the local laptop experiment:
+
+```bash
+.venv/bin/python scripts/transfer_sam3d_texture.py data/appearance_trials/sam3d_alternate_open data/real/laptop_lidar/laptop_lidar.mp4 --out data/appearance_trials/my_texture_trial --link lid --view meshes/screen_tex.obj 150 --view meshes/lid_infer_tex.obj 343
+```
+
+For a new run, `scripts/video_to_model.py ... --sam3d --sam3d-video-texture` requests
+the same experimental automatic transfer when a SAM 3D link passes geometric checks.
+Add `--sam3d-retries 2` to try up to two more temporally separated frames after a
+rejection; this uses additional remote inference and records attempts in `sam3d_attempts.json`.
+Alternatively use `--auto-views` instead of `--view` to select only faces and frames
+recorded as video-observed by the texture stage. Both modes are experimental; inspect
+the generated texture on all sides. The 25 mm default projection tolerance is for
+appearance only, and the generated shape, occlusions, texture edges and hidden surfaces
+need review; it is not a measurement. The result remains marked for review.
 
 For an existing successful 3D fit, run appearance completion separately:
 
@@ -368,6 +433,22 @@ Measured collision geometry and joint physics do not change. These synthetic sur
 shapes are guesses, not observations of hidden features. `--reuse` reuses the saved
 classification. The classification call uses the configured Spark API and sends the video
 (Glimmer uses sample frames). These templates do not reconstruct arbitrary object classes.
+Use `--simple` on this standalone command to match `video_to_model.py`'s simple-colour
+default. It can also resume appearance after an interrupted fit, but doing so is a resumed
+run rather than evidence that the complete automatic pipeline succeeded.
+To resume on a separate copy while explicitly reusing a prior classification:
+
+```bash
+.venv/bin/python scripts/resume_appearance.py FIT_DIR VIDEO.mp4 NEW_DIR \
+  --appearance-from PRIOR_APPEARANCE.json --capture ORIGINAL_CAPTURE_DIR
+```
+
+`--capture` is needed when the interrupted fit has no `measurement_source.json`.
+Omit `--appearance-from` to make a new classification call. The result records its
+resumed provenance and the source directory is left unchanged.
+New visual geometry is compared with the fitted model on sampled tracked frames; if coverage
+or, for a full-part mask, IoU falls by more than five percentage points or there are fewer than five usable frames, the
+new geometry is not activated. See `shape_inference.json` for the comparison and decision.
 
 For SAM 3D meshes add `--sam3d` to `video_to_model.py`. Each mesh is checked against observed
 depth points; a part whose median distance exceeds 5 mm or p90 exceeds 15 mm is saved for

@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -47,15 +48,20 @@ def body_tree(el: ET.Element) -> dict:
             "pos": floats(g.get("pos"), [0, 0, 0]), "size": floats(g.get("size"), []),
             "axisangle": floats(g.get("axisangle"), None),
             "material": g.get("material"),  # the video texture (texture.py), resolved in export
-            "realistic": (g.get("mesh") or "").endswith("_sam3d"),  # SAM 3D's mesh (scripts/sam3d_meshes.py)
+            "realistic": ((g.get("mesh") or "").endswith(("_sam3d", "_infer"))
+                          or g.get("name", "").startswith("inferred_")),  # generated visual
             "measured": g.get("group") == "3"})  # hidden under a realistic visual in MuJoCo
     return out
 
 
 def joint_tracks(run: Path) -> dict[str, list]:
     """Joint name -> value per video frame (None where unmeasured)."""
+    if (run / "static.json").exists():
+        return {}
     if (run / "slides.json").exists():
         return {f"drawer{i + 1}_joint": d["q"] for i, d in enumerate(json.loads((run / "slides.json").read_text())["drawers"])}
+    if (run / "slide.json").exists():
+        return {"drawer_joint": json.loads((run / "slide.json").read_text())["q"]}
     if (run / "hinge.json").exists() and (run / "model3d.json").exists():
         return {"lid_joint": json.loads((run / "hinge.json").read_text())["q"]}
     joints = json.loads((run / "joints.json").read_text())["joints"]
@@ -80,6 +86,16 @@ def front(model_xml: Path) -> list[float] | None:
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
     if model.njnt == 0:
+        shape_file = model_xml.parent / 'shape_inference.json'
+        if shape_file.exists():
+            shape = json.loads(shape_file.read_text())
+            if shape.get('static_drawer_side_assumed') and shape.get('active') is True:
+                panel = next((v for v in shape.get('inferred_visuals', [])
+                              if v.get('name', '').startswith('inferred_drawer_front_')), None)
+                if panel and panel.get('front_axis') in (0, 1) and panel.get('front_sign') in (-1, 1):
+                    direction = [0., 0., 0.]
+                    direction[panel['front_axis']] = float(panel['front_sign'])
+                    return direction
         return None
     j = 0
     if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_SLIDE:
@@ -99,15 +115,36 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
     root = ET.parse(run / "model.xml").getroot()
     meshes = {m.get("name"): m.get("file") for m in root.iter("mesh")}
     for name_, file in meshes.items():
+        # MJCF/URDF still reference OBJ even when the web viewer prefers a coloured PLY.
+        shutil.copy(run / file, dst / file)
+        if file.endswith(".obj"):
+            for line in (run / file).read_text().splitlines():
+                if line.startswith("mtllib "):
+                    mtl = Path(file).parent / line.split(maxsplit=1)[1]
+                    if (run / mtl).exists():
+                        shutil.copy(run / mtl, dst / mtl)
         if file.endswith(".obj") and (run / file).with_suffix(".ply").exists():  # the web gets vertex colours
             file = meshes[name_] = str(Path(file).with_suffix(".ply"))
-        shutil.copy(run / file, dst / file)
+            shutil.copy(run / file, dst / file)
     tree = body_tree(root.find("worldbody").find("body"))
 
     textures = {t.get("name"): t.get("file") for t in root.iter("texture") if t.get("file")}
     materials = {m.get("name"): textures.get(m.get("texture")) for m in root.iter("material")}
     for file in {f for f in materials.values() if f}:
         shutil.copy(run / file, dst / file)
+
+    # URDF collision meshes may be different from MJCF's visual assets.
+    urdf_root = ET.parse(run / "model.urdf").getroot()
+    for element in list(urdf_root.iter("mesh")) + list(urdf_root.iter("texture")):
+        file = element.get("filename")
+        if not file:
+            continue
+        source, target = run / file, dst / file
+        if not source.is_file():
+            raise FileNotFoundError(f"URDF asset missing: {source}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            shutil.copy(source, target)
 
     def fix_mesh_paths(b):
         for g in b["geoms"]:
@@ -122,11 +159,16 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
         shutil.copy(run / f, dst / f)
     _, n, fps = video_info(video)
     videos = {}
-    for key, src in (("phone", video), ("replay", run / "replay3d.mp4"), ("replay", run / "replay.mp4"),
+    experimental_replay = run / "experimental_replay.mp4"
+    replay_sources = ([experimental_replay] if (run / "experimental_alignment.json").exists() else []) + [run / "replay3d.mp4", run / "replay.mp4"]
+    replay_experimental = False
+    for key, src in (("phone", video), *(("replay", p) for p in replay_sources),
                      ("robot", run / "robot_demo.mp4"), ("physics", run / "physics_demo.mp4")):
         if key not in videos and src.exists():
             web_video(src, dst / f"{key}.mp4")
             videos[key] = f"{key}.mp4"
+            if key == "replay":
+                replay_experimental = src == experimental_replay
     meta = {}
     for f in ("model3d.json", "hinge.json"):
         if (run / f).exists():
@@ -140,14 +182,56 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
                 "joints": {k: {f: v[f] for f in ("type", "friction", "friction_measured", "held_range",
                                                     "drift_with_deg", "drift_without_deg") if f in v}
                            for k, v in p["joints"].items()}}
+    def read_optional(filename):
+        p = run / filename
+        return json.loads(p.read_text()) if p.exists() else None
+
+    # Keep the intermediate inferred mesh referenced by the provenance metadata,
+    # even if texturing changed the active visual asset to an OBJ.
+    inference = read_optional("shape_inference.json") or {}
+    for item in inference.get("inferred_visuals", []):
+        file = item.get("generated")
+        if not file:
+            continue
+        rel = Path(file)
+        if rel.is_absolute() or ".." in rel.parts:
+            raise ValueError(f"Invalid inferred mesh path: {file}")
+        source, target = run / rel, dst / rel
+        if source.is_file() and not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(source, target)
+
     spec = {"name": name, "fps": fps, "frames": n, "tree": tree, "joints": joint_tracks(run), "videos": videos,
+            "bundle": "model.zip",
             "measured": meta, "agent_report": report.read_text() if report.exists() else None,
             "three_d": (run / "model3d.json").exists(), "physics": phys,
+            "appearance": read_optional("appearance.json"), "shape_inference": read_optional("shape_inference.json"),
+            "texture": read_optional("texture.json"),
+            "measurement_source": read_optional("measurement_source.json"),
+            "experimental_alignment": read_optional("experimental_alignment.json"),
+            "experimental_comparison": read_optional("experimental_comparison.json"),
+            "replay_experimental": replay_experimental,
+            "physics_input_provenance": read_optional("physics_input_provenance.json"),
+            "sam3d": read_optional("sam3d.json"), "sam3d_attempts": read_optional("sam3d_attempts.json"),
+            "quality": read_optional("quality.json"),
             "front": front(run / "model.xml") if (run / "model3d.json").exists() else None}
     (dst / "model.json").write_text(json.dumps(spec))
+    # Individual XML downloads reference relative meshes; bundle them for actual use.
+    with zipfile.ZipFile(dst / "model.zip", "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for p in [dst / "model.urdf", dst / "model.xml", *sorted((dst / "meshes").rglob("*"))]:
+            if p.is_file():
+                archive.write(p, p.relative_to(dst))
+        for name_ in ("model3d.json", "static.json", "appearance.json", "shape_inference.json", "texture.json",
+                      "measurement_source.json", "sam3d.json", "sam3d_attempts.json", "sam3d_status.json", "quality.json", "physics.json",
+                      "track_unions.json", "repair.json", "manual_selection.json", "physics_input_provenance.json", "experimental_alignment.json", "experimental_comparison.json", "experimental_drawer_collision.json", "physics.original.json", "resume.json"):
+            p = run / name_
+            if p.exists():
+                archive.write(p, name_)
     size = sum(f.stat().st_size for f in dst.rglob("*") if f.is_file())
     print(f"{name}: {size / 1e6:.1f} MB -> {dst}")
-    return {"name": name, "path": f"models/{name}/model.json", "three_d": spec["three_d"]}
+    label = (spec.get('appearance') or {}).get('object')
+    return {"name": name, "path": f"models/{name}/model.json", "three_d": spec["three_d"],
+            **({'label': label} if isinstance(label, str) and label.strip() else {})}
 
 
 def main():
