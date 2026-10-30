@@ -224,8 +224,9 @@ the object moves only through finger contact; arm joints get gravity compensatio
 titles its tasks and shows the joint value the object actually reaches. Results: LiDAR laptop
 closed 87 deg and reopened; drawer out 213 mm and back to 18 mm; LiDAR lamp's arm lowered 40 deg
 and raised back; mouse carried 18 cm and returned turned 90 deg; side-view laptop closed and
-reopened. The side-view lamp isn't done: its rods' in-plane thickness is a 6 mm silhouette and
-the fingers slip. For the drawer, the fingers pass through the measured cabinet box, which is
+reopened; side-view lamp's arm raised 33 deg and lowered back. A side-view rod is measured as a
+6 mm silhouette, too thin to hold, so there the fingers hold the rod Shape design drew (14 x 9 mm),
+and joints not being worked are held by friction. For the drawer, the fingers pass through the measured cabinet box, which is
 coarse around the drawer slots.
 
 ```bash
