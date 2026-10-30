@@ -1,16 +1,47 @@
 <?xml version='1.0' encoding='utf-8'?>
 <robot name="laptop_lidar">
   <link name="base">
+    <visual name="design_base_0">
+      <origin xyz="0.00000 0.00000 0.00000" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <mesh filename="meshes/design_base_0.stl" />
+      </geometry>
+      <material name="design_base_0_color">
+        <color rgba="0.78000 0.80000 0.82000 1" />
+      </material>
+    </visual>
+    <visual name="design_base_1">
+      <origin xyz="-0.02250 0.00000 0.00000" rpy="-0.00000 1.57080 0.00000" />
+      <geometry>
+        <cylinder radius="0.00650" length="0.31500" />
+      </geometry>
+      <material name="design_base_1_color">
+        <color rgba="0.55000 0.56000 0.58000 1" />
+      </material>
+    </visual>
+    <visual name="design_base_2">
+      <origin xyz="-0.02280 0.06500 -0.00550" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <box size="0.26500 0.10500 0.00150" />
+      </geometry>
+      <material name="design_base_2_color">
+        <color rgba="0.07000 0.07000 0.08000 1" />
+      </material>
+    </visual>
+    <visual name="design_base_3">
+      <origin xyz="-0.02280 0.17500 -0.00560" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <box size="0.11500 0.07500 0.00120" />
+      </geometry>
+      <material name="design_base_3_color">
+        <color rgba="0.70000 0.71000 0.74000 1" />
+      </material>
+    </visual>
     <inertial>
       <origin xyz="-0.0232126 0.111179 -0.0129876" rpy="0 -1.5708 3.14159" />
       <mass value="0.9" />
       <inertia ixx="0.0107799" ixy="0" ixz="0" iyy="0.00733006" iyz="0" izz="0.00347765" />
     </inertial>
-    <visual name="base_0">
-      <geometry>
-        <mesh filename="meshes/base_tex.obj" />
-      </geometry>
-    </visual>
     <collision>
       <geometry>
         <mesh filename="meshes/base.stl" />
@@ -18,26 +49,43 @@
     </collision>
   </link>
   <link name="lid">
+    <visual name="design_lid_0">
+      <origin xyz="-0.02760 -0.03065 0.10875" rpy="0.00000 -1.29608 -1.57080" />
+      <geometry>
+        <box size="0.22597 0.31050 0.00600" />
+      </geometry>
+      <material name="design_lid_0_color">
+        <color rgba="0.76000 0.78000 0.81000 1" />
+      </material>
+    </visual>
+    <visual name="design_lid_1">
+      <origin xyz="-0.02760 -0.02575 0.10800" rpy="0.00000 -1.29569 -1.57080" />
+      <geometry>
+        <box size="0.19327 0.28500 0.00120" />
+      </geometry>
+      <material name="design_lid_1_color">
+        <color rgba="0.06000 0.09000 0.16000 1" />
+      </material>
+    </visual>
+    <visual name="design_lid_2">
+      <origin xyz="-0.02760 -0.03360 0.10800" rpy="1.57080 1.57080 0.00000" />
+      <geometry>
+        <cylinder radius="0.01200" length="0.00160" />
+      </geometry>
+      <material name="design_lid_2_color">
+        <color rgba="0.08000 0.08000 0.09000 1" />
+      </material>
+    </visual>
     <inertial>
       <origin xyz="-0.0276933 -0.030744 0.108682" rpy="1.56398 -0.265453 1.5708" />
       <mass value="0.5" />
       <inertia ixx="0.00612324" ixy="0" ixz="0" iyy="0.00400437" iyz="0" izz="0.0021201" />
     </inertial>
-    <visual name="lid_0">
-      <geometry>
-        <mesh filename="meshes/lid_tex.obj" />
-      </geometry>
-    </visual>
     <collision>
       <geometry>
         <mesh filename="meshes/lid.stl" />
       </geometry>
     </collision>
-    <visual name="lid_1">
-      <geometry>
-        <mesh filename="meshes/screen_tex.obj" />
-      </geometry>
-    </visual>
   </link>
   <joint name="lid_joint" type="revolute">
     <parent link="base" />
