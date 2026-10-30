@@ -74,6 +74,9 @@ def fitted_extent(track_dir: Path, link: str) -> np.ndarray:
 
 def links_of(track_dir: Path) -> dict[str, dict]:
     """link -> {"part": tracked part(s) to show SAM 3D, "joint": (type, axis in model, q per frame) or None}."""
+    if not (track_dir / "roles.json").exists() and not (track_dir / "slides.json").exists():
+        from video2urdf.texture import link_masks  # a static object or a rod chain: poses come from the replay
+        return {link: {"part": parts, "joint": None} for link, parts in link_masks(track_dir).items()}
     if (track_dir / "slides.json").exists():  # drawers: cabinet = its fixed parts, each drawer = its front
         spec = json.loads((track_dir / "drawers.json").read_text())
         slides = json.loads((track_dir / "slides.json").read_text())
@@ -92,6 +95,44 @@ def links_of(track_dir: Path) -> dict[str, dict]:
     q = np.array([np.nan if v is None else v for v in hinge["q"]])
     return {"base": {"part": [roles["base"]], "joint": None},
             "lid": {"part": [roles["plate"]], "joint": ("hinge", np.array([1.0, 0, 0]), q)}}
+
+
+class ReplayPoses:
+    """Frame-t camera coordinates -> a link's frame, from the replay's camera poses and joint values
+    (any fitted model: a static object, a rod chain)."""
+
+    def __init__(self, track_dir: Path):
+        import mujoco
+        self.mujoco = mujoco
+        self.rec = np.load(track_dir / "replay3d.npz")
+        self.model = mujoco.MjModel.from_xml_path(str(track_dir / "model.xml"))
+        self.data = mujoco.MjData(self.model)
+
+    def camera_to_link(self, link: str, t: int) -> np.ndarray:
+        for key in self.rec.files:
+            if key.startswith("q_"):
+                self.data.joint(key[2:]).qpos[0] = self.rec[key][t]
+        self.mujoco.mj_forward(self.model, self.data)
+        b = self.model.body(link).id
+        world_to_link = np.eye(4)
+        r = self.data.xmat[b].reshape(3, 3)
+        world_to_link[:3, :3], world_to_link[:3, 3] = r.T, -r.T @ self.data.xpos[b]
+        return world_to_link @ self.rec["cam_to_world"][t]
+
+
+def video_score(run: Path, video: Path, link: str, mesh_file: str, max_drop: float = 0.10) -> dict:
+    """Mask F-score over sampled frames of the measured link and of the SAM 3D mesh in its place."""
+    from video2urdf import design as D
+    scene = D.Scene(run, video)
+    measured_xml = D.measured_xml(run)
+    root = ET.fromstring(measured_xml)
+    ET.SubElement(root.find("asset"), "mesh", name="sam3d_check", file=mesh_file)
+    body = next(b for b in root.iter("body") if b.get("name") == link)
+    body.append(ET.Element("geom", type="mesh", mesh="sam3d_check", contype="0", conaffinity="0", group="0"))
+    before = scene.score(measured_xml, 3)[link]["f_near"]
+    after = scene.score(ET.tostring(root, encoding="unicode"), 0)[link]["f_near"]
+    return {"measured": before, "sam3d": after, "max_drop": max_drop,
+            "passed": bool(before is not None and after is not None and after >= before - max_drop)}
 
 
 def model_to_link(joint, t: int) -> np.ndarray:
@@ -298,8 +339,8 @@ def add_visuals(track_dir: Path, meshes: dict[str, tuple[str, list[float]]]):
                 if (g.get("mesh") == f"{body.get('name')}_sam3d" or g.get("mesh", "").endswith("_infer")
                         or g.get("name", "").startswith("inferred_")):
                     body.remove(g)
-            for g in body.findall("geom"):
-                g.set("group", str(GROUP_MEASURED))
+            for g in body.findall("geom"):  # Spark's primitive design gives way to the realistic mesh
+                g.set("group", "4" if g.get("name", "").startswith("design_") else str(GROUP_MEASURED))
             rgb = meshes[body.get("name")][1]
             geom = ET.Element("geom", type="mesh", mesh=f"{body.get('name')}_sam3d", contype="0", conaffinity="0",
                               mass="0", rgba=" ".join(f"{x:.3f}" for x in rgb) + " 1")
@@ -361,14 +402,17 @@ def main():
     video = args.video or ROOT / "data" / "real" / name / f"{name}.mp4"
     capture = args.capture or ROOT / "data" / "real" / name
     m3 = json.loads((run / "model3d.json").read_text())
-    ctm = m3["camera_to_model"]
-    rot, point = np.array(ctm["rotation"]), np.array(ctm["hinge_point"])
+    ctm = m3.get("camera_to_model", {})
+    replay = None if "hinge_point" in ctm else ReplayPoses(run)
+    if replay is None:
+        rot, point = np.array(ctm["rotation"]), np.array(ctm["hinge_point"])
 
     c = lidar.open_capture(video, capture, run)
     if c.ref != m3["reference_frame"]:
         c.set_ref(m3["reference_frame"])
     floor = (json.loads((run / "roles.json").read_text()).get("floor") if (run / "roles.json").exists()
-             else json.loads((run / "drawers.json").read_text()).get("floor"))
+             else json.loads((run / "drawers.json").read_text()).get("floor") if (run / "drawers.json").exists()
+             else None)  # replay poses already include the fit's levelling
     if c.moving_camera and floor:
         c.level_with(floor)  # as the fit did, so frame poses match the model's
     elif not c.moving_camera and (run / "roles.json").exists():
@@ -407,15 +451,21 @@ def main():
         out = sam3d.reconstruct.remote(png(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)), png(mask.astype(np.uint8) * 255),
                                        pm, args.seed, FACES)
         v_cam = out["vertices_camera"].astype(np.float64)
-        inv = np.linalg.inv(c.world[t])  # frame-t camera -> reference camera
-        v_ref = v_cam @ inv[:3, :3].T + inv[:3, 3]
-        v_model = (v_ref - point) @ rot.T
-        m2l = model_to_link(spec["joint"], t)
-        v_link = v_model @ m2l[:3, :3].T + m2l[:3, 3]
+        if replay is not None:
+            from video2urdf.lift3d import mask_cloud
+            c2l = replay.camera_to_link(link, t)
+            v_link = v_cam @ c2l[:3, :3].T + c2l[:3, 3]
+            meas = mask_cloud(mask, c.cap.depth[t], c.cap.intrinsics) @ c2l[:3, :3].T + c2l[:3, 3]
+        else:
+            inv = np.linalg.inv(c.world[t])  # frame-t camera -> reference camera
+            v_ref = v_cam @ inv[:3, :3].T + inv[:3, 3]
+            v_model = (v_ref - point) @ rot.T
+            m2l = model_to_link(spec["joint"], t)
+            v_link = v_model @ m2l[:3, :3].T + m2l[:3, 3]
 
-        # How far the part's measured depth points lie from the generated surface (and back).
-        meas = c.cloud(part, t)
-        meas = ((meas - point) @ rot.T) @ m2l[:3, :3].T + m2l[:3, 3]
+            # How far the part's measured depth points lie from the generated surface (and back).
+            meas = c.cloud(part, t)
+            meas = ((meas - point) @ rot.T) @ m2l[:3, :3].T + m2l[:3, 3]
         if len(meas) < 100:
             raise ValueError(f"{link} frame {t} has only {len(meas)} depth points; choose another frame")
         if not len(out["faces"]) or not np.isfinite(v_link).all():
@@ -441,6 +491,17 @@ def main():
         # laptop). It is useful for experimentation but cannot validate this link alone.
         if link in part_overrides:
             report[link]["part_override_warning"] = "Alternate mask may include other links; candidate is not auto-activated."
+        if replay is not None:
+            # A static object or a rod chain: its fitted extent is itself an envelope (a visual hull
+            # or a rod), not a size to match. Judge the mesh as the shape design is judged: drawn over
+            # the video from the recorded cameras and joint values, against the SAM masks.
+            write_obj(mesh_dir_candidate := run / "meshes" / f"{link}_sam3d_candidate.obj", v_link, out["faces"], out["colors"])
+            video_check = video_score(run, video, link, mesh_dir_candidate.relative_to(run).as_posix())
+            report[link]["video_check"] = video_check
+            depth_ok = (report[link]["measured_to_mesh_mm"]["median"] <= args.max_median_mm
+                        and report[link]["measured_to_mesh_mm"]["p90"] <= args.max_p90_mm)
+            good = bool(depth_ok and video_check["passed"] and link not in part_overrides)
+            print(f"  over the video: near-F {video_check['sam3d']} vs measured {video_check['measured']}", flush=True)
         report[link]["accepted"] = bool(good)
         report[link]["acceptance_thresholds_mm"] = {"median": args.max_median_mm, "p90": args.max_p90_mm}
         report[link]["fitted_extent_mm"] = fitted.round(1).tolist()
