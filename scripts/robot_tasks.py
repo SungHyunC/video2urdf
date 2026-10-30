@@ -56,7 +56,8 @@ def design_names(run: Path) -> dict[str, str]:
     return {f"design_{l['link']}_{i}": p.get("name", "") for l in d.get("links", []) for i, p in enumerate(l["primitives"])}
 
 
-def object_xml(model_xml: Path, pos, yaw: float, free: bool, handles: bool, ghost: str | None = None) -> tuple[str, str, str]:
+def object_xml(model_xml: Path, pos, yaw: float, free: bool, handles: bool, ghost: str | None = None,
+               solid: str | None = None, hold: str | None = None) -> tuple[str, str, str]:
     """(assets, body, contact excludes) of the measured object, prefixed with obj_, at pos/yaw.
     ``free``: the object is loose (a freejoint), not welded to the world. ``handles``: the shape
     design's handle geoms collide, so a gripper can hold them."""
@@ -89,6 +90,14 @@ def object_xml(model_xml: Path, pos, yaw: float, free: bool, handles: bool, ghos
             if el.get("contype") != "0":  # stiff contact: a squeezing gripper mustn't sink into the part
                 el.set("solref", "0.002 1")
                 el.set("solimp", "0.99 0.999 0.0005")
+            if solid and _body_of(root, el) == "obj_" + solid:
+                # a side-view rod: its measured box is a 6 mm silhouette; the fingers hold the rod Spark drew
+                designed = el.get("name", "").startswith("obj_design_")
+                el.set("contype", "1" if designed else "0")
+                el.set("conaffinity", "1" if designed else "0")
+                if designed:
+                    el.set("solref", "0.002 1")
+                    el.set("solimp", "0.99 0.999 0.0005")
             is_handle = handles and "handle" in DESIGN_NAMES.get(el.get("name", "")[4:], "").lower()
             if ghost and not is_handle and el.get("contype") != "0" and _body_of(root, el) == "obj_" + ghost:
                 # the drawer's measured box: it slides in its slot (parent contacts are excluded) and
@@ -101,6 +110,8 @@ def object_xml(model_xml: Path, pos, yaw: float, free: bool, handles: bool, ghos
                 el.set("density", "300")
         if el.tag == "joint":
             el.set("armature", "0.01")
+            if hold and el.get("name") != "obj_" + hold:
+                el.set("frictionloss", "20")  # a joint not being worked stays where it is
             if not measured:
                 el.set("damping", "0.3")
                 el.set("frictionloss", "0.3")
@@ -333,8 +344,9 @@ def main():
     scene = PANDA_DIR / f"video2urdf_tasks_scene_{os.getpid()}.xml"  # one per run: runs may go in parallel
     DESIGN_NAMES.update(design_names(args.run))
 
-    def build(pos, yaw, free, pedestal=(0.6, 0, 0.2, 0.2, 0.0), pass_root=False, ghost=None):
-        meshes, obj, excludes = object_xml(args.run / "model.xml", pos, yaw, free, handles=True, ghost=ghost)
+    def build(pos, yaw, free, pedestal=(0.6, 0, 0.2, 0.2, 0.0), pass_root=False, ghost=None, solid=None, hold=None):
+        meshes, obj, excludes = object_xml(args.run / "model.xml", pos, yaw, free, handles=True, ghost=ghost,
+                                           solid=solid, hold=hold)
         if pass_root:
             excludes += gripper_excludes("obj_" + ET.parse(args.run / "model.xml").getroot().find("worldbody").find("body").get("name"))
         scene.write_text(scene_xml(meshes, obj, excludes, pedestal))
@@ -382,8 +394,15 @@ def main():
     foot = pts[:, :2] + pos[:2]
     pedestal = ((foot[:, 0].min() + foot[:, 0].max()) / 2, (foot[:, 1].min() + foot[:, 1].max()) / 2,
                 np.ptp(foot[:, 0]) / 2 + 0.05, np.ptp(foot[:, 1]) / 2 + (0.25 if free else 0.05), lift)
+    worked = model.body(model.jnt_bodyid[model.joint(joint).id]).name[4:] if joint else None
+    thin = False
+    if kind == "rod":  # a rod measured thinner than 1 cm across (a side-view silhouette): hold the designed one
+        rp = collision_points(model, data, model.jnt_bodyid[model.joint(joint).id])
+        thin = np.linalg.svd(rp - rp.mean(axis=0), full_matrices=False)[1][2] / np.sqrt(len(rp)) * 4 < 0.01
+        thin = thin and any(n.startswith(f"design_{worked}_") for n in DESIGN_NAMES)
     model = build(pos, yaw, free, pedestal, pass_root=kind == "drawer",
-                  ghost=model.body(model.jnt_bodyid[model.joint(joint).id]).name[4:] if kind == "drawer" else None)
+                  ghost=worked if kind == "drawer" else None, solid=worked if thin else None,
+                  hold=joint[4:] if joint else None)
     # Menagerie's gripper servo squeezes in proportion to how far open it is: about 1 N on an 18 mm
     # handle. The real Panda Hand holds up to 70 N; a stiffer servo squeezes ~30 N.
     grip = model.actuator("actuator8").id
