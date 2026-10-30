@@ -172,6 +172,15 @@ TOOLS = [
                                                                "description": "frames in which this drawer is operated"}},
              "required": ["part", "first_frame", "last_frame"]}}},
          "required": ["base", "drawers"]}},
+    {"name": "fit_chain", "description": "RGB-D captures: thin rods on hinges in a chain (a desk lamp's pole and "
+     "arm, a folding arm), fitted in 3D. Each rod becomes a 3D line per frame from its raw depth; each hinge's axis, "
+     "pivot and angle follow from how the rod turns relative to its parent. Writes the model and replays it.",
+     "parameters": {"type": "object", "properties": {
+         "base": {"type": "string", "description": "tracked part that stays put (the lamp's base)"},
+         "chain": {"type": "array", "items": {"type": "string"},
+                   "description": "tracked rods in order from the base outward (e.g. [pole, arm])"},
+         "floor": {"type": "string", "description": "tracked surface the base stands on (optional)"}},
+         "required": ["base", "chain"]}},
     {"name": "fit_static", "description": "RGB-D only: approximate a stationary rigid object as a box or upright cylinder; do not use for moving objects.",
      "parameters": {"type": "object", "properties": {
          "part": {"type": "string", "description": "tracked whole object"},
@@ -211,10 +220,12 @@ with its visible shape. It makes only a simple approximation: visible depth cann
 hidden dimensions. For an RGB-video drawer cabinet with multiple visible handles, pass
 upright_hint="drawer_handles" to test a visual upright direction; inspect the replay because
 the handles and floor can be misidentified. Do not use it for moving objects or other silhouettes.
-For an articulated object with two or more moving joints seen approximately from the side,
-the 3D hinged-plate fitter cannot represent the whole chain. Track each rigid part and use
-fit with an explicit parent for each moving part; this is a planar visual approximation
-whose cross-view depth and metric scale are assumed, even when an RGB-D capture is present.
+For a chain of thin rods on hinges (a desk lamp's base, pole and arm), track the base, each
+rod as its own part and the surface it stands on, then call fit_chain with the rods in order
+from the base outward: it fits every hinge in 3D from the rods' depth. For another
+articulated object with two or more moving joints seen approximately from the side, track
+each rigid part and use fit with an explicit parent for each moving part; this is a planar
+visual approximation whose cross-view depth and metric scale are assumed.
 For a single hinged object track, in one track call:
 - the floor or table the object stands on (static scene),
 - the entire base surface the plate hinges on, on an open frame. A keyboard or touchpad
@@ -769,6 +780,37 @@ class Agent:
                 out.append(f"WARNING: the replayed {part} covers only {100 * cover:.0f}% of its SAM mask: the mask is "
                            f"much bigger than the fitted {part} (wrong candidate) or the fit is off. Check that mask.")
         return out
+
+    def tool_fit_chain(self, base: str, chain: list, floor: str | None = None) -> str:
+        if self.capture is None:
+            return "fit_chain needs an RGB-D capture; use fit with explicit parents for a video"
+        if not self.tracked:
+            return "track parts first"
+        self.last_fit = None
+        chain = json.loads(chain) if isinstance(chain, str) else chain
+        base, chain, floor = slug(base), [slug(p) for p in chain], slug(floor) if floor else None
+        c = lidar.open_capture(self.video, self.capture, self.track_dir)
+        missing = [p for p in [base, *chain] + ([floor] if floor else []) if p not in c.names]
+        if missing or not chain or len(set([base, *chain])) < len(chain) + 1:
+            return f"base and rods must be distinct tracked parts; not tracked: {missing}; tracked parts are {c.names}"
+        from .chain3d import chain_reference, fit_chain
+        ref = chain_reference(c, base, chain)
+        if ref is None:
+            return "no frame shows the base and every rod together; re-track the missing part"
+        c.set_ref(ref)
+        lines = []
+        if c.moving_camera and floor:
+            fix = c.level_with(floor)
+            lines.append(f"floor levelling adjusted the camera pose by up to {fix['shift_mm_max']:.0f} mm")
+        try:
+            summary = fit_chain(c, base, chain, floor, log=lines.append)
+        except ValueError as error:
+            return f"fit_chain failed: {error}"
+        self.last_fit = summary
+        frames = sorted({int(f) for f in np.linspace(0, self.n - 1, 4)})
+        sheet = self.video_sheet(self.track_dir / "replay3d.mp4", frames)
+        self.show(sheet, "fit_chain: 3D replay from the phone's camera", width=sheet.shape[1])
+        return "\n".join(lines) + "\nCheck that each rod follows its mask through the video (watch the replay)."
 
     def tool_fit_static(self, part: str, floor: str, shape: str = "box", upright_hint: str | None = None) -> str:
         if self.capture is None or not self.tracked:
