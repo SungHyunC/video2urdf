@@ -193,6 +193,14 @@ taken modulo 360 deg. Per-sequence results: `scripts/rbo_bench.py` writes `data/
   video (closes, then reopens), lid replay covering 91% of its masks. The base was segmented in
   fragments (keyboard, trackpad), so its thickness could not be measured; the pipeline and
   Spark's report both flag it instead of passing on a wrong number.
+- **The new captures, everything on open weights** (10/30, Muse Spark Open on Baseten + SAM on
+  Modal; shape design by Spark Open on Baseten and on Fireworks; `data/tracks_open2`):
+  the black mouse came out 121.5 x 75.1 x 54.5 mm (the Meta API run: 121.3 x 75.2 x 54.7), 0.14 kg,
+  named "ergonomic computer mouse" and redesigned (mask F-score 0.90 vs 0.94 measured). The LED
+  desk lamp: Spark Open's first fit missed the rods (the replay covered 6% / 4% of their masks);
+  it watched the replay, re-tracked the pole and refit: pole 332 mm, arm 371 mm (0..75 deg),
+  replay 73% / 42%, joint friction measured on still spans (let go in MuJoCo: 0.0-0.1 deg),
+  redesigned as an "LED desk lamp".
 - **Everything on open weights, served by us**: Muse Glimmer 30B on our own Modal endpoint +
   SAM on Modal (`--open-weights --glimmer`), LiDAR laptop from scratch, through to physics:
   lid 307 x 201 mm, opening 0..108 deg, lid replay 87%; it set masses (base 1.1 kg, lid
