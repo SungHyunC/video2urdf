@@ -19,6 +19,8 @@ import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
+import cv2
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -54,6 +56,29 @@ def body_tree(el: ET.Element) -> dict:
                           or g.get("name", "").startswith(("inferred_", "design_"))),  # generated visual
             "measured": g.get("group") == "3"})  # hidden under a realistic visual in MuJoCo
     return out
+
+
+def export_trace(log: Path, out: Path, width: int = 1200) -> str:
+    """A log.md and the images it shows, as JPEGs at most ``width`` px wide. Returns the log's path
+    relative to the model folder."""
+    import re
+    out.mkdir(parents=True, exist_ok=True)
+    text = log.read_text()
+
+    def copy(m):
+        src = log.parent / m.group(2)
+        if not src.exists():
+            return m.group(0)
+        img = cv2.imread(str(src))
+        if img is None:
+            return m.group(0)
+        if img.shape[1] > width:
+            img = cv2.resize(img, (width, round(img.shape[0] * width / img.shape[1])), interpolation=cv2.INTER_AREA)
+        name = Path(m.group(2)).with_suffix(".jpg").name
+        cv2.imwrite(str(out / name), img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        return f"![{m.group(1)}]({name})"
+    (out / "log.md").write_text(re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", copy, text))
+    return f"{out.name}/log.md"
 
 
 def joint_tracks(run: Path) -> dict[str, list]:
@@ -180,6 +205,17 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
             m = json.loads((run / f).read_text())
             meta.update({k: v for k, v in m.items() if k not in ("q", "camera_to_model")})
     report = run / "agent" / "report.md"
+    traces = {}
+    for folder in ("agent", "design"):  # how the model was made: every turn and image a Meta model saw
+        log = run / folder / "log.md"
+        full = run / f"{folder}_full"  # the whole agent run, when a later refit overwrote this run's log
+        if (full / "log.md").exists():
+            log = full / "log.md"
+        if log.exists():
+            traces[folder] = export_trace(log, dst / folder)
+            source = log.parent / "SOURCE.txt"
+            if source.exists():
+                traces[folder + "_note"] = source.read_text().strip()
     phys = None
     if (run / "physics.json").exists():  # masses and friction (physics.apply)
         p = json.loads((run / "physics.json").read_text())
@@ -209,6 +245,7 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
     spec = {"name": name, "fps": fps, "frames": n, "tree": tree, "joints": joint_tracks(run), "videos": videos,
             "bundle": "model.zip",
             "measured": meta, "agent_report": report.read_text() if report.exists() else None,
+            "traces": traces,
             "three_d": (run / "model3d.json").exists(), "physics": phys,
             "appearance": read_optional("appearance.json"), "shape_inference": read_optional("shape_inference.json"),
             "texture": read_optional("texture.json"), "design": read_optional("design.json"),
