@@ -194,8 +194,7 @@ def scenes() -> list[Scene]:
                "a Franka Panda in MuJoCo works four objects, each measured from one video"],
               video_scene(ASSETS / "robot_grid.mp4")),
         Scene("1  Capture",
-              "I film the object with an iPhone while I move it. No markers and no calibration card: "
-              "the LiDAR gives metric depth. A plain video works too.",
+              "I film the object with an iPhone while I move it: no markers, no card. The LiDAR gives metric depth.",
               ["iPhone LiDAR (Stray Scanner), handheld: no markers, no card"],
               video_scene(PHONE, 0, 922)),
         Scene("2  Agent",
@@ -207,40 +206,41 @@ def scenes() -> list[Scene]:
               stills([lamp_agent / "step009.jpg", lamp_agent / "step016.jpg", lamp_agent / "step032.jpg"],
                      ["look", "segment 'silver metal rod'", "fit_chain: the model over the video"])),
         Scene("3  Measure and verify",
-              "SAM 3.1 tracks every part through all nine hundred frames, and MuJoCo replays the measured model "
-              "from the phone's own camera: it covers ninety five percent of the lid. The lid measures three oh nine "
-              "by two oh five millimetres; the spec says three oh four by two twelve.",
+              "MuJoCo replays the measured model from the phone's own camera; it covers ninety five percent of the lid, which measures three oh nine by two oh five millimetres against a spec of three oh four by two twelve.",
               ["MuJoCo replays the model from the phone's camera pose, every frame",
                "covers 95% of the lid, 94% of the base",
                "lid 309 x 205 mm  (spec: 304 x 212 mm)"],
               side_by_side(PHONE, RUN / "replay3d.mp4", 0, 922)),
         Scene("4  It checks itself",
-              "Spark checks its own work. Its first model had the base as a thin sliver. Spark watched the replay, "
-              "segmented the base again, and the base came back.",
-              ["first fit: the base came out as a sliver",
-               "after: Spark re-segmented and re-tracked it"],
-              stills([ASSETS / "agent_first_fit.jpg", ASSETS / "agent_refit.jpg"],
-                     ["Spark's first fit", "after Spark's own fix"])),
+              "Spark can't finish over its own warnings. Its first finish here was refused: the screen's track had slid onto the lid's back. It re-tracked the lid and reported what it couldn't verify. Five fresh runs land within four millimetres of the spec.",
+              ["finish refuses once while the fit's own warnings are unresolved",
+               "five fresh runs: lid 304-306 x 208-212 mm  (spec 304 x 212)"],
+              card([("Spark:  finish(\"lid 306 x 210 mm, hinge on the rear edge ...\")", 36, False, white),
+                    ("Not finished yet. The automatic checks have unresolved issues:\n"
+                     "the plate tracker switched to the closed surface on 806/923 frames", 34, False, (255, 140, 120)),
+                    ("Spark:  \"I'll re-segment the lid to fix that.\"", 36, False, white),
+                    ("segment  ->  retrack_part  ->  fit_lidar  ->  watch the replay", 34, False, blue),
+                    ("Spark:  finish(\"NEEDS REVIEW: ... what stays unverified ...\")", 36, False, white),
+                    ("status: needs_review   (checks_passed / needs_review / failed)", 34, False, grey)],
+                   top=230)),
         Scene("5  It knows what it is",
-              "The measured meshes have the right sizes but look like blobs. So Spark names the object and rebuilds "
-              "it cleanly: a cabinet with fronts and handles, a lamp with its LED bar. Each round three Meta models "
-              "propose a design, and the one that fits the video best wins.",
+              "The measured meshes have the right sizes but look like blobs, so Spark names the object and rebuilds it from clean parts. Each round three Meta models propose a design, and the video picks the best.",
               ["Spark names the object and rebuilds each part from the measured sizes",
                "three Meta models propose; the video picks the design",
                "collisions, joints and physics stay measured"],
               sequence([DESIGN / "drawer2_lidar" / "compare.mp4", LAMP / "compare.mp4"],
                        ["office pedestal cabinet with three drawers", "LED desk lamp"])),
         Scene("6  It looks real",
-              "For a curved object, SAM 3D Objects builds a realistic mesh, placed by our LiDAR depth: this mouse "
-              "lies half a millimetre from its measured surface. Circling it with the phone gives its size from "
-              "every side.",
-              ["SAM 3D Objects: 0.5 mm from the measured depth (median)",
+              "For a curved object, SAM 3D Objects builds a realistic mesh, placed by our LiDAR depth: the depth the "
+              "phone measured lies within half a millimetre of the mouse's mesh. Circling it with the phone gives "
+              "its size from every side.",
+              ["SAM 3D Objects: the measured depth lies 0.5 mm from its mesh (median)",
                "masks from every side: 121 x 75 x 55 mm  (spec 125 x 84 x 51)"],
               video_scene(MOUSE / "compare.mp4")),
         Scene("7  The robot uses it",
-              "In MuJoCo physics the Panda grips the handle Spark drew and pulls the drawer out, then carries the "
-              "mouse and turns it. Only the grip moves them.",
-              ["drawer out 213 mm by its handle, and back in",
+              "In MuJoCo physics the Panda grips the handle Spark drew and pulls the drawer out of its measured "
+              "cabinet, then carries the mouse and turns it. Only the grip moves them.",
+              ["drawer out 199 mm by its handle, the cabinet's measured collision on, and back in",
                "mouse carried 18 cm, then brought back turned 90 deg"],
               pair(DESIGN / "drawer2_lidar" / "robot_demo.mp4", MOUSE / "robot_demo.mp4",
                    ("the measured drawer", "the measured mouse"))),
@@ -251,9 +251,9 @@ def scenes() -> list[Scene]:
                "let go in MuJoCo: stays (+0.1 deg) vs. falls (+11.5 deg) without it"],
               video_scene(RUN / "physics_demo.mp4")),
         Scene("9  Benchmark",
-              "On the RBO dataset, real RGB-D videos with motion capture, the median hinge axis error over thirteen "
-              "sequences is two and a half degrees.",
-              ["RBO dataset: 13 sequences, median axis 2.5 deg, angle 3.3 deg; box lids still fail"],
+              "On the RBO motion-capture benchmark, laptops and books come out with a median hinge axis error of two degrees, under three on open weights alone; box lids still fail.",
+              ["laptops and books: hinge axis 2.2 deg (Meta API), 2.8 deg (open weights only), median",
+               "box lids still fail: SAM loses the lid at 640 x 480"],
               stills([ROOT / "data" / "rbo" / "results" / "laptop04.jpg"],
                      ["laptop04: red = measured, green = motion capture"])),
         Scene("10  URDF Doctor",
@@ -267,14 +267,14 @@ def scenes() -> list[Scene]:
                     ("joint log with the sign reversed:  log = -1.00 x expected", 38, False, (255, 140, 120))],
                    top=300)),
         Scene("11  Open weights",
-              "Every model it calls is a Meta model, and it runs end to end on open weights: Muse Spark Open with "
-              "SAM weights, or Muse Glimmer on our own GPU.",
+              "Every model it calls is a Meta model, and it runs end to end on open weights, Muse Spark Open or Muse Glimmer on our own GPU, reproduced from a fresh clone.",
               ["--open-weights: Muse Spark Open + SAM 3.1 weights   |   --glimmer: Muse Glimmer 30B on our GPU"],
               card([("Open weights, end to end", 64, True, white),
                     ("run_agent.py --open-weights [--glimmer]", 44, False, blue),
                     ("Muse Spark Open (Baseten) or Muse Glimmer 30B (our Modal endpoint)", 40, False, grey),
                     ("+ SAM 3.1 / SAM 3 weights on a Modal GPU", 40, False, grey),
-                    ("same laptop: lid 305 x 209 mm (Spark Open), 307 x 201 mm (Glimmer)", 36, False, grey)],
+                    ("same laptop: lid 305 x 209 mm (Spark Open), 307 x 201 mm (Glimmer)", 36, False, grey),
+                    ("fresh clone, README commands: lid 306 x 213 mm, replay 96% / 93%", 36, False, grey)],
                    top=310)),
         Scene("Try it",
               "Everything is in the browser, with URDF downloads and every step the agent took. One video in, "
