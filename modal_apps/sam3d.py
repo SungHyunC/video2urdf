@@ -1,9 +1,9 @@
 """SAM 3D Objects (facebook/sam-3d-objects, SAM License) on a Modal GPU: one frame and a part's
 mask in, a coloured mesh of that part out, placed in the camera frame in metres.
 
-Given our LiDAR depth as the pointmap, SAM 3D lays the object out in that metric frame instead
-of guessing depth with its own monocular model (MoGe), so the generated mesh lands where the
-measured part is. It also completes the sides the camera never saw.
+Given LiDAR or estimated depth as the pointmap, SAM 3D attempts to place the object in that
+metric frame instead of guessing depth with MoGe. Its generated shape and placement can be
+wrong, including on hidden sides: scripts/sam3d_meshes.py checks them before activation.
 
 Setup (once): request access on huggingface.co/facebook/sam-3d-objects, then
     modal secret create huggingface HF_TOKEN=hf_...      (already there for sam3_open.py)
