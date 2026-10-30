@@ -358,8 +358,13 @@ def fit_planar_hinge(clouds: dict[int, np.ndarray], n_frames: int, ref: int, pin
     frames = sorted(planes)
     normals = np.array([planes[t][0] for t in frames])
     offsets = np.array([planes[t][1] for t in frames])
-    axis = np.linalg.eigh(normals.T @ normals)[1][:, 0]
-    if base_normal is not None:
+    w, vecs = np.linalg.eigh(normals.T @ normals)
+    axis = vecs[:, 0]
+    # A door turns about an axis along the base's normal (a microwave's door, on a vertical hinge
+    # beside its top): then the plate never crosses the base's top along the hinge, and the
+    # direction most perpendicular to every plate normal is the hinge itself.
+    door = base_normal is not None and abs(axis @ base_normal) > np.cos(np.deg2rad(30)) and w[0] < 0.1 * w[1]
+    if base_normal is not None and not door:
         # The hinge is where the plate meets the base: the line where their planes cross.
         # From the frames where the plate stands well clear of the base (30-150 deg) that
         # direction is sharp, and it doesn't depend on every frame's plane being right.
@@ -372,9 +377,19 @@ def fit_planar_hinge(clouds: dict[int, np.ndarray], n_frames: int, ref: int, pin
         if len(crossings) >= 5:
             axis = np.median(crossings, axis=0)
             axis /= np.linalg.norm(axis)
-    a = np.vstack([normals, axis[None]])
-    b = np.append(offsets, axis @ pin)
-    point = np.linalg.lstsq(a, b, rcond=None)[0]
+    if door:
+        # A door's face is often glossy or glass, so its planes' offsets are poor and their
+        # crossing lands far off; its centroid still circles the hinge: fit that circle.
+        u = np.cross(axis, [1.0, 0, 0] if abs(axis[0]) < 0.9 else [0, 1.0, 0])
+        u /= np.linalg.norm(u)
+        v = np.cross(axis, u)
+        xy = np.array([[centroids[t] @ u, centroids[t] @ v] for t in frames])
+        sol = np.linalg.lstsq(np.column_stack([2 * xy, np.ones(len(xy))]), (xy ** 2).sum(axis=1), rcond=None)[0]
+        point = sol[0] * u + sol[1] * v + (axis @ pin) * axis
+    else:
+        a = np.vstack([normals, axis[None]])
+        b = np.append(offsets, axis @ pin)
+        point = np.linalg.lstsq(a, b, rcond=None)[0]
     res = normals @ point - offsets
 
     def radial(t):

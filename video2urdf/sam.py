@@ -269,18 +269,25 @@ class SamClient:
                 time.sleep(5 * (attempt + 1))
 
     def _stream_once(self, content: list[dict], metadata: dict[str, str]) -> str:
+        # The raw event stream, not responses.stream(): its helper keeps a running snapshot with
+        # `text += delta`, quadratic in the output, and a long video's masks (megabytes in many
+        # small deltas) kept a run at 100% CPU for an hour after the download had finished.
         chunks = []
-        with self.client.responses.stream(
+        stream = self.client.responses.create(
             model=MODEL,
             input=[{"type": "message", "role": "user", "content": content}],
             metadata={"include_confidence": "true", **metadata},
-        ) as stream:
+            stream=True,
+        )
+        try:
             for event in stream:
                 if event.type == "response.output_text.delta":
                     chunks.append(event.delta)
                 elif event.type in ("error", "response.failed"):
                     # Without this a failed backward pass looks like a short, successful track.
                     raise RuntimeError(f"SAM {event.type}: {getattr(event, 'message', None) or event}")
+        finally:
+            stream.close()
         return "".join(chunks)
 
     def segment_image(self, image_bgr: np.ndarray, prompt: str) -> str:

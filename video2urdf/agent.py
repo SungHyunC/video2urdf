@@ -32,6 +32,7 @@ MAX_VIDEOS = 2  # videos kept in the conversation; older ones become a note
 VIDEO = os.environ.get("AGENT_VIDEO", "1") != "0"  # send Spark whole videos (Muse Spark 1.3 and Spark Open take mp4)
 VIDEO_WIDTH, VIDEO_FPS = 480, 10  # videos shown to Spark are downscaled; timestamps are kept
 MAX_STEPS = 22  # model turns; the last one must call finish
+CHAIN_COVER_MIN = 0.25  # a rod-chain link whose replay covers less of its mask gets a warning
 WHO = "Spark" if "spark" in MODEL.lower() else MODEL  # log headings
 ASSUMED_VIEW_M = 0.6  # frame's long side in metres when no card sets the scale
 VIEW_WIDTH = 540  # px; frames shown to Spark
@@ -236,7 +237,9 @@ For a single hinged object track, in one track call:
 - the entire base surface the plate hinges on, on an open frame. A keyboard or touchpad
   alone is only a fragment of a laptop base and cannot determine its full dimensions;
   a mask containing the screen as well is too broad. Inspect the annotated candidate and
-  try other visual descriptions or frames until the base surface is covered without the lid,
+  try other visual descriptions or frames until the base surface is covered without the lid.
+  For a bin or box with a lid on top, that is the body's side wall or rim (e.g. "bin body",
+  "box front wall"), not the whole closed bin, which contains the lid,
 - the plate's inner face (e.g. "laptop screen"). The plate is one rigid piece that turns
   as a whole: for a book, the front cover (not the pages, which bend; not the spine),
 - what covers the object when closed (segment it on a closed frame; for a laptop the
@@ -816,6 +819,15 @@ class Agent:
         except ValueError as error:
             return f"fit_chain failed: {error}"
         self.last_fit = summary
+        # A thin rod's mask is wider than the rod, so good fits cover 20-35% of an arm's mask; a rod
+        # that doesn't follow its part (a fixed part fitted as a joint, a drifted mask) covers less.
+        coverage = json.loads((self.track_dir / "model3d.json").read_text()).get("mask_coverage") or {}
+        for part, cover in coverage.items():
+            if cover < CHAIN_COVER_MIN:
+                lines.append(f"WARNING: the replayed {part} covers only {100 * cover:.0f}% of its SAM mask: it may "
+                             "not follow its part (a wrong line, a fixed part fitted as a joint, a mask that drifted). "
+                             "Watch the replay; re-track it or fix the part before trusting the model.")
+        self.record_fit_warnings(lines)
         frames = sorted({int(f) for f in np.linspace(0, self.n - 1, 4)})
         sheet = self.video_sheet(self.track_dir / "replay3d.mp4", frames)
         self.show(sheet, "fit_chain: 3D replay from the phone's camera", width=sheet.shape[1])
