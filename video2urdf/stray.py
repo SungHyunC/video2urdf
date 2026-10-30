@@ -34,14 +34,17 @@ def load(path: Path, min_confidence: int = 2) -> Capture:
     """Depth is cached as depth.npz next to the PNGs on first load."""
     root = find_capture(path)
     cache = root / "depth.npz"
-    if cache.exists():
+    # The on-disk cache contains the default confidence threshold only.
+    # A caller requesting a different threshold must read the source PNGs.
+    if min_confidence == 2 and cache.exists():
         depth = np.load(cache)["depth"]
     else:
         frames = sorted((root / "depth").glob("*.png"))
         depth = np.stack([cv2.imread(str(f), cv2.IMREAD_UNCHANGED) for f in frames]).astype(np.float32) / 1000
         conf = np.stack([cv2.imread(str(root / "confidence" / f.name), cv2.IMREAD_UNCHANGED) for f in frames])
         depth[conf < min_confidence] = 0
-        np.savez_compressed(cache, depth=depth)
+        if min_confidence == 2:
+            np.savez_compressed(cache, depth=depth)
     k = np.loadtxt(root / "camera_matrix.csv", delimiter=",")
     return Capture(root / "rgb.mp4", depth, Intrinsics(f=float(k[0, 0]), cx=float(k[0, 2]), cy=float(k[1, 2])))
 

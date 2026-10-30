@@ -121,6 +121,29 @@ def _records(text: str):
                    float(c) if c is not None else None, rec.group(3))
 
 
+def replace_tracked_part(original: str, replacement: str, target_id: int, source_id: int = 0) -> str:
+    """Replace one object's raw track while retaining all other objects and frames."""
+    combined = {}
+    replaced = 0
+    for text, replacing in ((original, False), (replacement, True)):
+        for line in text.splitlines():
+            frame = _FRAME.match(line)
+            if not frame:
+                continue
+            for record in _RECORD.finditer(line, frame.end()):
+                oid = int(record.group(1))
+                if (not replacing and oid == target_id) or (replacing and oid != source_id):
+                    continue
+                value = record.group(0)
+                if replacing:
+                    value = str(target_id) + value[len(record.group(1)):]
+                    replaced += 1
+                combined.setdefault(int(frame.group(1)), []).append(value)
+    if not replaced:
+        raise ValueError("replacement tracking returned no masks; original tracks were retained")
+    return "\n".join(f"<{frame}f>" + "".join(records) for frame, records in sorted(combined.items())) + "\n"
+
+
 def parse(text: str, workers: int = 1) -> list[Detection]:
     """Parse raw SAM output text into detections, in source order."""
     recs = list(_records(text))
