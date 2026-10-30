@@ -653,11 +653,18 @@ DINOv2 (used inside SAM 3D Objects), MapAnything (Meta).
 | [meta-sam-parser](https://pypi.org/project/meta-sam-parser/) | SAM License | parsing SAM API output; `video2urdf/fast_mask.py` is a numba port of its decoder (`LICENSES/SAM_LICENSE`) |
 | [RBO dataset](https://zenodo.org/records/1036660) - R. Martín-Martín, C. Eppner, O. Brock, "The RBO Dataset of Articulated Objects and Interactions", IJRR 2019 | CC BY 4.0 | benchmark; downloaded, not redistributed |
 | [three.js](https://threejs.org) | MIT | web viewer (CDN) |
+| [marked](https://github.com/markedjs/marked) | MIT | the viewer's turn-by-turn logs (CDN) |
+| [Remotion](https://www.remotion.dev) | Remotion License (free for individuals) | the promo video in `promo/` |
+| [SGLang](https://github.com/sgl-project/sglang) | Apache-2.0 | serving Muse Glimmer on our Modal endpoint (via `modal endpoint create`) |
 | [mapbox-earcut](https://github.com/skogler/mapbox_earcut_python) | ISC | triangulating mesh caps |
 | OpenCV, NumPy, SciPy, numba, OpenAI Python SDK (as the OpenAI-compatible client), Modal | various OSS | |
 | [Stray Scanner](https://github.com/strayrobots/scanner) | app | recording iPhone LiDAR captures |
 
 What we built on top: the agent and its tools, the SAM tracking strategy (key-frame concept
-prompts, then multi-anchor box tracking forward and over a reversed clip), the 2D and 3D joint
-fits, link geometry, URDF/MJCF emission, the camera-pose MuJoCo replay and its scoring, the
-robot demo, the viewer and the RBO benchmark harness.
+prompts, then multi-anchor box tracking forward and over a reversed clip, both passes at once,
+strided on fast video), the 2D and 3D joint fits (plates, slides, drawers, rods on hinges from raw
+depth, visual hulls for static objects), link geometry, URDF/MJCF emission, the camera-pose MuJoCo
+replay and its scoring, Spark's shape design loop judged over the video with three Meta models per
+round, SAM 3D placement and checks, automatic scale for plain video, physics from still spans, the
+robot tasks (grasp planning on the measured geometry), URDF Doctor, the viewer with its
+turn-by-turn logs, and the RBO benchmark harness.
