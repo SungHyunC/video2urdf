@@ -22,6 +22,16 @@ from . import design as D
 from .agent import API_KEY_ENV, BASE_URL, MAX_IMAGES, MODEL, VIDEO, jpeg_url, mp4_url
 
 ROUNDS = 3
+# Several Meta models answer each round in parallel; the design that scores best over the video
+# carries on. name -> (base URL, key env, model, takes video, images per request or 0 for any).
+BACKENDS = {
+    "meta": ("https://api.meta.ai/v1", "MODEL_API_KEY", "muse-spark-1.3-contributor", True, 0),
+    "baseten": ("https://inference.baseten.co/v1", "BASETEN_API_KEY",
+                os.environ.get("BASETEN_MODEL", "meta-models/muse-spark-open-1026"), True, 8),
+    "fireworks": ("https://api.fireworks.ai/inference/v1", "FIREWORKS_API_KEY",
+                  "accounts/fireworks/models/muse-spark-open", False, 8),
+}
+OPEN = ("baseten", "fireworks")  # open weights (Muse Spark Open)
 SCORE = "f_near"  # mask F-score within a few pixels (design.TOLERANCE): fair to thin parts
 MAX_DROP = 0.10  # how much lower than the measured meshes' mean score a design may score
 
@@ -68,8 +78,74 @@ Answer with one JSON object only:
 Set done=true only when you would not change the design any more."""
 
 
-def _client() -> OpenAI:
-    return OpenAI(base_url=BASE_URL, api_key=os.environ[API_KEY_ENV], timeout=900, max_retries=3)
+def backends() -> list[tuple[str, OpenAI, str, bool, int]]:
+    """(name, client, model, takes video, image cap) for each backend to ask. DESIGN_BACKENDS picks
+    them (comma-separated); by default every one with a key, only open weights in an open-weights
+    run, and always the agent's own model."""
+    meta_run = BASE_URL.rstrip("/") == BACKENDS["meta"][0]
+    names = [n.strip() for n in os.environ.get("DESIGN_BACKENDS", "").split(",") if n.strip()] or \
+            (list(BACKENDS) if meta_run else list(OPEN))
+    out = []
+    if not meta_run and not any(BACKENDS[n][0] == BASE_URL.rstrip("/") and BACKENDS[n][2] == MODEL for n in names if n in BACKENDS):
+        out.append(("agent", OpenAI(base_url=BASE_URL, api_key=os.environ[API_KEY_ENV], timeout=900, max_retries=3),
+                    MODEL, VIDEO, MAX_IMAGES))
+    for n in names:
+        url, key, model, video, cap = BACKENDS[n]
+        if os.environ.get(key):
+            out.append((n, OpenAI(base_url=url, api_key=os.environ[key], timeout=900, max_retries=2), model, video and VIDEO, cap))
+    return out
+
+
+def _adapt(messages: list[dict], video: bool, cap: int, frames: list[dict]) -> list[dict]:
+    """A copy of the conversation for one backend: the video swapped for frames where it takes none,
+    and only the newest ``cap`` images."""
+    out = []
+    for m in messages:
+        if isinstance(m.get("content"), list):
+            parts = []
+            for part in m["content"]:
+                parts += frames if part.get("type") == "video_url" and not video else [part]
+            m = {**m, "content": parts}
+        out.append(m)
+    if cap:
+        seen = 0
+        for m in reversed(out):
+            if isinstance(m.get("content"), list):
+                for k in range(len(m["content"]) - 1, -1, -1):
+                    if m["content"][k].get("type") in ("image_url", "video_url"):
+                        seen += 1
+                        if seen > cap:
+                            m["content"][k] = {"type": "text", "text": "[older image dropped]"}
+    return out
+
+
+def _ask(backend, messages: list[dict], links: list[str], frames: list[dict]) -> dict:
+    """One backend's design: up to two tries for a readable, buildable answer."""
+    name, client, model, video, cap = backend
+    msgs, failures = _adapt(messages, video, cap, frames), []
+    for attempt in range(2):
+        text, finish = "", None
+        try:
+            resp = client.chat.completions.create(model=model, messages=msgs, max_tokens=16000,
+                                                  response_format={"type": "json_object"})
+            text, finish = resp.choices[0].message.content or "", resp.choices[0].finish_reason
+            design = _parse(text)
+            problems = D.validate_design(design, links)
+            if not problems:
+                return {"backend": name, "model": model, "design": design}
+            failures.append(f"{name}: can't be built: " + "; ".join(problems))
+            msgs = msgs + [{"role": "assistant", "content": text},
+                           {"role": "user", "content": "The design can't be built: " + "; ".join(problems) +
+                            ". Answer with the full corrected JSON."}]
+        except (ValueError, json.JSONDecodeError) as e:
+            failures.append(f"{name} attempt {attempt + 1}: {e} (finish_reason {finish}, {len(text)} chars: {text[:160]!r})")
+            msgs = msgs + [{"role": "assistant", "content": text or "(empty)"},
+                           {"role": "user", "content": f"That was not a valid JSON object ({e}). Answer with one short, "
+                            "complete JSON object only: at most 6 primitives per link, numbers rounded to 1 mm."}]
+        except Exception as e:  # a backend being down must not stop the others
+            failures.append(f"{name}: {type(e).__name__}: {str(e)[:160]}")
+            break
+    return {"backend": name, "model": model, "design": None, "failures": failures}
 
 
 def _png_url(img: np.ndarray) -> str:
@@ -158,57 +234,56 @@ def design_shape(track_dir: Path, video: Path, rounds: int = ROUNDS, log=print, 
          f"\nLink colours in the images: " + ", ".join(f"{l}={c}" for l, c in zip(links, ["orange", "blue", "green", "magenta", "cyan", "light blue"])) +
          "\nDesign the clean model now."}]
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
-    client = _client()
+    pool = backends()
+    if not pool:
+        raise ValueError("no model backend with an API key for the shape design")
+    frames = [{"type": "image_url", "image_url": {"url": jpeg_url(scene.images[t])}}
+              for t in scene.frames[:: max(1, len(scene.frames) // 4)][:4]]
     history, best = [], None
-    md = [f"# Shape design ({MODEL})\n", f"Measured mesh IoU: `{json.dumps(measured)}`\n",
+    md = [f"# Shape design ({', '.join(f'{b[0]}: {b[2]}' for b in pool)})\n", f"Measured mesh IoU: `{json.dumps(measured)}`\n",
           "![measured](measured_overlay.jpg)\n", "![views](measured_views.png)\n"]
+    from concurrent.futures import ThreadPoolExecutor
+    from .shape import write_stl
     for k in range(1, rounds + 1):
         _cap_images(messages)
-        text, failures = "", []
-        for attempt in range(3):
-            try:
-                resp = client.chat.completions.create(model=MODEL, messages=messages, max_tokens=16000,
-                                                      response_format={"type": "json_object"})
-                text = resp.choices[0].message.content or ""
-                finish = resp.choices[0].finish_reason
-                design = _parse(text)
-                problems = D.validate_design(design, links)
-                break
-            except (ValueError, json.JSONDecodeError) as e:
-                design, problems = None, [f"unreadable answer: {e}"]
-                failures.append(f"attempt {attempt + 1}: {e} (finish_reason {finish}, {len(text)} chars: {text[:200]!r})")
-                messages += [{"role": "assistant", "content": text or "(empty)"},
-                             {"role": "user", "content": f"That was not a valid JSON object ({e}). Answer with one short, "
-                              "complete JSON object only: at most 6 primitives per link, numbers rounded to 1 mm."}]
-        if design is None:
-            log(f"round {k}: no usable answer: " + " | ".join(failures))
-            md.append(f"\n## Round {k}: no usable answer\n\n" + "\n".join(f"- {f}" for f in failures) + "\n")
+        with ThreadPoolExecutor(len(pool)) as ex:
+            answers = list(ex.map(lambda b: _ask(b, messages, links, frames), pool))
+        candidates = []
+        for i, ans in enumerate(answers):
+            if ans["design"] is None:
+                log(f"round {k}: {ans['backend']}: no usable answer: " + " | ".join(ans["failures"]))
+                continue
+            xml, meshes = D.design_mjcf(measured_xml, ans["design"], mesh_dir=f"design/r{k}_{ans['backend']}")
+            (out / f"r{k}_{ans['backend']}").mkdir(exist_ok=True)
+            for name, (v, f) in meshes.items():
+                write_stl(out / f"r{k}_{ans['backend']}" / f"{name}.stl", v, f)
+            sc = scene.score(xml, 0)
+            candidates.append({**ans, "scores": sc, "mean_score": round(_mean(sc), 3), "labels": scene._last})
+            log(f"round {k}: {ans['backend']} ({ans['model']}): {ans['design'].get('object')!r}, mean near-F "
+                f"{candidates[-1]['mean_score']}")
+        if not candidates:
+            md.append(f"\n## Round {k}: no usable answer\n\n" + "\n".join(
+                f"- {f}" for a in answers for f in a.get("failures", [])) + "\n")
             if history:
                 break
             continue
+        top = max(candidates, key=lambda c_: c_["mean_score"])
+        design, scores = top["design"], top["scores"]
         messages.append({"role": "assistant", "content": json.dumps(design)})
-        if problems:
-            log(f"round {k}: problems {problems}")
-            md.append(f"\n## Round {k}: rejected\n\n" + "\n".join(f"- {p}" for p in problems) + "\n")
-            messages.append({"role": "user", "content": "The design can't be built: " + "; ".join(problems) +
-                             ". Answer with the full corrected JSON."})
-            continue
-        xml, meshes = D.design_mjcf(measured_xml, design, mesh_dir=f"design/r{k}")
-        for name, (v, f) in meshes.items():
-            from .shape import write_stl
-            (out / f"r{k}").mkdir(exist_ok=True)
-            write_stl(out / f"r{k}" / f"{name}.stl", v, f)
-        scores = scene.score(xml, 0)
-        overlay = scene.overlay(scene._last, f"design round {k}")
+        overlay = scene.overlay(top["labels"], f"design round {k} ({top['backend']})")
         views = D.three_views(track_dir, design, links)
         cv2.imwrite(str(out / f"round{k}_overlay.jpg"), overlay)
         cv2.imwrite(str(out / f"round{k}_views.png"), views)
         sizes = D.bbox_check(track_dir, design, ev)
-        entry = {"round": k, "design": design, "scores": scores, "mean_score": round(_mean(scores), 3), "sizes": sizes}
+        entry = {"round": k, "design": design, "scores": scores, "mean_score": round(_mean(scores), 3), "sizes": sizes,
+                 "chosen_from": top["backend"], "model": top["model"],
+                 "candidates": [{"backend": c_["backend"], "model": c_["model"], "object": c_["design"].get("object"),
+                                 "mean_score": c_["mean_score"]} for c_ in candidates]}
         history.append(entry)
-        log(f"round {k}: {design.get('object')!r}, mean near-F {entry['mean_score']} "
+        log(f"round {k}: chose {top['backend']}: {design.get('object')!r}, mean near-F {entry['mean_score']} "
             f"(measured {_mean(measured):.3f}) {json.dumps(scores)}")
-        md += [f"\n## Round {k}: {design.get('object')}\n",
+        md += [f"\n## Round {k}: {design.get('object')} (from {top['backend']}, {top['model']})\n",
+               "Candidates: " + ", ".join(f"{c_['backend']} {c_['mean_score']}" for c_ in candidates) + "\n",
                f"Parts: `{json.dumps(design.get('parts', {}), ensure_ascii=False)}`\n",
                f"Mean near-F {entry['mean_score']} (measured mesh {_mean(measured):.3f}); per link `{json.dumps(scores)}`\n",
                f"Assumptions: {design.get('assumptions')}\n", f"Notes: {design.get('notes')}\n",
@@ -222,7 +297,7 @@ def design_shape(track_dir: Path, video: Path, rounds: int = ROUNDS, log=print, 
                 {"type": "image_url", "image_url": {"url": jpeg_url(overlay, width=1080)}},
                 {"type": "image_url", "image_url": {"url": _png_url(views)}},
                 {"type": "text", "text": _feedback(scores, measured, sizes, [])}]})
-    result = {"model": MODEL, "score": SCORE, "measured_scores": measured, "measured_mean_score": round(_mean(measured), 3),
+    result = {"model": MODEL, "backends": [{"name": b[0], "model": b[2]} for b in pool], "score": SCORE, "measured_scores": measured, "measured_mean_score": round(_mean(measured), 3),
               "rounds": history, "applied": False}
     if best:
         m_mean = _mean(measured)
