@@ -71,7 +71,7 @@ Keys live in `.env` (template: `.env.example`). All four credits arrived on 10/2
 | Backend | Credit | Role | Models | How to call |
 |---|---|---|---|---|
 | Meta Model API | $150 | Main path: tracking, reasoning, agent loop | `sam-3.1`; `muse-spark-1.3-contributor` only (credits cover only `-contributor`) | `https://api.meta.ai/v1`, Responses or Chat Completions for Spark, Responses only for SAM; key `MODEL_API_KEY` |
-| Baseten | $100, 2M TPM | Open-weights reasoning for the Open Weight bonus | `meta-models/muse-spark-open` (the listed ID; `-1026` returns 404) | `https://inference.baseten.co/v1` Chat Completions, key `BASETEN_API_KEY` |
+| Baseten | $100, 2M TPM | Open-weights reasoning for the Open Weight bonus | `meta-models/muse-spark-open-1026` (default since the key change on 10/30: the new workspace answers 403 on `meta-models/muse-spark-open`, the old key 402 on payment; `BASETEN_MODEL` overrides) | `https://inference.baseten.co/v1` Chat Completions, key `BASETEN_API_KEY` |
 | Modal | $100 | GPUs: Muse Glimmer endpoint, SAM 3.1 open weights, batch renders | Muse Glimmer 30B (Dedicated Endpoint), `facebook/sam3.1` | `modal setup` (token in `~/.modal.toml`), then `modal endpoint create --model <id>`; HTTP calls need a proxy token (`MODAL_PROXY_TOKEN_ID`, `MODAL_PROXY_TOKEN_SECRET`) |
 | Fireworks | $101 | Spare Muse Spark Open. Its credits never expire, so use it last | `accounts/fireworks/models/muse-spark-open` | `https://api.fireworks.ai/inference/v1` Chat Completions, key `FIREWORKS_API_KEY` |
 

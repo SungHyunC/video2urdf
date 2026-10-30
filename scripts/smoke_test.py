@@ -88,7 +88,7 @@ if __name__ == "__main__":
         run("meta /responses", meta_responses),
         run("meta /chat/completions", meta_chat),
         run("baseten chat", lambda: chat("https://inference.baseten.co/v1", "BASETEN_API_KEY",
-                                         "meta-models/muse-spark-open")),
+                                         os.environ.get("BASETEN_MODEL", "meta-models/muse-spark-open-1026"))),
         run("fireworks chat", lambda: chat("https://api.fireworks.ai/inference/v1", "FIREWORKS_API_KEY",
                                            "accounts/fireworks/models/muse-spark-open")),
         run("fireworks muse models", fireworks_muse_models),

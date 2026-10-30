@@ -28,7 +28,9 @@ load_dotenv(ROOT / ".env")
 
 from video2urdf.stray import find_capture  # noqa: E402
 
-OPEN_WEIGHTS = {"AGENT_MODEL": "meta-models/muse-spark-open", "AGENT_BASE_URL": "https://inference.baseten.co/v1",
+# Baseten lists Muse Spark Open under a dated ID on newer workspaces; BASETEN_MODEL overrides it.
+BASETEN_MODEL = os.environ.get("BASETEN_MODEL", "meta-models/muse-spark-open-1026")
+OPEN_WEIGHTS = {"AGENT_MODEL": BASETEN_MODEL, "AGENT_BASE_URL": "https://inference.baseten.co/v1",
                 "AGENT_API_KEY_ENV": "BASETEN_API_KEY", "AGENT_MAX_IMAGES": "8", "SAM_BACKEND": "open"}
 
 
