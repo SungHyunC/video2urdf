@@ -7,6 +7,7 @@ extruded profile, see shape.py) when it has one, else one box from its mask, THI
 
 import numpy as np
 
+from .emit3d import contact_excludes
 from .joints import Link
 
 THICKNESS = 0.02  # m
@@ -68,7 +69,7 @@ def mjcf(name: str, links: list[Link], camera: dict | None = None, size: tuple[i
     meshes = "".join(f'<mesh name="{l.name}_mesh" file="{l.mesh}" inertia="exact"/>' for l in links if l.mesh)
     asset = f"  <asset>{meshes}</asset>\n" if meshes else ""
     return (f'<mujoco model="{name}">\n  <compiler angle="radian"/>\n{visual}{asset}'
-            f"  <worldbody>\n{cam}{roots}\n  </worldbody>\n</mujoco>\n")
+            f"  <worldbody>\n{cam}{roots}\n  </worldbody>\n{contact_excludes(links)}</mujoco>\n")
 
 
 def urdf(name: str, links: list[Link]) -> str:

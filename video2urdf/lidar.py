@@ -40,6 +40,61 @@ MAX_LEVEL_TILT_DEG = 4.0  # a floor fit tilted more than this from the reference
 LEVEL_WINDOW = 31  # frames; ARKit drift is slow
 
 
+def require_reference_angle(centroids, angles, ref: int) -> None:
+    if ref not in centroids or ref >= len(angles) or not np.isfinite(angles[ref]):
+        raise ValueError(f"The plate's angle on reference frame {ref} was unavailable or rejected as an outlier. "
+                         "A nearby mask may have switched to a different surface; inspect the plate track "
+                         "around the reference, re-anchor it on open frames and fit again.")
+
+
+def fit_hinge_with_reference_retries(c, roles, log=print, max_retries: int = 2, prepare_reference=None):
+    """Try a few well-observed open references if the chosen reference angle is unusable.
+
+    Re-basing updates all camera transforms together. Failed angles are never replaced
+    with a neighbour's value; each candidate runs the complete hinge fit again.
+    """
+    tracks = c.by.get(roles.plate, {})
+    usable = [t for t in tracks if c.has(roles.base, t) and c.has(roles.plate, t)
+              and (not roles.open_indicator or c.has(roles.open_indicator, t))]
+    original = c.ref
+    candidates = []
+    for target in (.2 * (c.n - 1), .8 * (c.n - 1)):
+        choices = [t for t in usable if t != original and t not in candidates]
+        if choices:
+            candidates.append(min(choices, key=lambda t: abs(t - target)))
+    attempts = [original] + candidates[:max(0, max_retries)]
+    for index, frame in enumerate(attempts):
+        if index:
+            if prepare_reference is None:
+                c.set_ref(frame)
+            else:
+                prepare_reference(c, frame)
+            log(f"Retrying hinge fit at open reference frame {frame} after a rejected reference.")
+        try:
+            result = fit_hinge(c, roles, log=log)
+            return result, attempts[:index + 1]
+        except ValueError as error:
+            if "angle on reference frame" not in str(error) or index == len(attempts) - 1:
+                raise
+            log(f"WARNING: {error}")
+    raise AssertionError("at least one reference attempt is required")
+
+
+def can_use_closed_fallback(c, roles, t: int) -> bool:
+    """A visible open base cannot simultaneously stand in for a missing lid."""
+    if not roles.open_indicator or not c.has(roles.open_indicator, t):
+        return True
+    if roles.plate_closed == roles.base:
+        return False
+    if c.has(roles.plate_closed, t) and c.has(roles.base, t):
+        back = c.by[roles.plate_closed][t].full_mask(c.h, c.w)
+        base = c.by[roles.base][t].full_mask(c.h, c.w)
+        overlap = (back & base).sum()
+        if back.any() and base.any() and overlap > .5 * back.sum() and overlap > .8 * base.sum():
+            return False
+    return True
+
+
 @dataclass
 class Roles:
     floor: str | None
@@ -97,11 +152,51 @@ class Capture:
         self.world = self.world @ np.linalg.inv(self.world[t])
         self.ref = t
 
-    def ref_with(self, base: str, plate: str) -> int:
+    def ref_with(self, base: str, plate: str, closed: str | None = None,
+                 open_indicator: str | None = None) -> int:
         """A reference frame showing both parts: the one where the plate's mask is largest.
         Angles are measured from it, so a frame with only a sliver of plate (barely open)
-        would offset every angle."""
+        would offset every angle. Frames where the plate's mask is the ``closed`` part's (a
+        plate track that slid onto the shut lid's back, largest when shut) don't count, nor
+        frames where the base is much smaller than its well-visible views or its mask
+        swallows most of the plate."""
         both = set(self.by[base]) & set(self.by[plate]) or set(self.by[plate]) or set(self.by[base])
+        if open_indicator:
+            # The hinge solver uses presence of this part as evidence that the
+            # object is open. Do not silently fit a closed frame if tracking
+            # supplies no frame where both measured parts and the indicator exist.
+            both = set(self.by[base]) & set(self.by[plate]) & set(self.by.get(open_indicator, {}))
+            if not both:
+                raise ValueError("No frame has a usable base, plate and open indicator together; "
+                                 "inspect the tracked parts before fitting the hinge.")
+        if both <= set(self.by[base]):  # the base well in view: a shut lid hides the base's top
+            factor = 0.75 if self.moving_camera else 0.5
+            well_seen = factor * np.median([self.by[base][t].area for t in both])
+            both = {t for t in both if self.by[base][t].area >= well_seen} or both
+        if base != plate:
+            def unsuitable(t):
+                if t not in self.by[plate]:
+                    return False
+                a = self.by[plate][t].full_mask(self.h, self.w)
+                if closed and closed != plate and t in self.by.get(closed, {}):
+                    b = self.by[closed][t].full_mask(self.h, self.w)
+                    if (a & b).sum() > 0.8 * (a | b).sum():
+                        return True
+                if self.moving_camera and t in self.by[base] and a.any():
+                    base_mask = self.by[base][t].full_mask(self.h, self.w)
+                    if (a & base_mask).sum() > 0.5 * a.sum():
+                        return True
+                    if base_mask.any() and (a & base_mask).sum() > 0.5 * base_mask.sum():
+                        return True  # the plate track has swallowed the base
+                return False
+            # largest first; skip shut ones (checking masks is slow, so stop at the first open one)
+            part = self.by[plate] if set(self.by[plate]) & both else self.by[base]
+            for t in sorted(both, key=lambda t: -part[t].area):
+                if not unsuitable(t):
+                    return t
+            if open_indicator:
+                raise ValueError("No open-indicator frame has a suitable plate and base mask; "
+                                 "inspect the tracked parts before fitting the hinge.")
         if not both:
             raise ValueError(f"neither {base} nor {plate} is tracked with a usable mask")
         part = self.by[plate] if set(self.by[plate]) & both else self.by[base]
@@ -120,7 +215,12 @@ class Capture:
             n, d, _ = fit_plane(c, rng)
             return n, d
 
-        n0, d0 = plane(self.ref)
+        seen = sorted(self.by.get(floor, {}))
+        if not seen:
+            return {"frames_used": 0, "tilt_deg_max": 0.0, "shift_mm_max": 0.0, "shift_mm_median": 0.0}
+        # The floor's plane on the reference frame, or the nearest frame it is seen on (a hand
+        # or the opened lid can hide it there).
+        n0, d0 = plane(min(seen, key=lambda t: abs(t - self.ref)))
         # Per-frame correction as a small rotation vector (turning that frame's floor normal onto
         # the reference one) and a height shift. Drift is slow and plane fits are noisy (a hand
         # or a chair leg in the floor mask), so implausible frames are dropped and the rest
@@ -200,6 +300,39 @@ class Capture:
         self.names.append(name)
         return name
 
+    def drop_where_same(self, part: str, other: str | None, iou: float = 0.8) -> int:
+        """Forget ``part`` on frames where its mask is ``other``'s. SAM keeps a screen's identity
+        as the lid shuts, so a plate (inner face) track slides onto the closed lid's back, which
+        is plate_closed; those frames then go through the plate_closed path, built for them.
+        Returns how many frames were dropped."""
+        if not other or other == part or part not in self.by or other not in self.by:
+            return 0
+        drop = []
+        for t in sorted(set(self.by[part]) & set(self.by[other])):
+            a, b = self.by[part][t].full_mask(self.h, self.w), self.by[other][t].full_mask(self.h, self.w)
+            if (a & b).sum() > iou * (a | b).sum():
+                drop.append(t)
+        for t in drop:
+            del self.by[part][t]
+        return len(drop)
+
+    def drop_open_base_overlap(self, roles: Roles) -> int:
+        """Discard plate masks that substantially coincide with the base on open frames."""
+        if not roles.open_indicator or roles.base == roles.plate:
+            return 0
+        available = set(self.by.get(roles.plate, {})) & set(self.by.get(roles.base, {}))
+        available &= set(self.by.get(roles.open_indicator, {}))
+        dropped = []
+        for t in sorted(available):
+            a = self.by[roles.plate][t].full_mask(self.h, self.w)
+            b = self.by[roles.base][t].full_mask(self.h, self.w)
+            overlap = (a & b).sum()
+            if a.any() and b.any() and overlap > .5 * a.sum() and overlap > .8 * b.sum():
+                dropped.append(t)
+        for t in dropped:
+            del self.by[roles.plate][t]
+        return len(dropped)
+
     def has(self, part: str | None, t: int) -> bool:
         return part is not None and part in self.by and t in self.by[part]
 
@@ -249,6 +382,9 @@ def base_top(base: np.ndarray, floor: np.ndarray | None) -> tuple[np.ndarray, fl
 
 def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
     """Fit the plate's hinge; writes hinge.json and hinge.jpg. Returns a summary dict."""
+    if not c.has(roles.plate, c.ref):
+        raise ValueError(f"The plate's angle on reference frame {c.ref} cannot be used: its tracked face "
+                         "is unavailable there. Inspect and re-anchor the plate on an open frame before fitting.")
     seen = sorted(c.by[roles.base])
     if not seen:
         raise ValueError(f"{roles.base} has no usable mask on any frame")
@@ -261,6 +397,11 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
         if c.has(roles.plate, t):
             plate[t] = c.cloud(roles.plate, t)
         elif c.has(roles.plate_closed, t):
+            if not can_use_closed_fallback(c, roles, t):
+                # The base is visible while open. If the plate track has been
+                # discarded, its base mask is not evidence of the lid's back.
+                # Leave a gap instead of turning the fixed base into a plate.
+                continue
             # The plate's face isn't tracked: half open with the face turned away, or closed.
             # Decide by geometry, not by whether the open-indicator is seen (a lid half way
             # down already hides the keyboard from a camera in front): points well above the
@@ -278,6 +419,7 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
     hinge = fit_planar_hinge(plate, c.n, c.ref, pin=base.mean(axis=0), base_normal=nb)
     raw = int((~np.isnan(hinge.q)).sum())
     hinge.q = clean_angles(hinge.q)
+    require_reference_angle(hinge.centroids, hinge.q, c.ref)
     valid = ~np.isnan(hinge.q)
 
     def radial(x):
@@ -290,8 +432,7 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
     u_base = radial(base.mean(axis=0))
     open_deg = {t: float(np.rad2deg(np.arccos(np.clip(radial(m) @ u_base, -1, 1)))) for t, m in hinge.centroids.items()
                 if not np.isnan(hinge.q[t])}
-    t_ref = min(open_deg, key=lambda t: abs(t - c.ref))
-    opening = open_deg[t_ref]
+    opening = open_deg[c.ref]
     q = np.rad2deg(hinge.q[valid])
     along = (plate[c.ref] - hinge.point) @ hinge.axis if c.ref in plate else np.zeros(2)
     summary = {
@@ -310,6 +451,10 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
         f"base plane; opening {opening:.0f} deg on the reference frame, "
         f"{summary['opening_range_deg'][0]:.0f}..{summary['opening_range_deg'][1]:.0f} deg over the video; "
         f"plate spans {summary['plate_span_along_hinge_mm']:.0f} mm along the hinge")
+    from .track_checks import reference_opening_warning
+    warning = reference_opening_warning(opening, roles.open_indicator)
+    if warning:
+        log(warning)
 
     image = read_frame(c.video, c.ref)
     ends = hinge.point + np.outer([along.min(), along.max()], hinge.axis)
@@ -345,6 +490,8 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
     seen = sorted(c.by[roles.base])
     base_c = c.cloud(roles.base, min(seen, key=lambda t: abs(t - ref)))
     floor_c = c.cloud(roles.floor, ref) if c.has(roles.floor, ref) else None
+    if floor_c is not None and len(floor_c) < 50:
+        floor_c = None
     nb, db, _ = fit_plane(base_c, rng)
     top = base_c[np.abs(base_c @ nb - db) < 0.005]
     if nb @ (-top.mean(axis=0)) < 0:  # the camera (origin) is above the base
@@ -359,7 +506,9 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
     top_m = to_model(top)
     z_top = float(np.median(top_m[:, 2]))
     z_floor = float(np.median(to_model(floor_c)[:, 2])) if floor_c is not None else z_top - BASE_FALLBACK_M
-    base_measured = 0.002 < z_top - z_floor < 0.2
+    # When the floor is not visible at the reference frame, z_floor is a fallback;
+    # a plausible fallback must never be reported as a depth measurement.
+    base_measured = floor_c is not None and 0.002 < z_top - z_floor < 0.2
     if not base_measured:  # a fragmented base mask: keep the model valid and say so
         log(f"base thickness reads {1000 * (z_top - z_floor):.0f} mm: not measured, using "
             f"{1000 * BASE_FALLBACK_M:.0f} mm")
@@ -452,7 +601,14 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
                      {"lid": c.by[roles.plate], "base": c.by[roles.base]}, c.video, c.track_dir / "replay3d.mp4",
                      only_when={"base": lambda t: c.has(roles.open_indicator, t) if roles.open_indicator else True})
     summary["mask_coverage"] = {k: float(np.nanmean(v)) for k, v in cover.items()}
+    summary["mask_coverage_frames"] = {k: int(np.isfinite(v).sum()) for k, v in cover.items()}
     summary["worst_frames"] = {k: int(np.nanargmin(v)) for k, v in cover.items() if not np.isnan(v).all()}
+    metadata = json.loads((c.track_dir / "model3d.json").read_text())
+    metadata["mask_coverage"] = {k: v if np.isfinite(v) else None for k, v in summary["mask_coverage"].items()}
+    metadata["worst_frames"] = summary["worst_frames"]
+    metadata["mask_coverage_frames"] = summary["mask_coverage_frames"]
+    metadata["video_frames"] = c.n
+    (c.track_dir / "model3d.json").write_text(json.dumps(metadata, indent=2))
     log(f"model: base {summary['base_thickness_mm']:.0f} mm thick; plate {summary['plate_size_mm'][0]:.0f} x "
         f"{summary['plate_size_mm'][1]:.0f} mm, {summary['plate_thickness_mm']:.1f} mm thick"
         f"{' (clipped: not really measured)' if summary['plate_thickness_clipped'] else ''}; hinge "
@@ -530,6 +686,12 @@ def fit_and_build_slide(c: Capture, roles: Roles, log=print) -> dict:
     cover = replay3d(c.track_dir / "model.xml", cam_to_world, c.cap.intrinsics, {"drawer_joint": q},
                      {"drawer": c.by[roles.plate], "base": c.by[roles.base]}, c.video, c.track_dir / "replay3d.mp4")
     summary["mask_coverage"] = {k: float(np.nanmean(v)) for k, v in cover.items()}
+    summary["mask_coverage_frames"] = {k: int(np.isfinite(v).sum()) for k, v in cover.items()}
+    metadata = json.loads((c.track_dir / "model3d.json").read_text())
+    metadata["mask_coverage"] = {k: v if np.isfinite(v) else None for k, v in summary["mask_coverage"].items()}
+    metadata["mask_coverage_frames"] = summary["mask_coverage_frames"]
+    metadata["video_frames"] = c.n
+    (c.track_dir / "model3d.json").write_text(json.dumps(metadata, indent=2))
     log(f"slide: travel {1000 * lo:.0f}..{1000 * hi:.0f} mm measured on {summary['frames_measured']}/{c.n} frames, "
         f"{1000 * slide.residual:.1f} mm off a straight line; boxes (mm) base {sizes['base']}, drawer {sizes['drawer']} "
         f"(its hidden depth is assumed equal to the travel); replay covers "
@@ -553,16 +715,25 @@ def _planes(points: np.ndarray, rng, k: int = 4, min_frac: float = 0.08):
 
 
 def front_normal(c: Capture, base: str, part: str, window: tuple[int, int], up: np.ndarray):
-    """The base's upright face a drawer comes out of, on the frame where the drawer is seen
-    largest: (outward normal, that frame), or None if no upright face is in view."""
+    """Find an upright base face near a visible drawer, preferring a large drawer mask."""
     rng = np.random.default_rng(0)
     seen = [t for t in range(window[0], min(c.n, window[1] + 1)) if c.has(part, t) and c.has(base, t)]
     if not seen:
         return None
-    ref = max(seen, key=lambda t: c.by[part][t].area)
-    gm = c.cloud(part, ref).mean(axis=0)
-    upright = [(n, d) for n, d in _planes(c.cloud(base, ref), rng) if abs(n @ up) < 0.35]
-    if not upright:
+    largest = max(seen, key=lambda t: c.by[part][t].area)
+    # The largest mask can coincide with an occluded or fragmented cabinet.
+    # Check a few other times rather than declaring the entire video unusable.
+    candidates = [largest] + [seen[i] for i in np.unique(np.linspace(0, len(seen) - 1, min(12, len(seen))).astype(int))
+                              if seen[i] != largest]
+    for ref in candidates:
+        drawer = c.cloud(part, ref)
+        if len(drawer) < 50:
+            continue
+        upright = [(n, d) for n, d in _planes(c.cloud(base, ref), rng) if abs(n @ up) < 0.35]
+        if upright:
+            gm = drawer.mean(axis=0)
+            break
+    else:
         return None
     # Which face: the one whose normal follows how the drawer moved (seen smallest = shut, to
     # seen largest = out); a side panel is upright too, and the drawer may stand far from it.
@@ -581,20 +752,22 @@ def front_travel(c: Capture, base: str, part: str, window: tuple[int, int], axis
     """How far a drawer stands out of the base along ``axis`` (the front's outward normal), in
     each frame: the drawer's outermost points against the base's (its front face, or its top's
     front edge when only the top is seen). Both come from the same frame's depth, so camera
-    drift cancels; a frame where the drawer isn't seen at all is shut (0)."""
+    drift cancels. Missing observations remain unknown: occlusion or tracking
+    failure does not imply that the drawer is shut."""
     t0, t1 = window
     q = np.full(c.n, np.nan)
     for t in range(t0, min(c.n, t1 + 1)):
         if not c.has(base, t):
             continue
         if not c.has(part, t):
-            q[t] = 0.0  # not seen: shut
             continue
         dr, cab = c.cloud(part, t), c.cloud(base, t)
         if len(dr) < 50 or len(cab) < 200:
             continue
         q[t] = max(0.0, float(np.percentile(dr @ axis, 98) - np.percentile(cab @ axis, 97)))
-    seen = [t for t in range(t0, min(c.n, t1 + 1)) if c.has(part, t)]
+    seen = [t for t in range(t0, min(c.n, t1 + 1)) if c.has(part, t) and c.has(base, t)]
+    if not seen or not np.isfinite(q).any():
+        raise ValueError(f"No usable joint observations for {part!r}; inspect and retrack the drawer and base.")
     return {"ref": max(seen, key=lambda t: c.by[part][t].area), "q": q}
 
 
@@ -765,6 +938,12 @@ def fit_and_build_slides(c: Capture, base: str, floor: str | None, drawers: list
     cover = replay3d(c.track_dir / "model.xml", cam_to_world, c.cap.intrinsics, joint_q, masks, c.video,
                      c.track_dir / "replay3d.mp4")
     summary["mask_coverage"] = {k: float(np.nanmean(v)) for k, v in cover.items()}
+    summary["mask_coverage_frames"] = {k: int(np.isfinite(v).sum()) for k, v in cover.items()}
+    metadata = json.loads((c.track_dir / "model3d.json").read_text())
+    metadata["mask_coverage"] = {k: v if np.isfinite(v) else None for k, v in summary["mask_coverage"].items()}
+    metadata["mask_coverage_frames"] = summary["mask_coverage_frames"]
+    metadata["video_frames"] = c.n
+    (c.track_dir / "model3d.json").write_text(json.dumps(metadata, indent=2))
     for j in summary["joints"]:
         log(f"{j['name']} ({j['part']}, frames {j['window'][0]}..{j['window'][1]}): pulled out up to "
             f"{j['travel_mm']:.0f} mm, measured on {j['frames_measured']} frames; axis {j['axis_vs_first_deg']:.1f} deg "

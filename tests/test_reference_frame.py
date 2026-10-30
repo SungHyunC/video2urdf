@@ -1,0 +1,293 @@
+import unittest
+import json
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+
+import numpy as np
+
+from video2urdf.lidar import Capture
+from video2urdf.lidar import Roles
+from video2urdf.lidar import can_use_closed_fallback, require_reference_angle
+from video2urdf.lift3d import clean_angles
+from video2urdf.agent import Agent
+from video2urdf.track_checks import alternate_plate_hint, named_base_warning, plate_covers_base_warning, suggested_open_anchors
+
+
+class Mask:
+    def __init__(self, mask):
+        self.mask = mask
+        self.area = int(mask.sum())
+
+    def full_mask(self, height, width):
+        return self.mask
+
+
+class ReferenceFrameTest(unittest.TestCase):
+    def test_closed_overlap_does_not_trigger_open_track_drift_warning(self):
+        c = object.__new__(Capture)
+        c.h = c.w = 20
+        c.n = 10
+        a = np.zeros((20, 20), bool)
+        a[:10, :] = True
+        b = ~a
+        c.by = {"base": {i: Mask(b) for i in range(10)},
+                "plate": {i: Mask(a if i < 5 else b) for i in range(10)},
+                "keyboard": {i: Mask(b) for i in range(5)}}
+        warnings = Agent.mask_checks(object.__new__(Agent), c, Roles(None, "base", "plate", "base", "keyboard"), {})
+        self.assertFalse(any("drifted" in w or "whole object" in w for w in warnings))
+
+    def test_reanchor_suggestions_span_visible_open_intervals(self):
+        c = object.__new__(Capture)
+        c.by = {"keyboard": {t: Mask(np.ones((2, 2), bool)) for t in (0, 10, 20, 80, 90, 100)}}
+        roles = Roles(None, "base", "plate", open_indicator="keyboard")
+        frames = suggested_open_anchors(c, roles, 4)
+        self.assertEqual(frames, [0, 10, 80, 100])
+        self.assertEqual(suggested_open_anchors(c, Roles(None, "base", "plate")), [])
+
+    def test_failed_refit_does_not_mark_old_fit_current_or_replace_roles(self):
+        class CaptureStub:
+            names = ["floor", "base", "plate"]
+            by = {}
+            world = np.eye(4)[None, :, :]
+            ref, moving_camera, n = 0, True, 1
+            def drop_where_same(self, *args): return 0
+            def drop_open_base_overlap(self, *args): return 0
+            def ref_with(self, *args): return 0
+            def level_with(self, *args): return {"shift_mm_max": 0}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = '{"base": "previous"}'
+            (root / "roles.json").write_text(old)
+            agent = object.__new__(Agent)
+            agent.capture, agent.tracked, agent.track_dir, agent.video = root, True, root, root / 'video.mp4'
+            agent.last_fit = {"old": True}
+            with patch("video2urdf.agent.lidar.open_capture", return_value=CaptureStub()), \
+                 patch("video2urdf.agent.lidar.fit_hinge", side_effect=ValueError("bad reference")):
+                with self.assertRaisesRegex(ValueError, "bad reference"):
+                    agent.tool_fit_lidar("floor", "base", "plate")
+            self.assertIsNone(agent.last_fit)
+            self.assertEqual((root / "roles.json").read_text(), old)
+
+    def test_reference_failure_suggests_specific_retracking_frames(self):
+        class CaptureStub:
+            names = ["floor", "base", "plate", "keyboard"]
+            ref, moving_camera, n = 0, True, 4
+            by = {"keyboard": {0: None, 1: None, 3: None}}
+            world = np.eye(4)[None, :, :]
+            def drop_where_same(self, *args): return 0
+            def drop_open_base_overlap(self, *args): return 0
+            def ref_with(self, *args): return 0
+            def level_with(self, *args): return {"shift_mm_max": 0}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            agent = object.__new__(Agent)
+            agent.capture, agent.tracked, agent.track_dir, agent.video = root, True, root, root / "video.mp4"
+            with patch("video2urdf.agent.lidar.open_capture", return_value=CaptureStub()), \
+                 patch("video2urdf.agent.lidar.fit_hinge", side_effect=ValueError("angle on reference frame rejected")):
+                message = agent.tool_fit_lidar("floor", "base", "plate", open_indicator="keyboard")
+            self.assertIn("[0, 1, 3]", message)
+            self.assertIn("retrack_part", message)
+            self.assertIsNone(agent.last_fit)
+
+
+    def test_plate_track_on_open_base_is_removed_but_closed_frame_retained(self):
+        c = object.__new__(Capture)
+        c.h = c.w = 20
+        base = np.zeros((20, 20), bool)
+        base[10:19, 1:19] = True
+        plate = np.zeros((20, 20), bool)
+        plate[1:8, 1:19] = True
+        c.by = {"base": {0: Mask(base), 1: Mask(base), 2: Mask(base)},
+                "plate": {0: Mask(base), 1: Mask(base), 2: Mask(plate)},
+                "keyboard": {0: Mask(base), 2: Mask(base)}}
+        roles = Roles(None, "base", "plate", "base", "keyboard")
+        self.assertEqual(c.drop_open_base_overlap(roles), 1)
+        self.assertEqual(set(c.by["plate"]), {1, 2})
+
+    def test_open_base_is_not_used_as_a_missing_lid(self):
+        class CaptureStub:
+            def has(self, part, t):
+                return part == "keyboard" and t == 1
+        roles = Roles(None, "base", "plate", "base", "keyboard")
+        self.assertFalse(can_use_closed_fallback(CaptureStub(), roles, 1))
+        self.assertTrue(can_use_closed_fallback(CaptureStub(), roles, 2))
+        self.assertTrue(can_use_closed_fallback(CaptureStub(), Roles(None, "base", "plate", "lid_back", "keyboard"), 1))
+
+    def test_separate_back_track_that_drifted_onto_base_is_not_a_lid(self):
+        c = object.__new__(Capture)
+        c.h = c.w = 10
+        base = np.zeros((10, 10), bool)
+        base[5:, :] = True
+        lid = ~base
+        c.by = {"base": {0: Mask(base)}, "back": {0: Mask(base)}, "keyboard": {0: Mask(base)}}
+        roles = Roles(None, "base", "plate", "back", "keyboard")
+        self.assertFalse(can_use_closed_fallback(c, roles, 0))
+        c.by["back"][0] = Mask(lid)
+        self.assertTrue(can_use_closed_fallback(c, roles, 0))
+
+    def test_hinge_retries_distinct_open_reference_after_angle_failure(self):
+        from types import SimpleNamespace
+        from video2urdf.lidar import fit_hinge_with_reference_retries
+        class Stub:
+            n, ref = 101, 90
+            by = {"plate": {20: None, 80: None}, "base": {20: None, 80: None},
+                  "keyboard": {20: None, 80: None}}
+            def has(self, name, frame): return frame in self.by[name]
+            def set_ref(self, frame): self.ref = frame
+        c = Stub()
+        roles = SimpleNamespace(plate="plate", base="base", open_indicator="keyboard")
+        def fit(capture, roles, log):
+            if capture.ref == 90:
+                raise ValueError("angle on reference frame rejected")
+            return {"reference": capture.ref}
+        with patch("video2urdf.lidar.fit_hinge", side_effect=fit):
+            result, attempts = fit_hinge_with_reference_retries(c, roles, log=lambda _: None)
+        self.assertEqual(attempts, [90, 20])
+        self.assertEqual(result["reference"], 20)
+        self.assertEqual(c.ref, 20)
+        c.ref = 90
+        prepared = []
+        def prepare(capture, frame):
+            prepared.append(frame)
+            capture.set_ref(frame)
+        with patch("video2urdf.lidar.fit_hinge", side_effect=fit):
+            result, attempts = fit_hinge_with_reference_retries(c, roles, log=lambda _: None,
+                                                                 prepare_reference=prepare)
+        self.assertEqual(prepared, [20])
+        self.assertEqual(result["reference"], 20)
+
+    def test_hinge_requires_actual_plate_mask_at_reference(self):
+        from types import SimpleNamespace
+        from video2urdf.lidar import fit_hinge
+        capture = SimpleNamespace(ref=150, has=lambda part, frame: False)
+        roles = SimpleNamespace(plate="screen", base="base")
+        with self.assertRaisesRegex(ValueError, "plate.*reference frame 150"):
+            fit_hinge(capture, roles)
+
+    def test_reference_angle_must_not_be_replaced_by_a_neighbour(self):
+        angles = clean_angles(np.array([-1.8] * 15 + [0.0]))
+        self.assertTrue(np.isnan(angles[-1]))
+        with self.assertRaisesRegex(ValueError, "reference frame 15"):
+            require_reference_angle({15: np.zeros(3), 14: np.ones(3)}, angles, 15)
+        require_reference_angle({0: np.zeros(3)}, np.array([0.0]), 0)
+
+    def test_suggests_testing_swapped_tracks_only_when_alternate_is_distinct(self):
+        c = object.__new__(Capture)
+        c.h = c.w = 20
+        c.ref = 0
+        base = np.zeros((20, 20), bool)
+        base[10:18, 3:17] = True
+        alternate = np.zeros((20, 20), bool)
+        alternate[1:8, 3:17] = True
+        c.by = {"base": {0: Mask(base)}, "plate": {0: Mask(base)}, "back": {0: Mask(alternate)}}
+        roles = Roles(None, "base", "plate", "back")
+        self.assertIn("swapping", alternate_plate_hint(c, roles))
+        c.by["back"][0] = Mask(base)
+        self.assertIsNone(alternate_plate_hint(c, roles))
+
+    def test_plate_that_covers_base_is_flagged(self):
+        c = object.__new__(Capture)
+        c.h = c.w = 20
+        base = np.zeros((20, 20), bool)
+        base[10:15, 5:15] = True
+        plate = np.zeros((20, 20), bool)
+        plate[8:19, 2:18] = True
+        c.by = {"base": {0: Mask(base)}, "plate": {0: Mask(plate)}}
+        self.assertTrue(plate_covers_base_warning(c, Roles(None, "base", "plate")))
+        c.by["plate"][0] = Mask(np.roll(plate, 10, axis=0))
+        self.assertFalse(plate_covers_base_warning(c, Roles(None, "base", "plate")))
+        c.by["base"] = {i: Mask(base) for i in range(5)}
+        c.by["plate"] = {i: Mask(plate if i == 3 else np.roll(plate, 10, axis=0)) for i in range(5)}
+        c.ref = 3
+        self.assertIn("reference frame 3", plate_covers_base_warning(c, Roles(None, "base", "plate"))[0])
+
+    def test_laptop_component_seed_warns_even_if_base_is_indicator(self):
+        c = object.__new__(Capture)
+        with tempfile.TemporaryDirectory() as tmp:
+            c.track_dir = Path(tmp)
+            (c.track_dir / "parts.json").write_text(json.dumps({"0": {"name": "base", "prompt": "laptop keyboard"}}))
+            roles = Roles(None, "base", "plate", open_indicator="base")
+            self.assertTrue(named_base_warning(c, roles))
+            (c.track_dir / "parts.json").write_text(json.dumps({"0": {"name": "base", "prompt": "silver laptop base"}}))
+            self.assertFalse(named_base_warning(c, roles))
+
+    def test_reference_requires_open_indicator_and_suitable_masks(self):
+        c = object.__new__(Capture)
+        c.h = c.w = 10
+        c.moving_camera = True
+        base = np.zeros((10, 10), bool)
+        base[5:, :] = True
+        plate = np.zeros((10, 10), bool)
+        plate[:4, :] = True
+        larger_plate = np.ones((10, 10), bool)
+        c.by = {"base": {0: Mask(base), 1: Mask(base)},
+                "plate": {0: Mask(larger_plate), 1: Mask(plate)},
+                "indicator": {1: Mask(base)}}
+        self.assertEqual(c.ref_with("base", "plate", open_indicator="indicator"), 1)
+        c.by["indicator"] = {}
+        with self.assertRaisesRegex(ValueError, "No frame"):
+            c.ref_with("base", "plate", open_indicator="indicator")
+        c.by["indicator"] = {1: Mask(base)}
+        c.by["closed"] = {1: Mask(plate)}
+        with self.assertRaisesRegex(ValueError, "No open-indicator frame"):
+            c.ref_with("base", "plate", "closed", "indicator")
+
+    def test_reference_rejects_plate_that_contains_base(self):
+        c = object.__new__(Capture)
+        c.h = c.w = 20
+        c.moving_camera = True
+        base = np.zeros((20, 20), bool)
+        base[10:15, 5:15] = True
+        wrong = np.zeros((20, 20), bool)
+        wrong[8:19, 2:18] = True
+        good = np.zeros((20, 20), bool)
+        good[1:8, 3:17] = True
+        c.by = {"base": {0: Mask(base), 1: Mask(base)},
+                "plate": {0: Mask(wrong), 1: Mask(good)},
+                "indicator": {0: Mask(base), 1: Mask(base)}}
+        self.assertEqual(c.ref_with("base", "plate", open_indicator="indicator"), 1)
+
+    def test_warns_when_base_is_only_a_fragment(self):
+        c = object.__new__(Capture)
+        c.h = c.w = 20
+        c.n = 6
+        base = np.zeros((20, 20), bool)
+        base[10:15, 0:5] = True
+        indicator = np.zeros((20, 20), bool)
+        indicator[10:15, 10:15] = True
+        plate = np.zeros((20, 20), bool)
+        plate[0:5, 0:5] = True
+        c.by = {"base": {i: Mask(base) for i in range(6)},
+                "plate": {i: Mask(plate) for i in range(6)},
+                "keyboard": {i: Mask(indicator) for i in range(6)}}
+        agent = object.__new__(Agent)
+        warnings = agent.mask_checks(c, Roles(None, "base", "plate", open_indicator="keyboard"), {})
+        self.assertTrue(any("fragment" in w for w in warnings))
+        with tempfile.TemporaryDirectory() as tmp:
+            c.track_dir = Path(tmp)
+            (c.track_dir / "parts.json").write_text(json.dumps({"1": {"name": "base", "anchors": [[0, []]]}}))
+            # Later tracking drift should not turn a good anchored candidate into a false warning.
+            c.by["base"][0] = Mask(base | indicator)
+            warnings = agent.mask_checks(c, Roles(None, "base", "plate", open_indicator="keyboard"), {})
+            self.assertFalse(any("fragment" in w for w in warnings))
+
+    def test_avoids_small_base_and_mask_that_includes_plate(self):
+        def rect(y0, y1, x0, x1):
+            mask = np.zeros((20, 20), bool)
+            mask[y0:y1, x0:x1] = True
+            return Mask(mask)
+        c = object.__new__(Capture)
+        c.h = c.w = 20
+        c.by = {
+            "base": {0: rect(10, 20, 0, 10), 1: rect(17, 20, 0, 10),
+                     2: rect(0, 20, 0, 10), 3: rect(10, 20, 0, 9)},
+            "plate": {0: rect(0, 5, 0, 10), 1: rect(0, 9, 0, 10),
+                      2: rect(0, 10, 0, 10), 3: rect(0, 8, 0, 10)},
+            "closed": {i: rect(0, 1, 19, 20) for i in range(4)},
+        }
+        self.assertEqual(c.ref_with("base", "plate", "closed"), 3)
+
+
+if __name__ == "__main__":
+    unittest.main()

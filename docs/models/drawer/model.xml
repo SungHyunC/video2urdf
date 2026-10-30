@@ -1,22 +1,54 @@
 <mujoco model="drawer2_lidar">
-  <compiler angle="radian"/>
-  <visual><global offwidth="1920" offheight="1440"/></visual>
-  <asset><mesh name="base_0" file="meshes/base_0.stl" inertia="exact"/><mesh name="base_1" file="meshes/base_1.stl" inertia="exact"/><mesh name="base_2" file="meshes/base_2.stl" inertia="exact"/><mesh name="base_3" file="meshes/base_3.stl" inertia="exact"/><mesh name="drawer1_0" file="meshes/drawer1_0.stl" inertia="exact"/><mesh name="drawer1_1" file="meshes/drawer1_1.stl" inertia="exact"/><mesh name="drawer1_2" file="meshes/drawer1_2.stl" inertia="exact"/><mesh name="drawer1_3" file="meshes/drawer1_3.stl" inertia="exact"/><mesh name="drawer1_4" file="meshes/drawer1_4.stl" inertia="exact"/></asset>
+  <compiler angle="radian" />
+  <visual>
+    <global offwidth="1920" offheight="1440" />
+  </visual>
+  <asset>
+    <mesh name="base_0" file="meshes/base_0_tex.obj" inertia="exact" />
+    <mesh name="base_1" file="meshes/base_1_tex.obj" inertia="exact" />
+    <mesh name="base_2" file="meshes/base_2_tex.obj" inertia="exact" />
+    <mesh name="base_3" file="meshes/base_3_tex.obj" inertia="exact" />
+    <mesh name="drawer1_0" file="meshes/drawer1_0_tex.obj" inertia="exact" />
+    <mesh name="drawer1_1" file="meshes/drawer1_1_tex.obj" inertia="exact" />
+    <mesh name="drawer1_2" file="meshes/drawer1_2_tex.obj" inertia="exact" />
+    <mesh name="drawer1_3" file="meshes/drawer1_3_tex.obj" inertia="exact" />
+    <mesh name="drawer1_4" file="meshes/drawer1_4_tex.obj" inertia="exact" />
+    <texture name="video_tex" type="2d" file="meshes/video_tex.png" />
+    <material name="video_tex" texture="video_tex" />
+  </asset>
   <worldbody>
-    <camera name="video" pos="0 0 1"/>
+    <camera name="video" pos="0 0 1" />
     <body name="base" pos="0.00000 0.00000 0.55006">
-      <geom type="mesh" mesh="base_0" rgba="0.95294 0.88235 0.76471 1"/>
-      <geom type="mesh" mesh="base_1" rgba="0.95294 0.88235 0.76471 1"/>
-      <geom type="mesh" mesh="base_2" rgba="0.95294 0.88235 0.76471 1"/>
-      <geom type="mesh" mesh="base_3" rgba="0.95294 0.88235 0.76471 1"/>
+      <inertial pos="-0.122118 0.00408661 -0.269527" quat="0.999998 -0.000538211 -0.000136351 -0.00188998" mass="13" diaginertia="0.571259 0.501093 0.218996" />
+      <geom type="mesh" mesh="base_0" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" group="3" />
+      <geom type="mesh" mesh="base_1" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" group="3" />
+      <geom type="mesh" mesh="base_2" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" group="3" />
+      <geom type="mesh" mesh="base_3" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" group="3" />
+      <geom name="design_base_0" rgba="0.85000 0.71000 0.52000 1" contype="0" conaffinity="0" mass="0" type="box" pos="-0.12100 0.00045 0.00360" quat="1.000000 0.000000 0.000000 0.000000" size="0.13000 0.17975 0.01000" />
+      <geom name="design_base_1" rgba="0.80000 0.64000 0.44000 1" contype="0" conaffinity="0" mass="0" type="box" pos="-0.13000 0.00045 -0.27820" quat="1.000000 0.000000 0.000000 0.000000" size="0.12100 0.17975 0.27180" />
+      <geom name="design_base_2" rgba="0.74000 0.54000 0.33000 1" contype="0" conaffinity="0" mass="0" type="box" pos="0.00000 0.00045 -0.09820" quat="1.000000 0.000000 0.000000 0.000000" size="0.00900 0.17975 0.09180" />
+      <geom name="design_base_3" rgba="0.74000 0.54000 0.33000 1" contype="0" conaffinity="0" mass="0" type="box" pos="0.00000 0.00045 -0.44300" quat="1.000000 0.000000 0.000000 0.000000" size="0.00900 0.17975 0.10700" />
+      <geom name="design_base_4" rgba="0.78000 0.79000 0.82000 1" contype="0" conaffinity="0" mass="0" type="box" pos="0.01400 0.00045 -0.09820" quat="1.000000 0.000000 0.000000 0.000000" size="0.00500 0.05500 0.00900" />
+      <geom name="design_base_5" rgba="0.78000 0.79000 0.82000 1" contype="0" conaffinity="0" mass="0" type="box" pos="0.01400 0.00045 -0.44300" quat="1.000000 0.000000 0.000000 0.000000" size="0.00500 0.05500 0.00900" />
+      <geom name="design_base_6" rgba="0.25000 0.25000 0.28000 1" contype="0" conaffinity="0" mass="0" type="cylinder" pos="0.01050 0.14000 -0.03000" quat="0.707107 0.000000 0.707107 0.000000" size="0.00700 0.00150" />
       <body name="drawer1" pos="0.00000 0.00000 0.00000">
-        <joint name="drawer1_joint" type="slide" axis="1.00000 0.00000 -0.00000" range="0.0000 0.2480" limited="true"/>
-        <geom type="mesh" mesh="drawer1_0" rgba="0.48627 0.40392 0.31765 1"/>
-        <geom type="mesh" mesh="drawer1_1" rgba="0.34039 0.28275 0.22235 1"/>
-        <geom type="mesh" mesh="drawer1_2" rgba="0.34039 0.28275 0.22235 1"/>
-        <geom type="mesh" mesh="drawer1_3" rgba="0.34039 0.28275 0.22235 1"/>
-        <geom type="mesh" mesh="drawer1_4" rgba="0.34039 0.28275 0.22235 1"/>
+        <joint name="drawer1_joint" type="slide" axis="1.00000 0.00000 -0.00000" range="0.0000 0.2480" limited="true" frictionloss="0.981" solreffriction="0.005 1" solimpfriction="0.99 0.999 0.001" damping="1" />
+        <inertial pos="-0.104177 -0.0147241 -0.280774" quat="0.485424 0.485424 -0.514163 0.514163" mass="2.5" diaginertia="0.0493126 0.0312277 0.023528" />
+        <geom type="mesh" mesh="drawer1_0" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" group="3" />
+        <geom type="mesh" mesh="drawer1_1" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" group="3" />
+        <geom type="mesh" mesh="drawer1_2" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" group="3" />
+        <geom type="mesh" mesh="drawer1_3" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" group="3" />
+        <geom type="mesh" mesh="drawer1_4" rgba="1 1 1 1" friction="0.4 0.005 0.0001" material="video_tex" group="3" />
+        <geom name="design_drawer1_0" rgba="0.74000 0.54000 0.33000 1" contype="0" conaffinity="0" mass="0" type="box" pos="0.00000 -0.01475 -0.26305" quat="1.000000 0.000000 0.000000 0.000000" size="0.00900 0.16335 0.06105" />
+        <geom name="design_drawer1_1" rgba="0.78000 0.79000 0.82000 1" contype="0" conaffinity="0" mass="0" type="box" pos="0.01400 -0.01475 -0.26305" quat="1.000000 0.000000 0.000000 0.000000" size="0.00500 0.05500 0.00900" />
+        <geom name="design_drawer1_2" rgba="0.15000 0.16000 0.18000 1" contype="0" conaffinity="0" mass="0" type="box" pos="-0.12400 -0.01475 -0.31810" quat="1.000000 0.000000 0.000000 0.000000" size="0.11500 0.15000 0.00600" />
+        <geom name="design_drawer1_3" rgba="0.20000 0.20000 0.22000 1" contype="0" conaffinity="0" mass="0" type="box" pos="-0.12400 -0.15875 -0.28910" quat="1.000000 0.000000 0.000000 0.000000" size="0.11500 0.00600 0.03500" />
+        <geom name="design_drawer1_4" rgba="0.20000 0.20000 0.22000 1" contype="0" conaffinity="0" mass="0" type="box" pos="-0.12400 0.12925 -0.28910" quat="1.000000 0.000000 0.000000 0.000000" size="0.11500 0.00600 0.03500" />
+        <geom name="design_drawer1_5" rgba="0.20000 0.20000 0.22000 1" contype="0" conaffinity="0" mass="0" type="box" pos="-0.23300 -0.01475 -0.28910" quat="1.000000 0.000000 0.000000 0.000000" size="0.00600 0.15000 0.03500" />
       </body>
     </body>
   </worldbody>
+  <contact>
+    <exclude body1="base" body2="drawer1" />
+  </contact>
 </mujoco>

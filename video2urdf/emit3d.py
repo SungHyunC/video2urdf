@@ -82,4 +82,12 @@ def mjcf(name: str, links: list[Link3D], root_pos=(0, 0, 0), size: tuple[int, in
     visual = f'  <visual><global offwidth="{size[0]}" offheight="{size[1]}"/></visual>\n' if size else ""
     roots = "\n".join(body(l, 2, root_pos) for l in children[None])
     return (f'<mujoco model="{name}">\n  <compiler angle="radian"/>\n{visual}  <asset>{meshes}</asset>\n'
-            f'  <worldbody>\n    <camera name="video" pos="0 0 1"/>\n{roots}\n  </worldbody>\n</mujoco>\n')
+            f'  <worldbody>\n    <camera name="video" pos="0 0 1"/>\n{roots}\n  </worldbody>\n'
+            f'{contact_excludes(links)}</mujoco>\n')
+
+
+def contact_excludes(links) -> str:
+    """Links overlap at their joints. MuJoCo skips parent-child contacts, except when the parent
+    is welded to the world, as a fixed root is: without these the overlap throws the child off."""
+    pairs = "".join(f'<exclude body1="{l.parent}" body2="{l.name}"/>' for l in links if l.parent)
+    return f"  <contact>{pairs}</contact>\n" if pairs else ""

@@ -45,7 +45,35 @@ def load_parts(track_dir: Path) -> tuple[list[str], dict[str, dict[int, Detectio
     parts = {int(k): v for k, v in json.loads((track_dir / "parts.json").read_text()).items()}
     objs = load_tracks(track_dir / "tracks.sam.txt")
     names = [slug(parts[oid].get("name") or parts[oid]["prompt"]) for oid in sorted(parts)]
-    return names, {nm: objs.get(oid, {}) for nm, oid in zip(names, sorted(parts))}
+    by_name = {nm: objs.get(oid, {}) for nm, oid in zip(names, sorted(parts))}
+    unions_path = track_dir / "track_unions.json"
+    if unions_path.exists():
+        for name, spec in json.loads(unions_path.read_text()).items():
+            members, gate = spec["parts"], spec["gate"]
+            width, height = spec["frame_size"]
+            if name in by_name or not members or any(p not in by_name for p in members) or gate not in members:
+                raise ValueError(f"Invalid tracked-part union: {name}")
+            frames = sorted(set().union(*(by_name[p] for p in members)))
+            merged = {}
+            for t in frames:
+                anchor = by_name[gate].get(t)
+                if anchor is None or not anchor.usable(width, height):
+                    continue
+                detections = [by_name[p][t] for p in members if t in by_name[p] and by_name[p][t].usable(width, height)]
+                x1 = min(d.box[0] for d in detections); y1 = min(d.box[1] for d in detections)
+                x2 = max(d.box[2] for d in detections); y2 = max(d.box[3] for d in detections)
+                crop = np.zeros((y2 - y1 + 1, x2 - x1 + 1), bool)
+                for d in detections:
+                    dx1, dy1, dx2, dy2 = d.box
+                    piece = d.crop
+                    if piece.shape != (dy2 - dy1 + 1, dx2 - dx1 + 1):
+                        piece = cv2.resize(piece.astype(np.uint8), (dx2 - dx1 + 1, dy2 - dy1 + 1),
+                                           interpolation=cv2.INTER_NEAREST).astype(bool)
+                    crop[dy1 - y1:dy2 - y1 + 1, dx1 - x1:dx2 - x1 + 1] |= piece
+                merged[t] = Detection(t, -1, (x1, y1, x2, y2), crop)
+            names.append(name)
+            by_name[name] = merged
+    return names, by_name
 
 
 def read_frame(video: Path, index: int) -> np.ndarray:
@@ -184,4 +212,7 @@ def fit(video: Path, track_dir: Path, px_per_m: float, parents: dict[str, str] |
                     "residual_m": l.joint.residual, "q": [None if np.isnan(v) else v for v in l.joint.q]}
                    for l in links if l.joint]}))
     ious = replay(track_dir / "model.xml", links, poses_img[names[0]], by_name, video, track_dir / "replay.mp4")
+    # Retain the replay evidence for later visual comparisons and quality checks.
+    np.savez_compressed(track_dir / 'planar_replay.npz', root_poses=poses_img[names[0]],
+                        **{f'iou_{name}': values for name, values in ious.items()})
     return Fit(links, names, ref, px_per_m, origin, ious, sources, tuple(sorted((thickness or {}).keys())))

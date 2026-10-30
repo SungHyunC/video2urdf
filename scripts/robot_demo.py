@@ -38,21 +38,29 @@ def object_xml(model_xml: Path, pos, yaw: float) -> tuple[str, str, str, str]:
     assets = tree.getroot().find("asset")
     mesh_xml = ""
     if assets is not None:
-        for mesh in assets.iter("mesh"):
-            mesh.set("name", "obj_" + mesh.get("name"))
-            mesh.set("file", str((model_xml.parent / mesh.get("file")).resolve()))  # Panda's meshdir is elsewhere
-            mesh_xml += ET.tostring(mesh, encoding="unicode")
+        for el in assets:  # meshes, and the video textures (texture.py) with their materials
+            el.set("name", "obj_" + el.get("name"))
+            if el.get("file"):
+                el.set("file", str((model_xml.parent / el.get("file")).resolve()))  # Panda's meshdir is elsewhere
+            if el.get("texture"):
+                el.set("texture", "obj_" + el.get("texture"))
+            mesh_xml += ET.tostring(el, encoding="unicode")
     root = tree.getroot().find("worldbody").find("body")
+    measured = root.find("inertial") is not None  # physics.apply ran: masses and joint friction are set
     for el in root.iter():
         if "name" in el.attrib:
             el.set("name", "obj_" + el.get("name"))
         if el.tag == "geom":
             if el.get("mesh"):
                 el.set("mesh", "obj_" + el.get("mesh"))
-            el.set("density", "300")
+            if el.get("material"):
+                el.set("material", "obj_" + el.get("material"))
+            if not measured:
+                el.set("density", "300")
         if el.tag == "joint":
-            el.set("damping", "0.3")
-            el.set("frictionloss", "0.5")  # laptop hinges are stiff: the lid holds its angle
+            if not measured:
+                el.set("damping", "0.3")
+                el.set("frictionloss", "0.5")  # laptop hinges are stiff: the lid holds its angle
             el.set("armature", "0.01")
     joint = next(el.get("name") for el in root.iter("joint") if el.get("type") == "hinge")
     # Links overlap at their joints. MuJoCo skips parent-child contacts, except when the
@@ -228,8 +236,8 @@ def main():
     total = sum(d for _, d in phases)
     renderer = mujoco.Renderer(model, H, W)
     cam = mujoco.MjvCamera()
-    cam.lookat[:] = [0.42, 0, 0.38]
-    cam.distance, cam.azimuth, cam.elevation = 1.75, 115, -18
+    cam.lookat[:] = [0.45, 0, 0.36]  # close enough to see the object's video texture
+    cam.distance, cam.azimuth, cam.elevation = 1.3, 125, -20
     out = args.out or (args.run / "robot_demo.mp4")
     writer = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"avc1"), FPS, (W, H))
     steps_per_frame = round(1 / FPS / model.opt.timestep)

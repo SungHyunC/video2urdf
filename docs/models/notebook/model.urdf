@@ -1,32 +1,100 @@
-<?xml version="1.0"?>
+<?xml version='1.0' encoding='utf-8'?>
 <robot name="notebook_2">
   <link name="base">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="meshes/base.stl"/></geometry>
-      <material name="base_color"><color rgba="0.490 0.486 0.486 1"/></material>
+    <visual name="design_base_0">
+      <origin xyz="0.00000 0.00000 0.00000" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <mesh filename="meshes/design_base_0.stl" />
+      </geometry>
+      <material name="design_base_0_color">
+        <color rgba="0.67000 0.67000 0.69000 1" />
+      </material>
     </visual>
+    <visual name="design_base_1">
+      <origin xyz="0.02000 0.00000 0.01275" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <box size="0.08000 0.20000 0.00150" />
+      </geometry>
+      <material name="design_base_1_color">
+        <color rgba="0.16000 0.16000 0.17000 1" />
+      </material>
+    </visual>
+    <visual name="design_base_2">
+      <origin xyz="-0.04500 0.00000 0.01250" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <box size="0.03500 0.07500 0.00100" />
+      </geometry>
+      <material name="design_base_2_color">
+        <color rgba="0.60000 0.60000 0.62000 1" />
+      </material>
+    </visual>
+    <visual name="design_base_3">
+      <origin xyz="0.07330 0.00000 0.00170" rpy="-1.57080 -1.57080 0.00000" />
+      <geometry>
+        <cylinder radius="0.00400" length="0.25000" />
+      </geometry>
+      <material name="design_base_3_color">
+        <color rgba="0.25000 0.25000 0.27000 1" />
+      </material>
+    </visual>
+    <inertial>
+      <origin xyz="0.000983581 -7.74387e-19 0.00511656" rpy="1.5708 -1.50883 0" />
+      <mass value="0.95" />
+      <inertia ixx="0.00863463" ixy="0" ixz="0" iyy="0.0071381" iyz="0" izz="0.00152273" />
+    </inertial>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="meshes/base.stl"/></geometry>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/base.stl" />
+      </geometry>
     </collision>
   </link>
   <link name="lid">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="meshes/lid.stl"/></geometry>
-      <material name="lid_color"><color rgba="0.310 0.247 0.227 1"/></material>
+    <visual name="design_lid_0">
+      <origin xyz="-0.00590 0.00000 -0.00420" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <box size="0.02020 0.24000 0.02440" />
+      </geometry>
+      <material name="design_lid_0_color">
+        <color rgba="0.35000 0.35000 0.37000 1" />
+      </material>
     </visual>
+    <visual name="design_lid_1">
+      <origin xyz="0.00000 0.00000 0.00000" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <mesh filename="meshes/design_lid_1.stl" />
+      </geometry>
+      <material name="design_lid_1_color">
+        <color rgba="0.62000 0.62000 0.64000 1" />
+      </material>
+    </visual>
+    <visual name="design_lid_2">
+      <origin xyz="-0.00980 0.00000 0.06900" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <box size="0.00120 0.22000 0.11800" />
+      </geometry>
+      <material name="design_lid_2_color">
+        <color rgba="0.06000 0.06000 0.08000 1" />
+      </material>
+    </visual>
+    <inertial>
+      <origin xyz="-0.00679926 2.99811e-18 0.0669546" rpy="1.5708 -0.108748 0" />
+      <mass value="0.45" />
+      <inertia ixx="0.00399872" ixy="0" ixz="0" iyy="0.00337646" iyz="0" izz="0.000625173" />
+    </inertial>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="meshes/lid.stl"/></geometry>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/lid.stl" />
+      </geometry>
     </collision>
   </link>
   <joint name="lid_joint" type="revolute">
-    <parent link="base"/>
-    <child link="lid"/>
-    <origin xyz="0.07332 0 0.00169" rpy="0 0 0"/>
-    <axis xyz="0 -1 0"/>
-    <limit lower="-0.0683" upper="1.2798" effort="10" velocity="2"/>
+    <parent link="base" />
+    <child link="lid" />
+    <origin xyz="0.07332 0 0.00169" rpy="0 0 0" />
+    <axis xyz="0 -1 0" />
+    <limit lower="-0.0683" upper="1.2798" effort="10" velocity="2" />
+    <dynamics damping="0.02" friction="0.0377475" />
   </joint>
 </robot>

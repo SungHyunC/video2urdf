@@ -20,6 +20,7 @@
     --accent: #7aa5ff; --accent-ink: #0d1424; --canvas: #202224;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }  /* .seg sets display: flex */
   body { margin: 0; background: var(--bg); color: var(--ink);
          font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
   header { padding: 20px 16px 8px; max-width: 1280px; margin: 0 auto; }
@@ -64,7 +65,7 @@
 <body>
 <header>
   <h1>Video2URDF</h1>
-  <p class="tagline">A phone video of a real object in, a measured joint model a robot can use out.</p>
+  <p class="tagline">Turn a video of an object into an approximate 3D model for a robot.</p>
   <nav class="tabs" id="tabs" aria-label="Objects"></nav>
 </header>
 <main>
@@ -78,8 +79,11 @@
     </div>
     <div class="card">
       <div class="card-head">
-        <h2>Measured model</h2>
-        <div class="seg"><button id="follow" aria-pressed="true">Follow video</button></div>
+        <h2 id="modelTitle">3D model</h2>
+        <div class="seg">
+          <span class="seg" id="looks" hidden><button data-look="realistic" aria-pressed="true">Realistic</button><button data-look="measured" aria-pressed="false">Measured</button></span>
+          <button id="follow" aria-pressed="true">Follow video</button>
+        </div>
       </div>
       <div id="view3d"><span class="hint">Drag to orbit, pinch or scroll to zoom</span></div>
     </div>
@@ -88,8 +92,12 @@
   <div class="row" style="margin-top:16px">
     <a class="btn" id="dlUrdf" download>Download URDF</a>
     <a class="btn ghost" id="dlMjcf" download>Download MJCF</a>
+    <a class="btn ghost" id="dlBundle" download hidden>Download model + meshes</a>
   </div>
   <p class="facts" id="facts"></p>
+  <p class="facts" id="appearance" hidden></p>
+  <p class="facts" id="quality" hidden></p>
+  <p class="facts" id="physics" hidden></p>
   <details id="reportBox" hidden><summary>Muse Spark agent report</summary><pre id="report"></pre></details>
 </main>
 
@@ -103,6 +111,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
+import { PLYLoader } from "three/addons/loaders/PLYLoader.js";
+import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -124,6 +134,10 @@ grid.material.opacity = 0.5;
 scene.add(grid);
 
 const stl = new STLLoader();
+const ply = new PLYLoader();
+const obj = new OBJLoader();
+const textures = {};  // file -> THREE.Texture, shared by the meshes on one atlas
+let look = "realistic";  // or "measured": which visuals show when a model has SAM 3D meshes
 let model = null;       // { root, joints: {name: {node, spec, track, value}} }
 let spec = null;
 let follow = true;
@@ -147,14 +161,34 @@ async function geomObject(g, base) {
   const color = new THREE.Color(g.rgba[0], g.rgba[1], g.rgba[2]);
   const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.15 });
   let mesh;
-  if (g.mesh) {
+  if (g.mesh && g.mesh.endsWith(".ply")) {  // SAM 3D's mesh, coloured per vertex
+    const geo = await ply.loadAsync(base + g.mesh);
+    geo.computeVertexNormals();
+    mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.05 }));
+  } else if (g.mesh && g.mesh.endsWith(".obj")) {  // the measured shape painted with the video (texture.py)
+    const group = await obj.loadAsync(base + g.mesh);
+    const geo = group.children[0].geometry;
+    geo.computeVertexNormals();
+    let map = null;
+    if (g.texture) {
+      map = textures[base + g.texture] ||= await new THREE.TextureLoader().loadAsync(base + g.texture);
+      map.colorSpace = THREE.SRGBColorSpace;
+      map.anisotropy = 8;
+    }
+    mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map, color: map ? 0xffffff : color, roughness: 0.6, metalness: 0.05 }));
+  } else if (g.mesh) {
     const geo = await stl.loadAsync(base + g.mesh);
     geo.computeVertexNormals();
     mesh = new THREE.Mesh(geo, mat);
-  } else if (g.type === "box") {
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(2 * g.size[0], 2 * g.size[1], 2 * g.size[2]), mat);
+  } else if (["box", "cylinder", "sphere"].includes(g.type)) {  // primitives (design.py: Spark's clean visual)
+    let geo;
+    if (g.type === "box") geo = new THREE.BoxGeometry(2 * g.size[0], 2 * g.size[1], 2 * g.size[2]);
+    else if (g.type === "sphere") geo = new THREE.SphereGeometry(g.size[0], 32, 16);
+    else geo = new THREE.CylinderGeometry(g.size[0], g.size[0], 2 * g.size[1], 40).rotateX(Math.PI / 2);  // MuJoCo: along z
+    mesh = new THREE.Mesh(geo, mat);
     mesh.position.fromArray(g.pos);
-    if (g.axisangle) mesh.quaternion.setFromAxisAngle(new THREE.Vector3(...g.axisangle.slice(0, 3)).normalize(), g.axisangle[3]);
+    if (g.quat) mesh.quaternion.set(g.quat[1], g.quat[2], g.quat[3], g.quat[0]);  // MuJoCo w x y z
+    else if (g.axisangle) mesh.quaternion.setFromAxisAngle(new THREE.Vector3(...g.axisangle.slice(0, 3)).normalize(), g.axisangle[3]);
   } else {
     return null;
   }
@@ -169,11 +203,24 @@ async function buildBody(b, base, joints) {
   if (b.joint) joints[b.joint.name] = { node: moving, spec: b.joint, value: 0 };
   for (const g of b.geoms) {
     const m = await geomObject(g, base);
-    if (m) moving.add(m);
+    if (!m) continue;
+    m.userData.look = g.realistic ? "realistic" : g.measured ? "measured" : "both";
+    moving.add(m);
   }
   for (const c of b.children) moving.add(await buildBody(c, base, joints));
   return node;
 }
+
+function applyLook() {
+  if (!model) return;
+  let realistic = false;
+  model.root.traverse((o) => { if (o.userData.look === "realistic") realistic = true; });
+  const want = realistic ? look : "measured";
+  model.root.traverse((o) => { if (o.userData.look && o.userData.look !== "both") o.visible = o.userData.look === want; });
+  $("looks").hidden = !realistic;
+  for (const b of $("looks").children) b.setAttribute("aria-pressed", String(b.dataset.look === want));
+}
+for (const b of document.querySelectorAll("#looks button")) b.onclick = () => { look = b.dataset.look; applyLook(); };
 
 function setJoint(j, q) {
   j.value = q;
@@ -191,7 +238,10 @@ function frameCamera(root) {
   const size = box.getSize(new THREE.Vector3()).length();
   const center = box.getCenter(new THREE.Vector3());
   controls.target.copy(center);
-  camera.position.copy(center).add(new THREE.Vector3(0.9, 0.7, 1.1).multiplyScalar(size));
+  // from the model's front (export_viewer.front, model frame z-up -> three.js y-up), a little to the side
+  const f = spec && spec.front ? new THREE.Vector3(spec.front[0], 0, -spec.front[1]) : new THREE.Vector3(0.6, 0, 0.8);
+  const side = new THREE.Vector3(-f.z, 0, f.x).multiplyScalar(0.45);
+  camera.position.copy(center).add(f.add(side).normalize().multiplyScalar(1.4 * size).add(new THREE.Vector3(0, 0.6 * size, 0)));
   camera.near = size / 100; camera.far = size * 20; camera.updateProjectionMatrix();
   grid.position.y = box.min.y;
   grid.scale.setScalar(Math.max(size, 0.2));
@@ -199,6 +249,8 @@ function frameCamera(root) {
 
 async function load(entry) {
   spec = await (await fetch(entry.path)).json();
+  $("modelTitle").textContent = spec.measurement_source?.depth === "MapAnything estimated from RGB video"
+    ? "3D model (estimated RGB depth)" : "3D model";
   const base = entry.path.replace(/model\.json$/, "");
   if (model) scene.remove(model.root);
   const joints = {};
@@ -209,12 +261,16 @@ async function load(entry) {
   scene.add(root);
   for (const [name, j] of Object.entries(joints)) j.track = spec.joints[name] ? holdFill(spec.joints[name]) : null;
   model = { root, joints };
+  applyLook();
   frameCamera(root);
 
   const jc = $("joints");
   jc.innerHTML = "";
   for (const j of Object.values(joints)) {
-    const [lo, hi] = j.spec.range;
+    let [lo, hi] = j.spec.range;
+    const assumedClosed = spec.experimental_alignment?.closed_angle_deg * Math.PI / 180;
+    if (j.spec.name === "lid_joint" && Number.isFinite(assumedClosed) && assumedClosed < hi)
+      lo = Math.max(lo, assumedClosed);
     jc.insertAdjacentHTML("beforeend",
       `<label for="slider-${j.spec.name}">${j.spec.name.replace(/_joint$/, "")} (${j.spec.type === "slide" ? "slide" : "hinge"})</label>
        <div class="row"><input type="range" id="slider-${j.spec.name}" min="${lo}" max="${hi}" step="0.001" value="0">
@@ -225,8 +281,9 @@ async function load(entry) {
 
   const vt = $("videoTabs");
   vt.innerHTML = "";
-  const labels = { phone: "Phone video", replay: "Model over video", robot: "Robot uses it" };
-  const order = ["phone", "replay", "robot"].filter((k) => spec.videos[k]);
+  const hasCompletedVisual = spec.shape_inference?.active === true && spec.shape_inference?.inferred_visuals?.length > 0;
+  const labels = { phone: "Phone video", replay: spec.replay_experimental ? "Experimental model over video" : hasCompletedVisual ? "Fitted model over video" : "Model over video", robot: "Robot uses it", physics: "Physics check" };
+  const order = ["phone", "replay", "robot", "physics"].filter((k) => spec.videos[k]);
   for (const k of order) {
     const b = document.createElement("button");
     b.textContent = labels[k];
@@ -240,23 +297,90 @@ async function load(entry) {
   $("dlUrdf").download = `${spec.name}.urdf`;
   $("dlMjcf").href = base + "model.xml";
   $("dlMjcf").download = `${spec.name}.xml`;
+  $("dlBundle").hidden = !spec.bundle;
+  $("dlBundle").href = base + "model.zip";
+  $("dlBundle").download = `${spec.name}.zip`;
   $("facts").textContent = facts(spec);
+  const textureMeshes = Object.values(spec.texture?.meshes || {});
+  const seenFaces = textureMeshes.reduce((sum, mesh) => sum + (mesh.faces_seen || 0), 0);
+  const totalFaces = textureMeshes.reduce((sum, mesh) => sum + (mesh.faces || 0), 0);
+  const design = spec.design?.applied ? spec.design : null;
+  const designNote = design ? `Muse Spark identified a ${design.object} and rebuilt each link from ` +
+    `${design.design.links.reduce((n, l) => n + l.primitives.length, 0)} primitives sized from the measurements ` +
+    `(Realistic); checked over the video against the SAM masks: ${design.score === "f_near" ? "mask F-score" : "score"} ` +
+    `${design.rounds.find((r) => r.round === design.best_round).mean_score.toFixed(2)} vs ${design.measured_mean_score.toFixed(2)} ` +
+    `for the measured meshes (Measured). Collisions, joints and physics are the measured ones.` +
+    (design.warnings?.length ? " " + design.warnings.join(" ") : "") : "";
+  const appearanceNotes = [
+    designNote,
+    !design && spec.appearance ? `Object identified as ${spec.appearance.object}. Materials and unseen surfaces are estimates.` : "",
+    spec.shape_inference?.shape || "", spec.measurement_source?.note || "",
+    spec.replay_experimental && spec.videos.replay ? "The replay shows the experimental visual and adjusted angles; they are not validated physics." :
+      hasCompletedVisual && spec.videos.replay ? "The replay shows the earlier fitted geometry, before visual completion." : "",
+    spec.experimental_comparison ? `Same-frame tracked-mask comparison: ${spec.experimental_comparison.rejected_links?.length ? "candidate needs review" : "no sampled regression detected"}; masks are not ground truth.` : "",
+    spec.measured?.static_envelope && Number.isFinite(spec.shape_inference?.visual_coverage_check?.links?.base?.inferred_iou)
+      ? `Sampled model–mask IoU: ${spec.shape_inference.visual_coverage_check.links.base.inferred_iou.toFixed(2)}; masks are not independent ground truth.` : "",
+    totalFaces ? `Video texture: ${seenFaces} of ${totalFaces} mesh face groups use observed video; remaining faces use inferred or fallback colours.` : "",
+    !spec.quality && spec.measured?.mask_coverage ? Object.entries(spec.measured.mask_coverage).filter(([, v]) => v !== null && v < .5)
+      .map(([link, v]) => `Warning: ${link} covers only ${(100 * v).toFixed(0)}% of its tracked mask.`).join(" ") : "",
+    spec.sam3d ? "SAM 3D: " + Object.entries(spec.sam3d).map(([link, r]) => {
+      const median = r.measured_to_mesh_mm?.median;
+      return `${link} ${r.accepted ? "accepted" : "not accepted"}` +
+        (Number.isFinite(median) ? `, observed depth-to-mesh median ${median.toFixed(1)} mm` : "");
+    }).join("; ") +
+      ". Unobserved surfaces are generated, not measured." : ""
+  ].filter(Boolean);
+  $("appearance").hidden = !appearanceNotes.length;
+  $("appearance").textContent = appearanceNotes.join(" ");
+  $("quality").hidden = !spec.quality || !spec.quality.warnings.length;
+  $("quality").textContent = spec.quality ? spec.quality.warnings.join(" ") : "";
+  $("physics").hidden = !spec.physics;
+  $("physics").textContent = spec.physics ? physicsFacts(spec.physics, spec.physics_input_provenance) : "";
   $("reportBox").hidden = !spec.agent_report;
   $("report").textContent = spec.agent_report || "";
 }
 
 function facts(s) {
   const m = s.measured || {};
+  const depth = s.measurement_source?.depth === "MapAnything estimated from RGB video"
+    ? (s.measurement_source.reference_calibration || s.measurement_source.scale_applied !== 1
+      ? "Estimated from RGB video (scale corrected; verify dimensions)"
+      : "Estimated from RGB video (metric scale must be calibrated)")
+    : "Measured from RGB-D depth";
+  if (m.static_envelope && m.observed_box_size_mm) {
+    return `Observed depth envelope: ${m.observed_box_size_mm.map(v => v.toFixed(0)).join(" × ")} mm. ` +
+      "Hidden surfaces and full dimensions are not verified.";
+  }
   if (s.three_d && m.plate_size_mm) {
-    return `Measured with iPhone LiDAR, no reference card: lid ${m.plate_size_mm[0].toFixed(0)} × ${m.plate_size_mm[1].toFixed(0)} mm, ` +
-      `base ${m.base_thickness_mm.toFixed(0)} mm thick, hinge range ${(m.hinge_range_deg[1] - m.hinge_range_deg[0]).toFixed(0)}°.`;
+    const base = m.base_thickness_measured === false
+      ? `base ${m.base_thickness_mm.toFixed(0)} mm thick (assumed)`
+      : `base ${m.base_thickness_mm.toFixed(0)} mm thick`;
+    const lidNote = m.plate_thickness_clipped ? " Lid thickness was assumed or clipped." : "";
+    return `${depth}: lid ${m.plate_size_mm[0].toFixed(0)} × ${m.plate_size_mm[1].toFixed(0)} mm, ` +
+      `${base}, hinge range ${(m.hinge_range_deg[1] - m.hinge_range_deg[0]).toFixed(0)}°.${lidNote}`;
   }
   if (s.three_d && m.joints) {
-    return `Measured with iPhone LiDAR, no reference card: ` + m.joints.map((j) =>
+    return `${depth}: ` + m.joints.map((j) =>
       `${j.name.replace(/_joint$/, "")} pulls out ${j.travel_mm.toFixed(0)} mm`).join(", ") +
       (m.box_sizes_mm && m.box_sizes_mm.drawer1 ? `; front ${m.box_sizes_mm.drawer1[1].toFixed(0)} × ${m.box_sizes_mm.drawer1[2].toFixed(0)} mm.` : ".");
   }
-  return `Measured from a side view; ${Object.keys(s.joints).length} joint(s) tracked over ${s.frames} frames.`;
+  return `Model estimated from a side view; ${Object.keys(s.joints).length} joint(s) tracked over ${s.frames} frames. Depth and scale may be assumed.`;
+}
+
+function physicsFacts(p, provenance) {
+  const links = Object.entries(p.links).map(([k, l]) => `${k} ${l.mass_kg.toFixed(2)} kg (${l.material})`).join(", ");
+  const deg = (r) => (r * 180 / Math.PI).toFixed(0).replace(/^-0$/, "0");
+  const joints = Object.entries(p.joints).map(([k, j]) => {
+    const name = k.replace(/_joint$/, "");
+    const unit = j.type === "revolute" ? "N·m" : "N";
+    if (!j.friction_measured) return `${name} friction ${j.friction.toFixed(2)} ${unit} (estimated, not measured)`;
+    const worst = (d) => Math.max(...d.map(Math.abs)).toFixed(1);
+    const premise = provenance ? `Selected frames suggest ${name} holds itself without a hand` : `${name} holds itself with no hand on it`;
+    return `${premise} at joint angles ${deg(j.held_range[0])}° to ${deg(j.held_range[1])}°; ` +
+      `estimated friction from those frames is ${j.friction.toFixed(3)} ${unit}. ` +
+      `Let go in MuJoCo at those angles, it moves ${worst(j.drift_with_deg)}° (${worst(j.drift_without_deg)}° without that friction)`;
+  }).join(". ");
+  return `Physics: masses judged by Muse Spark from the video: ${links}. ${joints}.`;
 }
 
 let current = null;
@@ -265,7 +389,7 @@ function showVideo(key, base) {
   for (const b of $("videoTabs").children) b.setAttribute("aria-pressed", String(b.dataset.key === key));
   const t = video.currentTime;
   video.src = base + spec.videos[key];
-  video.onloadedmetadata = () => { if (key !== "robot") video.currentTime = Math.min(t, video.duration - 0.05); video.play().catch(() => {}); };
+  video.onloadedmetadata = () => { if (key !== "robot" && key !== "physics") video.currentTime = Math.min(t, video.duration - 0.05); video.play().catch(() => {}); };
 }
 
 function setFollow(on) {
@@ -287,9 +411,11 @@ function tick() {
 const index = await (await fetch("models/index.json")).json();
 const tabs = $("tabs");
 const titles = { laptop_lidar: "Laptop · iPhone LiDAR · agent", drawer: "Drawer · iPhone LiDAR", notebook: "Laptop · side view", stand: "Desk lamp · side view" };
+const captures = { laptop_lidar: "iPhone LiDAR", drawer: "iPhone LiDAR", notebook: "side view", stand: "side view" };
 for (const entry of index) {
   const b = document.createElement("button");
-  b.textContent = titles[entry.name] || entry.name;
+  const named = entry.label && entry.label[0].toUpperCase() + entry.label.slice(1);  // what Spark identified
+  b.textContent = named ? (captures[entry.name] ? `${named} · ${captures[entry.name]}` : named) : titles[entry.name] || entry.name;
   b.onclick = async () => { for (const x of tabs.children) x.setAttribute("aria-pressed", String(x === b)); await load(entry); };
   tabs.append(b);
 }
