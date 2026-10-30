@@ -87,6 +87,9 @@ def main():
     ap.add_argument("--check-reference", nargs=6, type=float, action="append", default=[],
                     metavar=("FRAME", "X1", "Y1", "X2", "Y2", "LENGTH_MM"),
                     help="independent known distance to check the calibrated depth; repeatable")
+    ap.add_argument("--no-auto-scale", action="store_true",
+                    help="keep MapAnything's own scale when no --scale/--reference is given (default: find an ID-1 "
+                         "card with SAM 3.1, else use the object's usual size from Muse Spark)")
     ap.add_argument("--open-weights", action="store_true")
     ap.add_argument("--planar", action="store_true", help="use an approximate side-view model for articulated objects")
     ap.add_argument("--glimmer", action="store_true")
@@ -193,6 +196,21 @@ def main():
                 for check in checks:
                     print(f"Independent check: {check['predicted_after_calibration_mm']:.1f} mm vs "
                           f"{check['known_length_mm']:.1f} mm ({check['relative_error']:+.1%})", flush=True)
+            elif args.scale is None and not args.no_auto_scale:
+                from video2urdf.autoscale import auto_scale
+                from video2urdf.pseudo_depth import rescale_capture
+                print("No reference given: looking for an ID-1 card, else the object's usual size.", flush=True)
+                found = auto_scale(capture, capture / "rgb.mp4", log=lambda s: print("  " + s, flush=True))
+                if found is None:
+                    print("Automatic scale not found; MapAnything's scale is kept (it can be several times off).", flush=True)
+                else:
+                    rescale_capture(capture, found["scale_factor"])
+                    meta_path = capture / "mapanything.json"
+                    info = json.loads(meta_path.read_text())
+                    info["scale_applied"] = info.get("scale_applied", 1.0) * found["scale_factor"]
+                    info["auto_scale"] = found
+                    meta_path.write_text(json.dumps(info, indent=2) + "\n")
+                    print(f"Automatic scale ({found['method']}): x{found['scale_factor']:.3f}", flush=True)
     elif args.input.is_dir():
         if args.capture_out or args.scale or args.focal_35mm or args.reference:
             ap.error("--capture-out, --scale, --reference and --focal-35mm apply only to ordinary video inputs")
