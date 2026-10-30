@@ -18,6 +18,7 @@ import csv
 import io
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from math import gcd
 from pathlib import Path
@@ -67,9 +68,12 @@ def read_frames(video: Path, size: tuple[int, int]) -> tuple[list[np.ndarray], t
 
 def plan_chunks(n: int, chunk: int = CHUNK, anchors: int = ANCHORS) -> tuple[list[int], list[list[int]]]:
     """Anchor frames, and each chunk's frames: the anchors first, then its consecutive frames."""
-    anc = [int(round(x)) for x in np.linspace(0, n - 1, anchors)]
+    if n < 1 or chunk < 1 or anchors < 1:
+        raise ValueError("video frames, chunk size and anchor count must all be positive")
+    anc = sorted({int(round(x)) for x in np.linspace(0, n - 1, min(anchors, n))})
     rest = [t for t in range(n) if t not in anc]
-    return anc, [anc + rest[i:i + chunk] for i in range(0, len(rest), chunk)]
+    chunks = [anc + rest[i:i + chunk] for i in range(0, len(rest), chunk)]
+    return anc, chunks or [anc]
 
 
 def umeyama(a: np.ndarray, b: np.ndarray) -> tuple[float, np.ndarray, np.ndarray]:
@@ -122,7 +126,13 @@ def infer_chunks(video: Path, chunk: int = CHUNK, anchors: int = ANCHORS, focal:
     """MapAnything on every chunk (on Modal). ``focal`` is in pixels at the video's size."""
     import modal
 
-    w0, h0 = cv2.VideoCapture(str(video)).read()[1].shape[1::-1]
+    plan_chunks(1, chunk, anchors)  # fail before creating a remote job
+    cap = cv2.VideoCapture(str(video))
+    ok, first = cap.read()
+    cap.release()
+    if not ok or first is None:
+        raise ValueError(f"Could not decode a frame from video: {video}")
+    w0, h0 = first.shape[1::-1]
     size = model_size(w0, h0)
     frames, full, fps = read_frames(video, size)
     n = len(frames)
@@ -253,6 +263,8 @@ def write_capture(rec: Reconstruction, video: Path, out: Path) -> Path:
     odometry.csv. Returns the folder."""
     from scipy.spatial.transform import Rotation
 
+    if not np.isfinite(rec.depth).all() or np.any(rec.depth < 0) or np.any(rec.depth * 1000 > 65535):
+        raise ValueError("Depth cannot be represented in the 16-bit millimetre capture format")
     out.mkdir(parents=True, exist_ok=True)
     for sub in ("depth", "confidence"):
         shutil.rmtree(out / sub, ignore_errors=True)
@@ -282,12 +294,57 @@ def write_capture(rec: Reconstruction, video: Path, out: Path) -> Path:
 def rescale_capture(out: Path, factor: float) -> None:
     """Multiply a written capture's metric scale (depth and camera translations) by ``factor``:
     a known length over the length the model measured."""
-    for f in sorted((out / "depth").glob("*.png")):
-        d = cv2.imread(str(f), cv2.IMREAD_UNCHANGED).astype(np.float64) * factor
-        cv2.imwrite(str(f), np.clip(np.round(d), 0, 65535).astype(np.uint16))
+    if not np.isfinite(factor) or factor <= 0:
+        raise ValueError("Scale factor must be positive and finite")
+    frames = sorted((out / "depth").glob("*.png"))
+    if not frames:
+        raise ValueError(f"No depth frames in {out}")
+    # Stage every output before changing the capture. In particular, validate
+    # odometry before touching depth: an interrupted or malformed capture must
+    # not end up with depth and camera motion in different units.
+    odometry = out / "odometry.csv"
+    with odometry.open(newline="") as fh:
+        rows = list(csv.reader(fh))
+    if len(rows) < 2:
+        raise ValueError("Odometry has no camera poses")
+    for row in rows[1:]:
+        if len(row) < 5:
+            raise ValueError("Invalid odometry row")
+        try:
+            translation = np.asarray(row[2:5], dtype=float) * factor
+        except ValueError as exc:
+            raise ValueError("Invalid odometry translation") from exc
+        if not np.isfinite(translation).all():
+            raise ValueError("Invalid odometry translation")
+        row[2:5] = [f"{x:.6f}" for x in translation]
+
+    with tempfile.TemporaryDirectory(prefix=".rescale-", dir=out) as temp:
+        stage = Path(temp)
+        files = []
+        for i, original in enumerate(frames):
+            d = cv2.imread(str(original), cv2.IMREAD_UNCHANGED)
+            if d is None or d.ndim != 2 or d.dtype != np.uint16:
+                raise ValueError(f"Invalid 16-bit depth frame: {original}")
+            scaled = np.round(d.astype(np.float64) * factor)
+            if scaled.max() > 65535 or np.any((d > 0) & (scaled < 1)):
+                raise ValueError(f"Scaled depth cannot be represented in 16-bit millimetres: {original}")
+            candidate = stage / f"depth-{i}.png"
+            if not cv2.imwrite(str(candidate), scaled.astype(np.uint16)):
+                raise OSError(f"Cannot stage scaled depth: {original}")
+            files.append((original, candidate))
+        candidate = stage / "odometry.csv"
+        with candidate.open("w", newline="") as fh:
+            csv.writer(fh).writerows(rows)
+        files.append((odometry, candidate))
+        installed = []
+        try:
+            for i, (original, candidate) in enumerate(files):
+                backup = stage / f"backup-{i}"
+                original.replace(backup)
+                installed.append((original, backup))
+                candidate.replace(original)
+        except Exception:
+            for original, backup in reversed(installed):
+                backup.replace(original)
+            raise
     (out / "depth.npz").unlink(missing_ok=True)
-    rows = list(csv.reader(open(out / "odometry.csv")))
-    for r in rows[1:]:
-        r[2:5] = [f"{float(x) * factor:.6f}" for x in r[2:5]]
-    with open(out / "odometry.csv", "w", newline="") as fh:
-        csv.writer(fh).writerows(rows)

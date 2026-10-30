@@ -47,7 +47,8 @@ def main():
     focal = args.focal
     if args.focal_35mm:
         focal = pseudo_depth.focal_from_35mm(args.focal_35mm, video_info(args.video)[0])
-    rec = pseudo_depth.reconstruct(args.video, args.chunk, args.anchors, focal, args.scale)
+    rec = pseudo_depth.reconstruct(args.video, args.chunk, args.anchors, focal, args.scale,
+                                   log=lambda message: print(message, flush=True))
     pseudo_depth.write_capture(rec, args.video, out)
     meta.write_text(json.dumps({
         "source": str(args.video), "frames": len(rec.depth), "depth_size": list(rec.depth.shape[2:0:-1]),
