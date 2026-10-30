@@ -272,6 +272,10 @@ new geometry is not activated. See `shape_inference.json` for the comparison and
 For SAM 3D meshes add `--sam3d` to `video_to_model.py`. Each mesh is checked against observed
 depth points; a part whose median distance exceeds 5 mm or p90 exceeds 15 mm is saved for
 inspection but not activated. Passing this check does not validate unobserved surfaces.
+On the LiDAR laptop and drawer (10/31) every candidate was rejected: the meshes matched the seen
+surfaces (0.8-2.9 mm) but came out far too big, e.g. a lid 81 mm thick and 332 x 245 mm across
+(measured about 309 x 205 x 4 mm), so the measured visuals stay. Flat, thin parts are where SAM 3D
+inflates the unseen side.
 We also require each generated extent to be within 0.8–1.2 times the fitted extent; fitted
 dimensions can themselves include assumptions, especially for hidden drawer depth. Static
 objects and rod chains, whose fitted extent is an envelope (a visual hull, a rod) rather than a
