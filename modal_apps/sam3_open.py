@@ -131,6 +131,13 @@ def track_boxes(tracker, mp4: bytes, size: tuple[int, int], anchors: dict[int, l
     """Track box-anchored objects through every frame: forward from the earliest anchor, then
     backward from the latest one; frames before an object's first anchor take the backward
     result."""
+    anchors = {int(o): sorted((int(f), tuple(b)) for f, b in fb) for o, fb in anchors.items()}
+    passes = {reverse: propagate(tracker, mp4, size, anchors, reverse) for reverse in (False, True)}
+    return to_text(merge_passes(passes[False], passes[True], anchors))
+
+
+def propagate(tracker, mp4: bytes, size: tuple[int, int], anchors: dict[int, list], reverse: bool) -> dict:
+    """One pass: forward from the earliest anchor, or backward from the latest one."""
     import cv2
     import numpy as np
     import torch
@@ -157,21 +164,25 @@ def track_boxes(tracker, mp4: bytes, size: tuple[int, int], anchors: dict[int, l
             for frame, (x1, y1, x2, y2) in fb:
                 tracker.add_new_points_or_box(inference_state=state, frame_idx=frame, obj_id=oid,
                                               box=np.array([[x1 / w, y1 / h, x2 / w, y2 / h]], np.float32))
-        passes = {}
-        for reverse, start in ((False, min(first.values())), (True, max(fb[-1][0] for fb in anchors.values()))):
-            out: dict[int, dict[int, str]] = {}
-            for f, ids, _, masks, scores in tracker.propagate_in_video(
-                    state, start_frame_idx=start, max_frame_num_to_track=n, reverse=reverse, propagate_preflight=True):
-                for k, oid in enumerate(ids):
-                    try:  # the object score logit, when the tracker gives one
-                        conf = float(torch.sigmoid(scores[k].float()).max())
-                    except (TypeError, IndexError):
-                        conf = 1.0
-                    r = record(int(oid), (masks[k] > 0).squeeze().cpu().numpy(), conf, w, h)
-                    if r:
-                        out.setdefault(int(f), {})[int(oid)] = r
-            passes[reverse] = out
-    fwd, bwd = passes[False], passes[True]
+        start = max(fb[-1][0] for fb in anchors.values()) if reverse else min(first.values())
+        out: dict[int, dict[int, str]] = {}
+        for f, ids, _, masks, scores in tracker.propagate_in_video(
+                state, start_frame_idx=start, max_frame_num_to_track=n, reverse=reverse, propagate_preflight=True):
+            for k, oid in enumerate(ids):
+                try:  # the object score logit, when the tracker gives one
+                    conf = float(torch.sigmoid(scores[k].float()).max())
+                except (TypeError, IndexError):
+                    conf = 1.0
+                r = record(int(oid), (masks[k] > 0).squeeze().cpu().numpy(), conf, w, h)
+                if r:
+                    out.setdefault(int(f), {})[int(oid)] = r
+    return out
+
+
+def merge_passes(fwd: dict, bwd: dict, anchors: dict[int, list]) -> dict:
+    """Frames before an object's first anchor from the backward pass, the rest forward first."""
+    anchors = {int(o): sorted((int(f), tuple(b)) for f, b in fb) for o, fb in anchors.items()}
+    first = {o: fb[0][0] for o, fb in anchors.items()}
     records: dict[int, dict[int, str]] = {}
     for f in sorted(set(fwd) | set(bwd)):
         for oid in anchors:
@@ -190,7 +201,7 @@ def track_boxes(tracker, mp4: bytes, size: tuple[int, int], anchors: dict[int, l
                 if oid in records.get(g, {}):
                     records.setdefault(f, {})[oid] = records[g][oid]
                     break
-    return to_text(records)
+    return records
 
 
 @app.cls(gpu=["A10G", "L4"], volumes={WEIGHTS: volume}, secrets=[modal.Secret.from_name("huggingface")],
@@ -214,3 +225,8 @@ class Sam3:
     @modal.method()
     def track_boxes(self, mp4: bytes, size: tuple[int, int], anchors: dict[int, list]) -> str:
         return track_boxes(self.tracker, mp4, size, anchors)
+
+    @modal.method()
+    def track_pass(self, mp4: bytes, size: tuple[int, int], anchors: dict[int, list], reverse: bool) -> str:
+        """One direction only, so the two run on separate containers at once (sam_open.py merges)."""
+        return to_text(propagate(self.tracker, mp4, size, anchors, reverse))

@@ -211,6 +211,25 @@ applied; it also flags a scale far from the object's usual size.
   of the measured meshes) plus the depth check. The mouse's mesh: measured points 0.5 mm from it
   (median), mask F-score 0.89 vs 0.94; it is the mouse's visual in the viewer.
 
+### Faster tracking, and scale without a reference
+
+- **SAM tracking ~1.8x faster.** The forward pass and the backward pass (a reversed clip) are
+  independent requests: they now run at once, on two Modal GPU containers for the open weights
+  (`track_pass`) or two Meta API requests. Videos above 40 fps are tracked on every second frame
+  (`SAM_TRACK_STRIDE`, default auto) and the frames between take the nearest tracked mask.
+  LiDAR lamp, 1385 frames, 4 parts, SAM 3.1/3 on Modal: 520 s -> 285 s; masks against the old run:
+  IoU 0.995 / 0.993 (table, base), 0.98 / 0.97 (the two thin rods; p10 0.92 / 0.81).
+- **Automatic scale for ordinary video** (`video2urdf/autoscale.py`, run by `video_to_model.py`
+  when no `--scale`/`--reference` is given). MapAnything's scale can be several times off, and its
+  depth stretches lengths along the line of sight. An ID-1 card found by SAM 3.1 is measured by
+  its edge across the view (85.6 mm, or 54 mm); without one, Muse Spark names the object and its
+  usual largest size and the object is measured on frames where it is wholly in view with its
+  long axis across the view. The card wins when it lies about as far away as the object.
+  Checks: on `notebook_2` the card gives x0.75, consistent over 8 frames (p90/p10 1.09); the
+  laptop is cut off by the frame there, so no size-based scale is taken (it read x1.21 before
+  that check). On the RGB copy of the LiDAR laptop, already at LiDAR scale, the object's usual
+  size gives x1.01 (expected 1.0).
+
 ### The model looks like the object: painted with its own video
 
 The measured shapes are boxes and outlines; `video2urdf/texture.py` paints them with the video.

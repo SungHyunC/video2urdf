@@ -45,12 +45,20 @@ def write_measurement_source(track_dir: Path, capture: Path | None) -> None:
         if ref:
             note = (f"Global scale calibrated from a {ref['known_length_mm']:.1f} mm reference; "
                     'local depth and focal errors remain.')
+        elif (info.get('auto_scale') or {}).get('method') == 'card':
+            note = (f"Global scale set automatically from an ID-1 card in view "
+                    f"(x{info['auto_scale']['scale_factor']:.3f}); local depth and focal errors remain.")
+        elif (info.get('auto_scale') or {}).get('method') == 'object_prior':
+            a = info['auto_scale']
+            note = (f"Global scale estimated from the object's usual size ({a['object']}, "
+                    f"{a['typical_mm'][0]:.0f}-{a['typical_mm'][1]:.0f} mm, Muse Spark): an estimate, not a measurement.")
         elif info.get('scale_applied', 1.0) != 1.0:
             note = 'A user-supplied global scale was applied; local depth and focal errors remain.'
         else:
             note = 'A known reference length is needed to calibrate scale; depth can still be inaccurate.'
         source = {'depth': 'MapAnything estimated from RGB video', 'metric': 'estimated, not guaranteed',
                   'scale_applied': info.get('scale_applied', 1.0), 'reference_calibration': ref,
+                  'auto_scale': info.get('auto_scale'),
                   'reference_checks': info.get('reference_checks', []), 'note': note}
     else:
         source = {'depth': 'RGB-D capture', 'metric': 'capture depth in metres',
