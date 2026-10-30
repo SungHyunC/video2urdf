@@ -247,14 +247,19 @@ function frameCamera(root) {
   grid.scale.setScalar(Math.max(size, 0.2));
 }
 
+let loading = 0;  // the newest tab asked for: an older load that finishes later is dropped
 async function load(entry) {
-  spec = await (await fetch(entry.path)).json();
+  const ticket = ++loading;
+  const next = await (await fetch(entry.path)).json();
+  if (ticket !== loading) return;
+  spec = next;
   $("modelTitle").textContent = spec.measurement_source?.depth === "MapAnything estimated from RGB video"
     ? "3D model (estimated RGB depth)" : "3D model";
   const base = entry.path.replace(/model\.json$/, "");
-  if (model) scene.remove(model.root);
   const joints = {};
   const tree = await buildBody(spec.tree, base, joints);
+  if (ticket !== loading) return;  // another tab was chosen while this one's meshes loaded
+  if (model) scene.remove(model.root);
   const root = new THREE.Group();
   root.rotation.x = -Math.PI / 2;  // MuJoCo is z-up, three.js is y-up
   root.add(tree);
