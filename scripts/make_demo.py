@@ -36,6 +36,9 @@ PHONE = ROOT / "data" / "real" / "laptop_lidar" / "laptop_lidar.mp4"
 ASSETS = ROOT / "data" / "demo_assets"
 DRAWER_RUN = ROOT / "data" / "tracks_agent" / "drawer2_lidar"
 DRAWER_PHONE = ROOT / "data" / "real" / "drawer2_lidar" / "drawer2_lidar.mp4"
+DESIGN = ROOT / "data" / "tracks_design"  # runs with Spark's shape design applied
+LAMP = ROOT / "data" / "tracks_agent2" / "stand_lidar"  # the LiDAR desk lamp (rods on hinges)
+MOUSE = ROOT / "data" / "tracks_agent2" / "mouse_lidar"  # the black mouse (visual hull + SAM 3D)
 
 
 def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
@@ -168,105 +171,117 @@ def side_by_side(left: Path, right: Path, first: int, last: int):
     return draw
 
 
+def sequence(paths: list[Path], labels: list[str]):
+    """Videos one after another, each over an equal share of the scene."""
+    clips = [Clip(q) for q in paths]
+
+    def draw(p):
+        i = min(int(p * len(clips)), len(clips) - 1)
+        c = blank()
+        place(c, clips[i].at(min(1.0, p * len(clips) - i)), (60, 90, W - 120, H - 260))
+        return text_layer(c, [((W - 60, 40), labels[i], 30, False, (200, 200, 200), "ra")])
+    return draw
+
+
 def scenes() -> list[Scene]:
-    agent = RUN / "agent"
+    lamp_agent = LAMP / "agent"
     white, grey, blue = (240, 240, 240), (170, 170, 175), ACCENT
-    green, red = (120, 220, 140), (255, 140, 120)
     return [
         Scene("Video2URDF",
               "Robots need simulation models of the objects they handle, and people build them by hand. "
-              "Video2URDF measures them from one phone video. This laptop was filmed once; the robot is closing "
-              "the model measured from that video.",
-              ["One phone video in. A measured, simulation-ready URDF out.",
-               "a Franka Panda in MuJoCo closes the laptop model measured from one video"],
-              video_scene(RUN / "robot_demo.mp4")),
+              "Video2URDF measures them from one phone video, and a robot can use them right away.",
+              ["One phone video in. A model a robot can use out.",
+               "a Franka Panda in MuJoCo works four objects, each measured from one video"],
+              video_scene(ASSETS / "robot_grid.mp4")),
         Scene("1  Capture",
-              "I film my laptop with an iPhone while I open and close it. No markers and no calibration card: "
-              "the LiDAR gives metric depth.",
+              "I film the object with an iPhone while I move it. No markers and no calibration card: "
+              "the LiDAR gives metric depth. A plain video works too.",
               ["iPhone LiDAR (Stray Scanner), handheld: no markers, no card"],
               video_scene(PHONE, 0, 922)),
         Scene("2  Agent",
-              "Muse Spark runs the pipeline as an agent. It watches the whole video, chooses short noun prompts "
-              "for SAM 3.1, and rephrases when a prompt finds nothing.",
-              ["Muse Spark watches the video and picks noun prompts for SAM 3.1",
-               "'silver laptop base': no match -> it rephrases: 'silver laptop body'",
-               "the closed lid gets its own anchors"],
-              stills([agent / "step001.jpg", agent / "step013.jpg", agent / "step044.jpg", agent / "step034.jpg"],
-                     ["look: frames across the video", "segment 'laptop screen'", "segment 'silver laptop body'",
-                      "segment 'gray laptop lid' (closed)"])),
+              "Muse Spark runs the pipeline as an agent. It watches the video, chooses noun prompts for SAM 3.1, "
+              "picks the right fitter, and judges what it sees: for this desk lamp it decided the pole never moves.",
+              ["Muse Spark watches the video and looks at frames",
+               "it prompts SAM 3.1: 'silver metal rod'",
+               "it picks fit_chain: two rods on hinges, fitted in 3D from their depth"],
+              stills([lamp_agent / "step009.jpg", lamp_agent / "step016.jpg", lamp_agent / "step032.jpg"],
+                     ["look", "segment 'silver metal rod'", "fit_chain: the model over the video"])),
         Scene("3  Measure and verify",
-              "SAM 3.1 tracks every part through all nine hundred frames. MuJoCo then replays the measured model "
-              "from the phone's own camera, on every frame: it covers ninety five percent of the lid. The lid "
-              "measures three oh nine by two oh five millimetres; the spec says three oh four by two twelve.",
-              ["SAM 3.1 tracks the parts; hinge = where the lid and base planes meet",
-               "MuJoCo replays the model from the phone's camera pose, every frame",
+              "SAM 3.1 tracks every part through all nine hundred frames, and MuJoCo replays the measured model "
+              "from the phone's own camera: it covers ninety five percent of the lid. The lid measures three oh nine "
+              "by two oh five millimetres; the spec says three oh four by two twelve.",
+              ["MuJoCo replays the model from the phone's camera pose, every frame",
                "covers 95% of the lid, 94% of the base",
                "lid 309 x 205 mm  (spec: 304 x 212 mm)"],
               side_by_side(PHONE, RUN / "replay3d.mp4", 0, 922)),
         Scene("4  It checks itself",
-              "Spark checks its own work. In this run its first model had the base as a thin sliver. Spark "
-              "watched the replay, segmented the base again and re-tracked, and the base came back. The fit tool "
-              "also names such mistakes in plain words.",
-              ["first fit: the base came out as a sliver (blue bar)",
-               "Spark watched the replay, re-segmented the base, re-tracked",
-               "after: the base is covered"],
+              "Spark checks its own work. Its first model had the base as a thin sliver. Spark watched the replay, "
+              "segmented the base again, and the base came back.",
+              ["first fit: the base came out as a sliver",
+               "after: Spark re-segmented and re-tracked it"],
               stills([ASSETS / "agent_first_fit.jpg", ASSETS / "agent_refit.jpg"],
                      ["Spark's first fit", "after Spark's own fix"])),
-        Scene("5  It looks real",
-              "The measured shapes are painted with the video itself. Every face takes the frame where it was seen "
-              "best, so the screen shows its wallpaper, the base its keyboard, and the closed lid its logo.",
-              ["each face painted from the frame where it was seen best",
-               "shapes unchanged: collisions and inertia stay measured"],
-              pair(PHONE, RUN / "turntable.mp4", ("phone video", "the measured model, painted with that video"))),
-        Scene("6  Physics",
-              "A robot needs mass and friction too. Spark judges the materials and masses. Where the lid stands "
-              "with no hand on it, only hinge friction holds it, so the friction is measured there. Let go in "
-              "MuJoCo, the lid stays; without that friction it falls.",
-              ["masses: Spark judges the materials (0.9 + 0.5 kg; spec 1.4 kg)",
-               "hinge friction measured where the lid stands with no hand on it: 0.28 N m",
+        Scene("5  It knows what it is",
+              "The measured meshes have the right sizes but look like blobs. So Spark names the object and rebuilds "
+              "it cleanly: a cabinet with fronts and handles, a lamp with its LED bar. Each round three Meta models "
+              "propose a design, and the one that fits the video best wins.",
+              ["Spark names the object and rebuilds each part from the measured sizes",
+               "three Meta models propose; the video picks the design",
+               "collisions, joints and physics stay measured"],
+              sequence([DESIGN / "drawer2_lidar" / "compare.mp4", LAMP / "compare.mp4"],
+                       ["office pedestal cabinet with three drawers", "LED desk lamp"])),
+        Scene("6  It looks real",
+              "For a curved object, SAM 3D Objects builds a realistic mesh, placed by our LiDAR depth: this mouse "
+              "lies half a millimetre from its measured surface. Circling it with the phone gives its size from "
+              "every side.",
+              ["SAM 3D Objects: 0.5 mm from the measured depth (median)",
+               "masks from every side: 121 x 75 x 55 mm  (spec 125 x 84 x 51)"],
+              video_scene(MOUSE / "compare.mp4")),
+        Scene("7  The robot uses it",
+              "In MuJoCo physics the Panda grips the handle Spark drew and pulls the drawer out, then carries the "
+              "mouse and turns it. Only the grip moves them.",
+              ["drawer out 213 mm by its handle, and back in",
+               "mouse carried 18 cm, then brought back turned 90 deg"],
+              pair(DESIGN / "drawer2_lidar" / "robot_demo.mp4", MOUSE / "robot_demo.mp4",
+                   ("the measured drawer", "the measured mouse"))),
+        Scene("8  Physics",
+              "Spark judges materials and masses. Where a part stands with no hand on it, the joint friction is "
+              "measured, and checked by letting go in MuJoCo.",
+              ["hinge friction measured where the lid stands on its own: 0.28 N m",
                "let go in MuJoCo: stays (+0.1 deg) vs. falls (+11.5 deg) without it"],
               video_scene(RUN / "physics_demo.mp4")),
-        Scene("7  Drawers too",
-              "Drawers work too. The agent finds which drawer moves and measures two hundred and forty eight "
-              "millimetres of travel against the cabinet.",
-              ["the agent finds which drawer moves: pulls out 248 mm"],
-              pair(DRAWER_PHONE, DRAWER_RUN / "turntable.mp4", ("phone video", "the measured cabinet and drawer"),
-                   (150, 700))),
-        Scene("8  Benchmark",
-              "On the RBO dataset, real RGB-D videos with motion capture, the agent runs every sequence from "
-              "scratch. Over thirteen sequences the median hinge axis error is two and a half degrees. Box lids "
-              "still fail.",
-              ["RBO dataset (TU Berlin, CC BY 4.0): Kinect RGB-D + motion capture",
-               "13 sequences, median: axis 2.5 deg, angle 3.3 deg",
-               "laptops 2-3 deg; box lids still fail"],
+        Scene("9  Benchmark",
+              "On the RBO dataset, real RGB-D videos with motion capture, the median hinge axis error over thirteen "
+              "sequences is two and a half degrees.",
+              ["RBO dataset: 13 sequences, median axis 2.5 deg, angle 3.3 deg; box lids still fail"],
               stills([ROOT / "data" / "rbo" / "results" / "laptop04.jpg"],
                      ["laptop04: red = measured, green = motion capture"])),
-        Scene("9  URDF Doctor",
-              "URDF Doctor checks the models you already have against the video. Three injected bugs and a sign "
-              "flip in a joint log: all found.",
+        Scene("10  URDF Doctor",
+              "URDF Doctor checks the models you already have against a video. Three injected bugs and a sign flip "
+              "in a joint log: all found.",
               ["URDF Doctor: an existing URDF vs. the motion in the video"],
               card([("URDF Doctor", 64, True, white),
-                    ("laptop_spec.urdf (published dimensions)", 40, True, grey),
-                    ("consistent: axis 2.3 deg / 8 mm from the measured hinge", 38, False, green),
                     ("laptop_buggy.urdf (hinge +25 mm, axis tilted 6 deg, limit 90 deg)", 40, True, grey),
-                    ("axis 7.6 deg off   |   hinge 18 mm off   |   video needs 127 deg, limit is 90", 38, False, red),
-                    ("joint log with the sign reversed:  log = -1.00 x expected", 38, False, red)], top=170)),
-        Scene("10  Open weights",
-              "Every model it calls is a Meta model, and it runs end to end on open weights: Muse Glimmer on our "
-              "own GPU, with SAM 3.1 weights, through to the physics.",
-              ["--open-weights --glimmer: Muse Glimmer 30B + SAM 3.1 weights, on our own GPUs"],
+                    ("axis 7.6 deg off   |   hinge 18 mm off   |   video needs 127 deg, limit is 90", 38, False,
+                     (255, 140, 120)),
+                    ("joint log with the sign reversed:  log = -1.00 x expected", 38, False, (255, 140, 120))],
+                   top=300)),
+        Scene("11  Open weights",
+              "Every model it calls is a Meta model, and it runs end to end on open weights: Muse Spark Open with "
+              "SAM weights, or Muse Glimmer on our own GPU.",
+              ["--open-weights: Muse Spark Open + SAM 3.1 weights   |   --glimmer: Muse Glimmer 30B on our GPU"],
               card([("Open weights, end to end", 64, True, white),
-                    ("run_agent.py --open-weights --glimmer", 44, False, blue),
-                    ("Muse Glimmer 30B (our Modal endpoint)  +  SAM 3.1 / SAM 3 weights (Modal GPU)", 40, False, grey),
-                    ("same laptop: lid 307 x 201 mm, 0..108 deg, hinge friction measured", 40, False, grey),
-                    ("also: Muse Spark Open (Baseten): lid 305 x 209 mm", 36, False, grey)], top=310)),
+                    ("run_agent.py --open-weights [--glimmer]", 44, False, blue),
+                    ("Muse Spark Open (Baseten) or Muse Glimmer 30B (our Modal endpoint)", 40, False, grey),
+                    ("+ SAM 3.1 / SAM 3 weights on a Modal GPU", 40, False, grey),
+                    ("same laptop: lid 305 x 209 mm (Spark Open), 307 x 201 mm (Glimmer)", 36, False, grey)],
+                   top=310)),
         Scene("Try it",
-              "Everything is in the browser: the video, the replay, the robot and the painted model, with URDF "
-              "downloads. One video in. A model that moves like the real thing out.",
+              "Everything is in the browser, with URDF downloads and every step the agent took. One video in, "
+              "a model a robot can use out.",
               ["sunghyunc.github.io/video2urdf   |   github.com/SungHyunC/video2urdf"],
-              stills([ASSETS / "viewer_textured.jpg"])),
+              stills([ASSETS / "viewer_trace.jpg"])),
     ]
-
 
 def main():
     ap = argparse.ArgumentParser()
