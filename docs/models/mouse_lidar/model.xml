@@ -1,0 +1,33 @@
+<mujoco model="mouse_lidar">
+  <compiler angle="radian" />
+  <visual>
+    <global offwidth="1920" offheight="1440" />
+  </visual>
+  <asset>
+    <mesh name="base_0" file="meshes/static_object.stl" inertia="exact" />
+    <mesh name="design_base_0" file="meshes/design_base_0.stl" />
+    <mesh name="design_base_1" file="meshes/design_base_1.stl" />
+    <mesh name="design_base_2" file="meshes/design_base_2.stl" />
+    <mesh name="design_base_3" file="meshes/design_base_3.stl" />
+    <mesh name="base_sam3d" file="meshes/base_sam3d.obj" inertia="convex" />
+    <texture name="base_sam3d_texture" type="2d" file="meshes/base_sam3d.png" />
+    <material name="base_sam3d_material" texture="base_sam3d_texture" />
+  </asset>
+  <worldbody>
+    <camera name="video" pos="0 0 1" />
+    <body name="base" pos="0.00000 0.00000 0.02736">
+      <inertial pos="-0.00293648 0.000603799 -0.00377617" quat="-0.0990235 0.704156 -0.0763551 0.698948" mass="0.14" diaginertia="0.000180181 0.000159189 7.88393e-05" />
+      <geom type="mesh" mesh="base_sam3d" contype="0" conaffinity="0" mass="0" rgba="1 1 1 1" material="base_sam3d_material" />
+      <geom type="mesh" mesh="base_0" rgba="0.14510 0.21961 0.28627 1" friction="0.5 0.005 0.0001" group="3" />
+      <geom name="design_base_0" rgba="0.18000 0.23000 0.30000 1" contype="0" conaffinity="0" mass="0" type="mesh" mesh="design_base_0" group="4" />
+      <geom name="design_base_1" rgba="0.18000 0.23000 0.30000 1" contype="0" conaffinity="0" mass="0" type="mesh" mesh="design_base_1" group="4" />
+      <geom name="design_base_2" rgba="0.15000 0.19000 0.26000 1" contype="0" conaffinity="0" mass="0" type="mesh" mesh="design_base_2" group="4" />
+      <geom name="design_base_3" rgba="0.18000 0.23000 0.30000 1" contype="0" conaffinity="0" mass="0" type="mesh" mesh="design_base_3" group="4" />
+      <geom name="design_base_4" rgba="0.10000 0.13000 0.18000 1" contype="0" conaffinity="0" mass="0" type="box" pos="-0.00200 -0.04050 0.00000" quat="1.000000 0.000000 0.000000 0.000000" size="0.02200 0.00100 0.00800" group="4" />
+      <geom name="design_base_5" rgba="0.78000 0.79000 0.81000 1" contype="0" conaffinity="0" mass="0" type="cylinder" pos="0.05000 0.00900 0.01800" quat="-0.500000 0.500000 0.500000 0.500000" size="0.00600 0.00500" group="4" />
+      <geom name="design_base_6" rgba="0.08000 0.10000 0.13000 1" contype="0" conaffinity="0" mass="0" type="box" pos="0.03000 0.00700 0.02200" quat="1.000000 0.000000 0.000000 0.000000" size="0.00350 0.00250 0.00100" group="4" />
+      <geom name="design_base_7" rgba="0.70000 0.72000 0.75000 1" contype="0" conaffinity="0" mass="0" type="cylinder" pos="0.01200 -0.02700 0.00500" quat="-0.500000 0.500000 0.500000 0.500000" size="0.00450 0.00500" group="4" />
+    </body>
+  </worldbody>
+  <contact />
+</mujoco>

@@ -3,6 +3,7 @@
 This is a geometric building block, not a complete video-to-model pipeline. A bounding
 box over visible surface points cannot measure hidden surfaces or guarantee true size.
 """
+import cv2
 import numpy as np
 
 
@@ -68,6 +69,105 @@ def observed_track_shift(c, part, reference, samples=12):
     if len(shifts) < 3:
         raise ValueError('Too few tracked depth frames to check whether the object is stationary.')
     return float(np.percentile(shifts, 90)), len(shifts)
+
+
+def view_spread_deg(c, part, up, frames):
+    """How far around the object the phone went: the spread of its viewing directions about up (deg)."""
+    pts = c.cloud(part, c.ref)
+    if len(pts) < 10:
+        return 0.0
+    center = np.median(pts, axis=0)
+    e1 = np.array([1.0, 0, 0]) if abs(up[0]) < 0.9 else np.array([0, 1.0, 0])
+    e1 = e1 - (e1 @ up) * up
+    e1 /= np.linalg.norm(e1)
+    e2 = np.cross(up, e1)
+    az = []
+    for t in frames:
+        cam = np.linalg.inv(c.world[t])[:3, 3]  # camera position in reference coordinates
+        d = cam - center
+        d -= (d @ up) * up
+        if np.linalg.norm(d) > 1e-6:
+            az.append(np.arctan2(d @ e2, d @ e1))
+    if len(az) < 2:
+        return 0.0
+    a = np.sort(np.mod(np.array(az), 2 * np.pi))
+    gaps = np.diff(np.concatenate([a, [a[0] + 2 * np.pi]]))
+    return float(np.rad2deg(2 * np.pi - gaps.max()))
+
+
+def visual_hull(c, part, up, floor_point, *, views=48, keep=0.8, side=480):
+    """Points inside the object: voxels above the floor that project inside the part's mask on
+    (nearly) every view. Uses only the masks and camera poses, so dark or shiny surfaces that
+    the depth sensor misses are still measured. Concavities facing no camera are filled."""
+    frames = sorted(t for t in c.by.get(part, {}) if t < c.n)
+    frames = [frames[int(i)] for i in np.linspace(0, len(frames) - 1, min(views, len(frames)))]
+    s = side / max(c.w, c.h)
+    w, h = int(round(c.w * s)), int(round(c.h * s))
+    k = c.cap.intrinsics
+    masks = {t: cv2.dilate(cv2.resize(c.by[part][t].full_mask(c.h, c.w).astype(np.uint8), (w, h),
+                                      interpolation=cv2.INTER_NEAREST), np.ones((3, 3), np.uint8)) > 0 for t in frames}
+    z = up / np.linalg.norm(up)
+    x = np.cross(z, [1.0, 0, 0]) if abs(z[0]) < 0.9 else np.cross(z, [0, 1.0, 0])
+    x /= np.linalg.norm(x)
+    axes = np.stack([x, np.cross(z, x), z])
+    # Rough bounds: the reference mask's pixels cast onto the floor plane.
+    m = c.by[part][c.ref].full_mask(c.h, c.w)
+    vv, uu = np.nonzero(m[::4, ::4])
+    rays = np.stack([(uu * 4 - k.cx) / k.f, (vv * 4 - k.cy) / k.f, np.ones(len(uu))], axis=1)
+    hit = rays * ((floor_point @ z) / (rays @ z))[:, None]
+    foot = hit @ axes.T
+    lo, hi = np.percentile(foot[:, :2], [1, 99], axis=0)
+    pad = 0.3 * (hi - lo).max() + 0.02
+    lo, hi = lo - pad, hi + pad
+    z0 = float(floor_point @ z)
+    top = z0 + 1.2 * float((hi - lo).max())
+
+    def carve(lo, hi, z_lo, z_hi, step):
+        gx, gy, gz = (np.arange(a + step / 2, b, step) for a, b in ((lo[0], hi[0]), (lo[1], hi[1]), (z_lo, z_hi)))
+        g = np.stack(np.meshgrid(gx, gy, gz, indexing="ij"), -1).reshape(-1, 3)
+        p = g @ axes  # reference-camera coordinates
+        votes, seen = np.zeros(len(p), np.int32), np.zeros(len(p), np.int32)
+        for t in frames:
+            cam = p @ c.world[t][:3, :3].T + c.world[t][:3, 3]
+            front = cam[:, 2] > 0.05
+            u = np.where(front, (k.f * cam[:, 0] / np.maximum(cam[:, 2], 1e-6) + k.cx) * s, -1).astype(np.int32)
+            v = np.where(front, (k.f * cam[:, 1] / np.maximum(cam[:, 2], 1e-6) + k.cy) * s, -1).astype(np.int32)
+            inside = front & (u >= 0) & (u < w) & (v >= 0) & (v < h)
+            seen += inside
+            votes[inside] += masks[t][v[inside], u[inside]]
+        ok = (seen >= max(3, len(frames) // 4)) & (votes >= keep * seen)
+        return g[ok]
+
+    coarse = carve(lo, hi, z0, top, max(0.004, float((hi - lo).max()) / 80))
+    if len(coarse) < 20:
+        return None
+    step = max(0.002, float(np.ptp(coarse, axis=0).max()) / 120)
+    lo2, hi2 = coarse.min(axis=0) - 2 * step, coarse.max(axis=0) + 2 * step
+    fine = carve(lo2[:2], hi2[:2], max(z0, lo2[2]), hi2[2], step)
+    return fine @ axes if len(fine) >= 50 else None
+
+
+def depth_top_height(c, part, normal, offset, views=30):
+    """The object's top above the floor from depth (any confidence: dark surfaces read low),
+    deep inside its mask, median over views. Tops seen only from above can't be carved away
+    by the masks, so this caps the visual hull."""
+    from . import stray
+    from .lift3d import mask_cloud
+    if c.source is None:
+        return None
+    raw = stray.load(c.source, min_confidence=0).depth
+    frames = sorted(t for t in c.by.get(part, {}) if t < c.n)
+    tops = []
+    for t in frames[:: max(1, len(frames) // views)]:
+        m = c.by[part][t].full_mask(c.h, c.w).astype(np.uint8)
+        r = max(3, int(0.01 * max(c.w, c.h)))
+        m = cv2.erode(m, np.ones((2 * r + 1, 2 * r + 1), np.uint8)) > 0
+        p = mask_cloud(m, raw[t], c.cap.intrinsics)
+        if len(p) < 20:
+            continue
+        inv = np.linalg.inv(c.world[t])
+        tops.append(np.percentile((p @ inv[:3, :3].T + inv[:3, 3]) @ normal - offset, 98))
+    return float(np.median(tops)) if len(tops) >= 10 else None
 
 
 def upright_box(points, up, *, trim_percent=2.0):
@@ -200,7 +300,28 @@ def build_static_model(c, part, floor=None, *, shape='box', log=print, up_overri
     else:
         raise ValueError('A floor track or measured gravity is required.')
     object_points = c.cloud(part, ref)
-    envelope = upright_box(object_points, up)
+    hull_points = None
+    if c.moving_camera and floor and shape == 'box':
+        fp = c.cloud(floor, ref)
+        if len(fp) >= 50:
+            n_f, d_f, _ = fit_plane(fp, np.random.default_rng(0))
+            if n_f @ up < 0:
+                n_f, d_f = -n_f, -d_f
+            seen = sorted(t for t in c.by.get(part, {}) if t < c.n)
+            spread = view_spread_deg(c, part, up, seen[:: max(1, len(seen) // 60)])
+            if spread >= 60:
+                hull_points = visual_hull(c, part, n_f, n_f * d_f)
+                top = depth_top_height(c, part, n_f, d_f) if hull_points is not None else None
+                if top is not None and top > 0.005:
+                    capped = hull_points[hull_points @ n_f - d_f <= top]
+                    if len(capped) >= 50:
+                        log(f'Hull capped at the depth-measured top, {1000 * top:.0f} mm above the floor.')
+                        hull_points = capped
+                if hull_points is not None:
+                    log(f'Visual hull from {min(48, len(seen))} views spanning {spread:.0f} deg around the object: '
+                        f'{len(hull_points)} voxels.')
+                    object_points = hull_points
+    envelope = upright_box(object_points, up, trim_percent=0.5 if hull_points is not None else 2.0)
     size, center, rot = envelope['size'], envelope['center'], envelope['axes']
     observed_size = size.copy()
     circle = observed_circle(object_points, rot, float(max(size[:2]))) if shape == 'cylinder' else None
@@ -219,8 +340,18 @@ def build_static_model(c, part, floor=None, *, shape='box', log=print, up_overri
                          'Inspect whether it moves, the mask changes, or camera tracking drifts; '
                          'do not fit it as stationary until this is resolved.')
     hz = size[2] / 2
-    profile = static_profile(size, shape)
-    vertices, faces = prism(profile, np.zeros(3), *np.eye(3), -hz, hz)
+    if hull_points is not None:  # the carved shape itself, in the box's frame
+        from scipy.spatial import ConvexHull
+        local = (hull_points - center) @ rot.T
+        hull = ConvexHull(local)
+        vertices, faces = local, hull.simplices.copy()
+        for f_ in faces:  # outward winding
+            a_, b_, c_ = local[f_]
+            if np.cross(b_ - a_, c_ - a_) @ (a_ - local.mean(axis=0)) < 0:
+                f_[[1, 2]] = f_[[2, 1]]
+    else:
+        profile = static_profile(size, shape)
+        vertices, faces = prism(profile, np.zeros(3), *np.eye(3), -hz, hz)
     mesh_dir = c.track_dir / 'meshes'
     mesh_dir.mkdir(exist_ok=True)
     write_stl(mesh_dir / 'static_object.stl', vertices, faces)
@@ -237,7 +368,9 @@ def build_static_model(c, part, floor=None, *, shape='box', log=print, up_overri
     coverage = replay3d(c.track_dir / 'model.xml', cameras, c.cap.intrinsics, {}, {'base': c.by[part]},
                         c.video, c.track_dir / 'replay3d.mp4')['base']
     good = coverage[np.isfinite(coverage)]
-    warnings = [f'WARNING: The static {shape} approximation uses visible depth points; hidden surfaces and complete dimensions are not measured.']
+    warnings = ([f'The shape is the visual hull of the masks seen from around the object (convex hull of it); '
+                 f'concave dents facing no camera are filled.'] if hull_points is not None else
+                [f'WARNING: The static {shape} approximation uses visible depth points; hidden surfaces and complete dimensions are not measured.'])
     if up_override is not None:
         warnings.append('WARNING: Upright direction was supplied as a visual hypothesis, not measured gravity.')
     if shape == 'cylinder' and circle is None:
@@ -247,7 +380,7 @@ def build_static_model(c, part, floor=None, *, shape='box', log=print, up_overri
                'video_frames': c.n, 'mask_coverage': {'base': float(good.mean()) if len(good) else None},
                'mask_coverage_frames': {'base': len(good)},
                'static_envelope': True, 'static_shape': shape, 'horizontal_orientation_uncertain': envelope['horizontal_orientation_uncertain'],
-               'cylinder_curve_fit': bool(circle is not None),
+               'cylinder_curve_fit': bool(circle is not None), 'visual_hull': hull_points is not None,
                'observed_centroid_shift_p90_mm': shift * 1000, 'stationarity_sample_frames': shift_frames,
                'fit_warnings': warnings}
     (c.track_dir / 'model3d.json').write_text(json.dumps(summary, indent=2) + '\n')

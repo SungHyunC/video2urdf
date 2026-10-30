@@ -1,0 +1,349 @@
+"""A chain of rods on hinges (a desk lamp's pole and arm) from an iPhone LiDAR capture.
+
+Thin rods defeat the plate and point-tracking fits: at the 256x192 depth resolution a rod
+is 2-3 depth pixels wide, ARKit marks them low confidence and every one of them sits on a
+depth edge. Their depth is still there, so each frame each rod's mask is lifted with the
+raw depth and a 3D line is fitted by RANSAC. A hinge then shows as the rod's direction
+turning in a plane: the axis is that plane's normal, the pivot the point all the rod's lines
+pass closest to, the angle the turn from the reference frame. A child rod is first moved
+back by its parent's fitted rotation, so each joint is measured relative to its parent.
+The base stays put in the static scene (ARKit odometry cancels the moving phone).
+"""
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+from . import emit3d, stray
+from .design import primitive_mesh
+from .lift3d import clean_angles, fit_plane, mask_cloud
+from .pipeline import read_frame
+from .replay import replay3d
+from .shape import part_color, prism, write_stl
+
+LINE_INLIER_M = 0.01
+FOREGROUND_M = 0.02
+MIN_ROD_POINTS = 15
+MIN_TURN = np.deg2rad(5)  # a rod turning less than this over the video is fixed to its parent
+
+
+@dataclass
+class RodLine:
+    center: np.ndarray  # reference-camera coordinates
+    direction: np.ndarray  # unit, from the parent end to the free end
+    lo: float  # extent along the direction from the center (m)
+    hi: float
+
+
+@dataclass
+class ChainJoint:
+    parent: str
+    child: str
+    axis: np.ndarray = field(default_factory=lambda: np.array([1.0, 0, 0]))
+    point: np.ndarray = field(default_factory=lambda: np.zeros(3))
+    q: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    fixed: bool = False
+    residual_m: float = 0.0
+
+
+def mask_axis(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray, float] | None:
+    """The rod's centre line in the image (a point and unit direction, pixels) and its width."""
+    ys, xs = np.nonzero(mask[::2, ::2])
+    if len(xs) < 20:
+        return None
+    pts = np.column_stack([xs, ys]).astype(np.float64) * 2
+    c = pts.mean(axis=0)
+    _, sv, vt = np.linalg.svd(pts - c, full_matrices=False)
+    d = vt[0]
+    across = (pts - c) @ np.array([-d[1], d[0]])
+    return c, d, float(np.percentile(np.abs(across), 90) * 2)
+
+
+def rod_points(c, raw: np.ndarray, part: str, t: int) -> tuple[np.ndarray, np.ndarray | None]:
+    """The rod's depth points on frame t in frame-t camera coordinates, and the normal of the plane
+    through the camera and the rod's image centre line (the rod lies in it). Any depth pixel the
+    mask covers counts, whatever its confidence; pixels off the centre line (a hand at an
+    occlusion) or behind the nearest surface (the wall seen past the rod's edge) are dropped."""
+    mask = c.by[part][t].full_mask(c.h, c.w)
+    axis = mask_axis(mask)
+    dh, dw = raw.shape[1:]
+    m = cv2.resize(mask.astype(np.float32), (dw, dh), interpolation=cv2.INTER_AREA) > 0.05
+    d = raw[t]
+    near = cv2.erode(np.where(d > 0, d, 1e3).astype(np.float32), np.ones((5, 5), np.uint8))
+    m &= (d > 0) & (d <= near + FOREGROUND_M)
+    vv, uu = np.nonzero(m)
+    uv = np.stack([(uu + 0.5) * c.w / dw, (vv + 0.5) * c.h / dh], axis=1)
+    k = c.cap.intrinsics
+    normal = None
+    if axis is not None:
+        c2, d2, width = axis
+        off = np.abs((uv - c2) @ np.array([-d2[1], d2[0]]))
+        keep = off <= max(width, 1.5 * c.w / dw)
+        uv, vv, uu = uv[keep], vv[keep], uu[keep]
+        rays = [np.array([(q[0] - k.cx) / k.f, (q[1] - k.cy) / k.f, 1.0]) for q in (c2, c2 + 100 * d2)]
+        normal = np.cross(*rays)
+        normal /= np.linalg.norm(normal)
+    return k.lift(uv, d[vv, uu].astype(np.float64)), normal
+
+
+def fit_line(points: np.ndarray, rng: np.random.Generator, iters: int = 200) -> tuple[RodLine, float] | None:
+    if len(points) < MIN_ROD_POINTS:
+        return None
+    best = None
+    for _ in range(iters):
+        a, b = points[rng.choice(len(points), 2, replace=False)]
+        d = b - a
+        if np.linalg.norm(d) < 0.02:
+            continue
+        d /= np.linalg.norm(d)
+        r = points - a
+        inl = np.linalg.norm(r - np.outer(r @ d, d), axis=1) < LINE_INLIER_M
+        if best is None or inl.sum() > best.sum():
+            best = inl
+    if best is None or best.sum() < MIN_ROD_POINTS:
+        return None
+    p = points[best]
+    center = p.mean(axis=0)
+    d = np.linalg.svd(p - center, full_matrices=False)[2][0]
+    s = (p - center) @ d
+    lo, hi = np.percentile(s, [2, 98])
+    if hi - lo < 0.05:  # a blob, not a rod
+        return None
+    return RodLine(center, d, float(lo), float(hi)), float(best.mean())
+
+
+def rod_lines(c, raw, part: str, near: np.ndarray, log=print) -> dict[int, RodLine]:
+    """A line per frame, directed away from ``near`` (the parent's side)."""
+    rng = np.random.default_rng(0)
+    out = {}
+    for t in sorted(c.by.get(part, {})):
+        if t >= c.n:
+            continue
+        pts, normal = rod_points(c, raw, part, t)
+        fit = fit_line(pts, rng)
+        if fit is None:
+            continue
+        line, _ = fit
+        if normal is not None:  # into the plane the image shows the rod in: depth noise can't tilt it out
+            d = line.direction - (line.direction @ normal) * normal
+            if np.linalg.norm(d) < 0.5:
+                continue
+            line = RodLine(line.center - (line.center @ normal) * normal, d / np.linalg.norm(d), line.lo, line.hi)
+        inv = np.linalg.inv(c.world[t])  # frame-t camera -> reference coordinates
+        line = RodLine(inv[:3, :3] @ line.center + inv[:3, 3], inv[:3, :3] @ line.direction, line.lo, line.hi)
+        ends = [line.center + line.lo * line.direction, line.center + line.hi * line.direction]
+        if np.linalg.norm(ends[1] - near) < np.linalg.norm(ends[0] - near):
+            line = RodLine(line.center, -line.direction, -line.hi, -line.lo)
+        out[t] = line
+    log(f"{part}: a 3D line on {len(out)}/{len(c.by.get(part, {}))} tracked frames")
+    return out
+
+
+def rotation(axis: np.ndarray, angle: float) -> np.ndarray:
+    k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    return np.eye(3) + np.sin(angle) * k + (1 - np.cos(angle)) * k @ k
+
+
+def fit_rod_joint(lines: dict[int, RodLine], ref: int, n: int, near: np.ndarray) -> ChainJoint:
+    """Axis, pivot and angle per frame of a rod turning about a hinge (lines in its parent's frame)."""
+    ts = sorted(lines)
+    dirs = np.array([lines[t].direction for t in ts])
+    axis = np.linalg.svd(dirs, full_matrices=False)[2][2]  # the directions lie in the plane normal to the axis
+    d_ref = lines[min(ts, key=lambda t: abs(t - ref))].direction
+    q = np.full(n, np.nan)
+    for t in ts:
+        d = lines[t].direction
+        q[t] = np.arctan2(axis @ np.cross(d_ref, d), d_ref @ d)
+    q = clean_angles(clean_angles(q), window=8, max_dev=np.deg2rad(10))  # spikes, then hand-occlusion jitter
+    joint = ChainJoint("", "", axis=axis, q=q)
+    if np.nanpercentile(q, 95) - np.nanpercentile(q, 5) < MIN_TURN:
+        joint.fixed = True
+        first = lines[min(ts, key=lambda t: abs(t - ref))]
+        joint.point = first.center + first.lo * d_ref
+        return joint
+    # Pivot: rods in a chain hinge at their ends, so the hinge is where the rod starts (its near
+    # end, in the parent's frame), the median over frames. The point all the lines pass closest to
+    # would need the rod to turn a lot, and depth noise in each line's tilt drags it along the rod.
+    good = [t for t in ts if not np.isnan(q[t])]
+    starts = np.array([lines[t].center + lines[t].lo * lines[t].direction for t in good])
+    point = np.median(starts, axis=0)
+    r = [np.linalg.norm((point - lines[t].center) - ((point - lines[t].center) @ lines[t].direction) * lines[t].direction)
+         for t in good]
+    joint.point, joint.residual_m = point, float(np.median(r))
+    return joint
+
+
+def _unturn(line: RodLine, joint: ChainJoint, t: int) -> RodLine | None:
+    """A child's line moved back by its parent's rotation on frame t (into the parent's reference pose)."""
+    if joint.fixed:
+        return line
+    if t >= len(joint.q) or np.isnan(joint.q[t]):
+        return None
+    r = rotation(joint.axis, -joint.q[t])
+    return RodLine(r @ (line.center - joint.point) + joint.point, r @ line.direction, line.lo, line.hi)
+
+
+def _rod_radius(c, part: str, lines: dict[int, RodLine]) -> float:
+    """Half the rod's width: mask area over its length in pixels, at its depth."""
+    radii = []
+    for t in list(lines)[:: max(1, len(lines) // 20)]:
+        m = c.by[part][t].full_mask(c.h, c.w)
+        line = lines[t]
+        cam = c.world[t]
+        ends = np.array([line.center + line.lo * line.direction, line.center + line.hi * line.direction])
+        ends = ends @ cam[:3, :3].T + cam[:3, 3]
+        if (ends[:, 2] <= 0).any():
+            continue
+        f = c.cap.intrinsics.f
+        px = np.linalg.norm((ends[0, :2] / ends[0, 2] - ends[1, :2] / ends[1, 2]) * f)
+        if px > 20:
+            radii.append(m.sum() / px / 2 * ends[:, 2].mean() / f)
+    return float(np.clip(np.median(radii), 0.003, 0.03)) if radii else 0.006
+
+
+def _box_iou(a, b) -> float:
+    ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    area = lambda r: (r[2] - r[0]) * (r[3] - r[1])
+    return inter / max(1, area(a) + area(b) - inter)
+
+
+def chain_reference(c, base: str, chain: list[str]) -> int | None:
+    """A frame showing the base and every rod, the rods large and apart (folded rods overlap and
+    their masks mix, which would make every angle relative to a wrong pose)."""
+    best, score = None, -1.0
+    for t in range(c.n):
+        if not all(c.has(p, t) for p in [base, *chain]):
+            continue
+        boxes = [c.by[p][t].box for p in chain]
+        overlap = max([_box_iou(a, b) for i, a in enumerate(boxes) for b in boxes[i + 1:]], default=0.0)
+        s = min(c.by[p][t].area for p in chain) * (1 - overlap) ** 2
+        if s > score:
+            best, score = t, s
+    return best
+
+
+def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=print) -> dict:
+    """Fit base -> chain[0] -> chain[1] ..., write model.xml/urdf, replay3d and model3d.json."""
+    track_dir = c.track_dir
+    raw = stray.load(c.source, min_confidence=0).depth if c.source is not None else c.cap.depth
+    ref = c.ref
+    rng = np.random.default_rng(0)
+    seen = sorted(c.by[base])
+    base_cloud = c.cloud(base, min(seen, key=lambda t: abs(t - ref)))
+    if len(base_cloud) < 30:
+        raise ValueError(f"{base} has too few depth points to place it")
+    near = np.median(base_cloud, axis=0)
+    joints, lines_by = [], {}
+    parent_joint = None
+    for k, part in enumerate(chain):
+        lines = rod_lines(c, raw, part, near, log)
+        if len(lines) < 10:
+            raise ValueError(f"{part}: only {len(lines)} frames with a 3D line; is it a rod? (tracked {len(c.by.get(part, {}))})")
+        if parent_joint is not None:  # into the parent's reference pose
+            moved = {t: _unturn(l, parent_joint, t) for t, l in lines.items()}
+            lines = {t: l for t, l in moved.items() if l is not None}
+        j = fit_rod_joint(lines, ref, c.n, near)
+        j.parent, j.child = base if k == 0 else chain[k - 1], part
+        joints.append(j)
+        lines_by[part] = lines
+        ref_line = lines[min(lines, key=lambda t: abs(t - ref))]
+        near = ref_line.center + ref_line.hi * ref_line.direction  # the next rod starts at this one's free end
+        parent_joint = j
+        span = np.rad2deg([np.nanmin(j.q), np.nanmax(j.q)])
+        log(f"{j.parent} -> {part}: {'fixed' if j.fixed else f'hinge, {span[0]:.0f}..{span[1]:.0f} deg'}, "
+            f"pivot residual {1000 * j.residual_m:.1f} mm, angle on {int(np.isfinite(j.q).sum())}/{c.n} frames")
+
+    # Model frame: z up (gravity, or the floor's plane), x along the first hinge's horizontal part.
+    up = c.up if c.up is not None else np.array([0, -1.0, 0])
+    z_floor_pt = None
+    if floor and c.has(floor, ref) and len(c.cloud(floor, ref)) > 100:
+        nf, df, _ = fit_plane(c.cloud(floor, ref), rng)
+        if nf @ up < 0:
+            nf, df = -nf, -df
+        if np.rad2deg(np.arccos(np.clip(nf @ up, -1, 1))) < 15:
+            up, z_floor_pt = nf, nf * df
+    z = up / np.linalg.norm(up)
+    x = joints[0].axis - (joints[0].axis @ z) * z
+    if np.linalg.norm(x) < 0.3:  # a hinge about the vertical: x along the base instead
+        x = np.linalg.svd(base_cloud - base_cloud.mean(axis=0), full_matrices=False)[2][0]
+        x = x - (x @ z) * z
+    x /= np.linalg.norm(x)
+    rot = np.stack([x, np.cross(z, x), z])
+    base_m = base_cloud @ rot.T
+    z_floor = float((z_floor_pt @ rot.T)[2]) if z_floor_pt is not None else float(np.percentile(base_m[:, 2], 1)) - 0.01
+    origin = np.array([*np.median(base_m[:, :2], axis=0), z_floor])
+
+    def to_model(p):
+        return p @ rot.T - origin
+
+    mesh_dir = track_dir / "meshes"
+    mesh_dir.mkdir(exist_ok=True)
+    image = read_frame(c.video, ref)
+    top = to_model(base_cloud)
+    z_top = float(np.percentile(top[:, 2], 90))
+    v, f = prism(_hull2d(top[:, :2]), np.zeros(3), np.eye(3)[0], np.eye(3)[1], np.eye(3)[2], 0.0, max(z_top, 0.005))
+    write_stl(mesh_dir / "base.stl", v, f)
+    links = [emit3d.Link3D(base, [emit3d.Visual("meshes/base.stl", part_color(image, c.by[base][ref].full_mask(c.h, c.w))
+                                                if ref in c.by[base] else (0.8, 0.8, 0.8))])]
+    pivots = {base: np.zeros(3)}
+    summary_joints = []
+    for j in joints:
+        lines = lines_by[j.child]
+        ref_line = lines[min(lines, key=lambda t: abs(t - ref))]
+        pivot = to_model(j.point)
+        # The rod runs from its hinge to where its far end is seen on the reference frame (the
+        # hinge is a median over frames, so the reference line's own direction could miss the end).
+        tip = to_model(ref_line.center + ref_line.hi * ref_line.direction)
+        d = (tip - pivot) / max(float(np.linalg.norm(tip - pivot)), 1e-6)
+        # Its length from every frame: the far end can leave the picture on the reference frame.
+        length = float(np.percentile([l.hi - (j.point - l.center) @ l.direction for l in lines.values()], 90))
+        radius = _rod_radius(c, j.child, lines)
+        v, f = primitive_mesh({"type": "cylinder", "from": [0, 0, 0], "to": (d * length * 1000).tolist(), "radius": radius * 1000})
+        write_stl(mesh_dir / f"{j.child}.stl", v / 1000, f)
+        t_col = min(c.by[j.child], key=lambda t: abs(t - ref))
+        rgb = part_color(read_frame(c.video, t_col) if t_col != ref else image, c.by[j.child][t_col].full_mask(c.h, c.w))
+        valid = j.q[np.isfinite(j.q)]
+        limits = (float(np.percentile(valid, 1)), float(np.percentile(valid, 99))) if len(valid) else (0.0, 0.0)
+        links.append(emit3d.Link3D(j.child, [emit3d.Visual(f"meshes/{j.child}.stl", rgb)], parent=j.parent,
+                                   origin=pivot - pivots[j.parent], joint_type="fixed" if j.fixed else "revolute",
+                                   axis=j.axis @ rot.T, limits=limits))
+        pivots[j.child] = pivot
+        summary_joints.append({"parent": j.parent, "child": j.child, "type": "fixed" if j.fixed else "revolute",
+                               "axis_model": (j.axis @ rot.T).tolist(), "pivot_model_mm": (1000 * pivot).tolist(),
+                               "pivot_residual_mm": 1000 * j.residual_m, "rod_length_mm": 1000 * length,
+                               "rod_radius_mm": 1000 * radius, "range_deg": np.rad2deg(limits).tolist(),
+                               "frames_measured": int(np.isfinite(j.q).sum())})
+    (track_dir / "model.urdf").write_text(emit3d.urdf(c.video.stem, links))
+    (track_dir / "model.xml").write_text(emit3d.mjcf(c.video.stem, links, np.zeros(3), (c.w, c.h)))
+    (track_dir / "links.json").write_text(json.dumps({base: [base], **{p: [p] for p in chain}}))
+    a = np.eye(4)
+    a[:3, :3], a[:3, 3] = rot, -origin
+    cam_to_world = np.array([a @ np.linalg.inv(c.world[t]) for t in range(c.n)])
+    qs = {f"{j.child}_joint": j.q for j in joints if not j.fixed}
+    cover = replay3d(track_dir / "model.xml", cam_to_world, c.cap.intrinsics, qs,
+                     {p: c.by[p] for p in [base, *chain]}, c.video, track_dir / "replay3d.mp4")
+    summary = {"reference_frame": ref, "base_height_mm": 1000 * z_top, "joints": summary_joints,
+               "camera_to_model": {"rotation": rot.tolist(), "origin": origin.tolist()},
+               "floor_used": z_floor_pt is not None,
+               "mask_coverage": {k: float(np.nanmean(v)) if np.isfinite(v).any() else None for k, v in cover.items()},
+               "video_frames": c.n}
+    (track_dir / "model3d.json").write_text(json.dumps(summary, indent=2))
+    (track_dir / "chain.json").write_text(json.dumps({"base": base, "chain": chain, "floor": floor, "joints": [
+        {"child": j.child, "type": "fixed" if j.fixed else "revolute",
+         "q": [None if not np.isfinite(v) else float(v) for v in j.q]} for j in joints]}))
+    log("model: " + "; ".join(f"{s['child']} {s['type']} rod {s['rod_length_mm']:.0f} mm x r{s['rod_radius_mm']:.0f}"
+                              + (f", {s['range_deg'][0]:.0f}..{s['range_deg'][1]:.0f} deg" if s['type'] == 'revolute' else '')
+                              for s in summary_joints)
+        + "; replay covers " + ", ".join(f"{k} {100 * v:.0f}%" for k, v in summary["mask_coverage"].items() if v is not None)
+        + " of the SAM masks")
+    return summary
+
+
+def _hull2d(points: np.ndarray) -> np.ndarray:
+    hull = cv2.convexHull(points.astype(np.float32))
+    return hull[:, 0, :].astype(np.float64)

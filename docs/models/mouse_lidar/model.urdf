@@ -1,0 +1,24 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="mouse_lidar">
+  <link name="base">
+    <inertial>
+      <origin xyz="-0.00293648 0.000603799 -0.00377617" rpy="-1.58433 -1.32202 -1.52496" />
+      <mass value="0.14" />
+      <inertia ixx="0.000180181" ixy="0" ixz="0" iyy="0.000159189" iyz="0" izz="7.88393e-05" />
+    </inertial>
+    <visual name="base_sam3d">
+      <geometry>
+        <mesh filename="meshes/base_sam3d.obj" />
+      </geometry>
+      <material name="base_sam3d_color">
+        <texture filename="meshes/base_sam3d.png" />
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/static_object.stl" />
+      </geometry>
+    </collision>
+  </link>
+</robot>

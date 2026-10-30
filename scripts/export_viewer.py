@@ -43,6 +43,8 @@ def body_tree(el: ET.Element) -> dict:
         "children": [body_tree(c) for c in el.findall("body")],
     }
     for g in el.findall("geom"):
+        if g.get("group") == "4":  # a visual superseded by another (design under a SAM 3D mesh)
+            continue
         out["geoms"].append({
             "mesh": g.get("mesh"), "type": g.get("type"), "rgba": floats(g.get("rgba"), [0.7, 0.7, 0.7, 1]),
             "pos": floats(g.get("pos"), [0, 0, 0]), "size": floats(g.get("size"), []),
@@ -58,6 +60,9 @@ def joint_tracks(run: Path) -> dict[str, list]:
     """Joint name -> value per video frame (None where unmeasured)."""
     if (run / "static.json").exists():
         return {}
+    if (run / "chain.json").exists():  # chain3d: rods on hinges
+        return {f"{j['child']}_joint": j["q"] for j in json.loads((run / "chain.json").read_text())["joints"]
+                if j["type"] != "fixed"}
     if (run / "slides.json").exists():
         return {f"drawer{i + 1}_joint": d["q"] for i, d in enumerate(json.loads((run / "slides.json").read_text())["drawers"])}
     if (run / "slide.json").exists():
@@ -231,6 +236,10 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
     print(f"{name}: {size / 1e6:.1f} MB -> {dst}")
     label = (spec.get('design') or {}).get('object') if (spec.get('design') or {}).get('applied') else None
     label = label or (spec.get('appearance') or {}).get('object')
+    if isinstance(label, str):
+        label = label.split(" (")[0].split(" - ")[0].strip()  # a tab name, not the model's whole description
+        if len(label) > 40:
+            label = label.split(" with ")[0]
     return {"name": name, "path": f"models/{name}/model.json", "three_d": spec["three_d"],
             **({'label': label} if isinstance(label, str) and label.strip() else {})}
 
