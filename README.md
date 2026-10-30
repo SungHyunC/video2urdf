@@ -178,6 +178,41 @@ lid, re-tracked it, refit (769/923) and finished as `needs_review`, saying what 
 unverified: lid 306 x 210 mm (spec 304 x 212), replay 88% / 91%. Passing the checks means none
 objected, not that the model was verified against the real object.
 
+### Five fresh runs per object, and three objects it had never seen
+
+Every LiDAR capture again, from scratch, five times each (10/31: Muse Spark on the Meta API, SAM
+weights on Modal, code fixed at one commit; `data/repeat5`, not committed):
+
+| Object | Status (5 runs) | Measured, across the runs | Reference |
+|---|---|---|---|
+| 13" MacBook Pro | needs_review x5 | lid 304-306 x 208-212 mm; replay lid 86-93%, base 83-96% | spec 304 x 212 |
+| Office drawer | needs_review x5 | travel 242, 243, 243, 244 mm; one run 20 mm (wrong front, replay 15%) | hand fit 253 |
+| Black mouse | checks_passed x5 | 121-122 x 75 x 55 mm; replay 88% | spec 125 x 84 x 51 |
+| LED desk lamp | checks_passed x5 | Spark fixed the pole itself every time; arm 377-381 mm, 76-91 deg; pole 241-366 mm | arm 380, pole 351 (our refit) |
+
+Every laptop run was refused once at `finish` for the same reason (the screen track slides onto
+the lid's back as it shuts; an expected case the check still flags). The drawer run that measured
+the wrong front ended `needs_review`, not passed. The lamp passes with the arm's replay covering
+only 19-34% of its thin mask, and the pole's length varies: the rod-chain fit has no coverage
+warning yet, which is a gap in the checks.
+
+Then three captures filmed after the code was fixed, never used in development, run once each
+with that same code: a microwave, a step trash bin and an AirPods case. **None gave a usable
+model, and all three ended `needs_review` rather than passing:**
+
+- Microwave: its door swings about a *vertical* hinge, and `fit_lidar` assumes the hinge lies in
+  the base's top plane (true for lids, not for doors), so it drew the hinge along the top; the
+  glossy black body also came back from SAM in fragments (replay 6% / 26%). Spark's report: timing
+  right, geometry unreliable, don't use it for grasping.
+- Trash bin: the base candidate was the whole bin, lid included; the hinge came out on the side
+  wall. Lid 123 x 156 mm, replay 82% for the lid, 27% for the base. Spark asked for a reshoot.
+- AirPods case: it never opened in the video, so it is a rigid object; the static fit found too
+  few depth points on the small white case, and Spark then forced a hinge fit on it (flagged,
+  replay 14-18%).
+
+These are the current limits: doors on vertical hinges, bases the camera sees whole with their
+lid, and small objects for the static path.
+
 ### Benchmark: RBO dataset (real RGB-D with motion capture)
 
 The [RBO dataset](https://zenodo.org/records/1036660) (TU Berlin, CC BY 4.0) has Kinect RGB-D
