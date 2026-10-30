@@ -34,6 +34,8 @@ const SCENES = [
   {id: 'real', len: 150},
   {id: 'physics', len: 150},
   {id: 'more', len: 180},
+  {id: 'knows', len: 180},
+  {id: 'robots', len: 165},
   {id: 'urdf', len: 90},
   {id: 'end', len: 150},
 ] as const;
@@ -390,6 +392,50 @@ const More: React.FC = () => (
   </Scene>
 );
 
+// It knows what it is: the measured meshes next to what Muse Spark / SAM 3D made of them.
+const Knows: React.FC = () => (
+  <Scene len={180}>
+    <div style={{position: 'absolute', left: 0, right: 0, top: 70, display: 'flex', justifyContent: 'center'}}>
+      <Words text="It knows what it is." delay={0} style={{fontSize: 84, fontWeight: 800}} hi={['knows']} />
+    </div>
+    <div style={{position: 'absolute', left: 0, right: 0, top: 185, display: 'flex', justifyContent: 'center'}}>
+      <Words text="measured from the video, then rebuilt by Meta models" delay={10} stagger={2}
+             style={{fontSize: 38, color: 'rgba(255,255,255,0.7)'}} />
+    </div>
+    <Card x={60} y={290} w={880} h={500} delay={12} border={YELLOW}>
+      <Clip src="drawer_compare.mp4" />
+      <Badge style={{left: 20, bottom: 20}}>cabinet · Muse Spark design</Badge>
+    </Card>
+    <Card x={980} y={290} w={880} h={500} delay={22} border={VIOLET}>
+      <Clip src="mouse_compare.mp4" />
+      <Badge style={{left: 20, bottom: 20}}>mouse · SAM 3D Objects</Badge>
+    </Card>
+    <div style={{position: 'absolute', left: 0, right: 0, top: 850, display: 'flex', justifyContent: 'center', gap: 20}}>
+      <Pop delay={40}><Chip color={YELLOW}>3 Meta models propose, the video picks</Chip></Pop>
+      <Pop delay={52}><Chip color={GREEN}>0.5 mm from the measured depth</Chip></Pop>
+    </div>
+  </Scene>
+);
+
+// The robot uses it: four measured objects, gripped and worked in MuJoCo physics.
+const Robots: React.FC = () => (
+  <Scene len={165} bg="white">
+    <AbsoluteFill>
+      <Clip src="robot_grid.mp4" rate={1.4} />
+    </AbsoluteFill>
+    <AbsoluteFill style={{background: 'linear-gradient(180deg, rgba(7,9,13,0) 50%, rgba(7,9,13,0.92) 100%)'}} />
+    <div style={{position: 'absolute', left: 90, bottom: 150}}>
+      <Words text="Then a robot uses it." delay={4} style={{fontSize: 84, fontWeight: 800}} hi={['robot']} />
+    </div>
+    <div style={{position: 'absolute', left: 90, bottom: 70, display: 'flex', gap: 16}}>
+      <Pop delay={20}><Chip color={YELLOW} size={26}>pull a drawer by its handle</Chip></Pop>
+      <Pop delay={28}><Chip color={VIOLET} size={26}>carry a mouse</Chip></Pop>
+      <Pop delay={36}><Chip color={GREEN} size={26}>swing a lamp arm</Chip></Pop>
+      <Pop delay={44}><Chip color={RED} size={26}>close a laptop</Chip></Pop>
+    </div>
+  </Scene>
+);
+
 // 9. Output: the URDF itself.
 const Urdf: React.FC = () => {
   const f = useCurrentFrame();
@@ -447,7 +493,7 @@ const End: React.FC = () => {
         </div>
         <div style={{fontFamily: MONO, fontSize: 40, marginTop: 56, color: YELLOW, opacity: ease(f, 50, 64)}}>github.com/SungHyunC/video2urdf</div>
         <div style={{fontSize: 26, marginTop: 40, color: 'rgba(255,255,255,0.55)', opacity: ease(f, 60, 74)}}>
-          Built with Muse Spark · SAM 3.1 · MuJoCo
+          Built with Muse Spark · SAM 3.1 · SAM 3D · MuJoCo
         </div>
       </AbsoluteFill>
     </Scene>
@@ -463,6 +509,8 @@ const VIEWS: Record<(typeof SCENES)[number]['id'], React.FC> = {
   real: Real,
   physics: Physics,
   more: More,
+  knows: Knows,
+  robots: Robots,
   urdf: Urdf,
   end: End,
 };
