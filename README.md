@@ -607,10 +607,12 @@ For SAM 3D meshes add `--sam3d` to `video_to_model.py`. Each mesh is checked aga
 depth points; a part whose median distance exceeds 5 mm or p90 exceeds 15 mm is saved for
 inspection but not activated. Passing this check does not validate unobserved surfaces.
 We also require each generated extent to be within 0.8–1.2 times the fitted extent; fitted
-dimensions can themselves include assumptions, especially for hidden drawer depth.
-The default passes captured or MapAnything depth to SAM 3D. Do not use the experimental
-`--no-pointmap` option in a Meta-model-only submission: SAM 3D then invokes MoGe, a non-Meta
-depth model.
+dimensions can themselves include assumptions, especially for hidden drawer depth. Static
+objects and rod chains, whose fitted extent is an envelope (a visual hull, a rod) rather than a
+size to match, skip this ratio and are judged over the video instead (the mouse's mesh is
+1.04 / 1.11 / 1.27 times its hull).
+SAM 3D always gets the captured or MapAnything depth as its pointmap. Without one it would
+estimate depth with MoGe, which is not a Meta model, so that option was removed.
 See [appearance validation](docs/appearance_validation.md) for the tested captures and
 examples of generated meshes that failed the checks.
 

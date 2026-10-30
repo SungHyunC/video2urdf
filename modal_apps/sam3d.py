@@ -1,8 +1,9 @@
 """SAM 3D Objects (facebook/sam-3d-objects, SAM License) on a Modal GPU: one frame and a part's
 mask in, a coloured mesh of that part out, placed in the camera frame in metres.
 
-Given LiDAR or estimated depth as the pointmap, SAM 3D attempts to place the object in that
-metric frame instead of guessing depth with MoGe. Its generated shape and placement can be
+LiDAR or estimated depth is required as the pointmap: SAM 3D then places the object in that
+metric frame. (Without one, SAM 3D would estimate depth with MoGe, which isn't a Meta model, so
+that path is refused here: every model this project runs must be a Meta model.) Its generated shape and placement can be
 wrong, including on hidden sides: scripts/sam3d_meshes.py checks them before activation.
 
 Setup (once): request access on huggingface.co/facebook/sam-3d-objects, then
@@ -111,7 +112,7 @@ class Sam3D:
         self.inference = Inference(str(CKPT / "pipeline.yaml"), compile=False)
 
     @modal.method()
-    def reconstruct(self, rgb_png: bytes, mask_png: bytes, pointmap_npy: bytes | None = None, seed: int = 42,
+    def reconstruct(self, rgb_png: bytes, mask_png: bytes, pointmap_npy: bytes, seed: int = 42,
                     faces: int = 60000) -> dict:
         """One part. ``pointmap_npy``: HxWx3 float32, metres, OpenCV camera frame, NaN where unknown
         (any resolution; it is resized to the image). Returns the mesh in that camera frame and in
@@ -125,13 +126,13 @@ class Sam3D:
         rgb = np.array(Image.open(io.BytesIO(rgb_png)).convert("RGB"))
         mask = np.array(Image.open(io.BytesIO(mask_png)).convert("L")) > 127
         rgba = self.inference.merge_mask_to_rgba(rgb, mask)
-        pointmap = None
-        if pointmap_npy is not None:
-            pm = torch.from_numpy(np.load(io.BytesIO(pointmap_npy)).astype(np.float32))
-            pointmap = _p3d(pm)  # the pipeline works in PyTorch3D's camera convention
+        if pointmap_npy is None:
+            raise ValueError("a pointmap is required (without one SAM 3D would run MoGe, a non-Meta model)")
+        pm = torch.from_numpy(np.load(io.BytesIO(pointmap_npy)).astype(np.float32))
+        pointmap = _p3d(pm)  # the pipeline works in PyTorch3D's camera convention
         out = self.inference._pipeline.run(
             rgba, None, seed, stage1_only=False, with_mesh_postprocess=False, with_texture_baking=False,
-            with_layout_postprocess=pointmap is not None, use_vertex_color=True, pointmap=pointmap)
+            with_layout_postprocess=True, use_vertex_color=True, pointmap=pointmap)
 
         glb = out["glb"]
         # to_glb turned the mesh from SAM 3D's z-up object frame to y-up; turn it back, then

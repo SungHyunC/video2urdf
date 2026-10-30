@@ -290,7 +290,7 @@ def design_shape(track_dir: Path, video: Path, rounds: int = ROUNDS, log=print, 
                f"Mean near-F {entry['mean_score']} (measured mesh {_mean(measured):.3f}); per link `{json.dumps(scores)}`\n",
                f"Assumptions: {design.get('assumptions')}\n", f"Notes: {design.get('notes')}\n",
                f"![overlay](round{k}_overlay.jpg)\n", f"![views](round{k}_views.png)\n"]
-        if best is None or entry["mean_score"] > best["mean_score"] + 0.01:
+        if best is None or entry["mean_score"] > best["mean_score"]:  # the best round over the video, however small the margin
             best = entry
         if design.get("done") and k > 1:
             break

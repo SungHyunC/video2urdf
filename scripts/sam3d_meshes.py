@@ -9,7 +9,7 @@ added to the model as the link's visual; the measured geometry stays as its coll
 
 Usage: .venv/bin/python scripts/sam3d_meshes.py data/tracks_agent/laptop_lidar
            [--video data/real/laptop_lidar/laptop_lidar.mp4] [--capture data/real/laptop_lidar]
-           [--links base lid] [--frame lid=850] [--no-pointmap]
+           [--links base lid] [--frame lid=850]
 Needs: modal deploy modal_apps/sam3d.py, and its weights (see that file).
 """
 
@@ -382,8 +382,6 @@ def main():
     ap.add_argument("--links", nargs="*")
     ap.add_argument("--frame", nargs="*", default=[], help="link=frame overrides (default: the reference frame)")
     ap.add_argument("--part", nargs="*", default=[], help="link=tracked-part overrides for alternative views")
-    ap.add_argument("--no-pointmap", action="store_true", help="use SAM 3D's non-Meta MoGe depth model; "
-                    "not suitable where all runtime models must be Meta models")
     ap.add_argument("--video-texture", action="store_true", help="experimentally project recorded video textures onto accepted visuals")
     ap.add_argument("--retries", type=int, default=0, help="try up to this many additional frames when a candidate fails")
     ap.add_argument("--seed", type=int, default=42)
@@ -442,11 +440,9 @@ def main():
         rgb = cv2.cvtColor(read_frame(video, t), cv2.COLOR_BGR2RGB)
         mask = c.by[part][t].full_mask(c.h, c.w)
         png = lambda a: cv2.imencode(".png", a)[1].tobytes()  # noqa: E731
-        pm = None
-        if not args.no_pointmap:
-            buf = io.BytesIO()
-            np.save(buf, pointmap(c, t))
-            pm = buf.getvalue()
+        buf = io.BytesIO()  # the capture's depth: SAM 3D would otherwise run MoGe, not a Meta model
+        np.save(buf, pointmap(c, t))
+        pm = buf.getvalue()
         print(f"{link}: SAM 3D on frame {t} ({part}, mask {100 * mask.mean():.1f}% of the frame)", flush=True)
         out = sam3d.reconstruct.remote(png(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)), png(mask.astype(np.uint8) * 255),
                                        pm, args.seed, FACES)
@@ -565,8 +561,6 @@ def main():
                            "--capture", str(capture), "--links", link, "--frame", f"{link}={frame}",
                            "--seed", str(args.seed + index + 1), "--max-median-mm", str(args.max_median_mm),
                            "--max-p90-mm", str(args.max_p90_mm)]
-                if args.no_pointmap:
-                    command.append("--no-pointmap")
                 if args.video_texture:
                     command.append("--video-texture")
                 print(f"Retrying {link} on frame {frame}", flush=True)
