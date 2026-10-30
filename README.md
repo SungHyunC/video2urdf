@@ -167,7 +167,9 @@ saw get proportions typical for that object, listed as assumptions. Every design
 from the recorded camera at the recorded joint values over the video and scored against the
 SAM masks (F-score counting pixels within 1% of the frame, fair to thin parts); Spark sees that
 overlay, three views of its design over the measured meshes and the per-axis size differences,
-and revises (up to 3 rounds). The best design becomes the visual if it scores within 0.10 of the
+and revises (up to 3 rounds). Each round three Meta models answer in parallel (Muse Spark on the
+Meta API, Muse Spark Open on Baseten and on Fireworks) and the design that scores best over the
+video carries on: on the LiDAR lamp the best single-model design scored 0.61, the three together 0.66. The best design becomes the visual if it scores within 0.10 of the
 measured meshes and Spark judges the measurement consistent with the object; collisions,
 joints and physics stay measured (MJCF group 3 / URDF `<collision>`).
 `design/log.md` keeps every overlay Spark saw.
@@ -176,6 +178,8 @@ joints and physics stay measured (MJCF group 3 / URDF `<collision>`).
 |---|---|---|---|
 | iPhone LiDAR laptop | Apple MacBook laptop (silver): body, lid, display, keyboard, trackpad, hinge barrel, logo | 7 | 0.88 / 0.89 |
 | iPhone LiDAR drawer | light beech office pedestal cabinet with three drawers: carcass, fronts, handles, lock | 13 | 0.50 / 0.49 |
+| iPhone LiDAR desk lamp (new, 10/30) | LED desk/task lamp: base with control panel, pole, LED bar arm, pivots | 12 | 0.66 / 0.66 |
+| iPhone LiDAR mouse (new, 10/30) | ergonomic wireless mouse, Logitech MX Master style (shown: SAM 3D's mesh, see below) | 8 | 0.89 / 0.94 |
 | 2D lamp video (`stand_2`) | white foldable LED desk lamp: base with control panel, pole, LED housing and diffuser, pivots | 11 | 0.70 / 0.71 |
 
 Round 2 on the lamp: Spark saw its first arms were too thick against the masks and thinned
@@ -187,6 +191,25 @@ applied; it also flags a scale far from the object's usual size.
 .venv/bin/python scripts/design_shape.py data/tracks/my_video my_video.mov   # run_agent.py does this by default
 .venv/bin/python scripts/design_shape.py data/tracks/my_video --remove        # back to the measured visuals
 ```
+
+### Rods on hinges in 3D, and objects the phone walked around
+
+- **A desk lamp from iPhone LiDAR** (`video2urdf/chain3d.py`, agent tool `fit_chain`). At 256x192
+  depth a rod is 2-3 pixels wide, ARKit marks it low confidence and every pixel sits on a depth
+  edge, so the plate and point-tracking fits see nothing. Each frame, each rod's raw depth (the
+  wall behind its edge dropped) gets a 3D line, held in the plane its image centre line spans; a
+  hinge is the plane the rod's direction turns in, at the rod's near end, and a child rod is
+  measured after undoing its parent's turn. Synthetic oblique lamp: axis 0.4 / 4.8 deg, angle
+  0.06 / 1.1 deg mean. Real lamp (1385 frames, Spark chose `fit_chain` itself): pole 294 mm, arm
+  370 mm, elbow 0..77 deg folded to open; the replay covers 75% of the pole's masks.
+- **A black mouse the phone circled** (`fit_static`). Its few confident depth points made a
+  59 x 27 x 25 mm box. When the phone went more than 60 deg around, the object is now carved
+  from 48 views' masks (a visual hull) and capped at the depth-measured top: 121 x 75 x 55 mm
+  (MX Master 3S: 125 x 84 x 51), covering 88% of its masks. Spark judged 0.14 kg (spec 141 g).
+- **SAM 3D Objects on any fitted model**: placed by the replay's camera poses and joint values,
+  and for static objects and rod chains judged like the shape design (over the video, within 0.10
+  of the measured meshes) plus the depth check. The mouse's mesh: measured points 0.5 mm from it
+  (median), mask F-score 0.89 vs 0.94; it is the mouse's visual in the viewer.
 
 ### The model looks like the object: painted with its own video
 
