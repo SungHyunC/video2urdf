@@ -72,7 +72,9 @@ Tools:
   its part against gravity there gets its joint friction measured from those spans; the tool
   checks it by releasing the model in MuJoCo. Masses are your estimate: the tool returns the
   density they imply over the measured solid, so check that it is plausible for the material.
-- finish(report): end with a short report for a robotics developer.
+- finish(report): end with a short report for a robotics developer. While the last fit's
+  WARNINGs are unresolved it refuses once: fix the cause, or finish again with the report
+  starting 'NEEDS REVIEW:' and saying what is unverified.
 
 How to judge a fit: the tree must make physical sense (each joint where two parts touch).
 Replay IoU above ~0.7 is good; thin parts score lower. A joint whose range is a few degrees
@@ -333,6 +335,9 @@ class Agent:
     videos: list[str] = field(default_factory=list)
     n_segment: int = 0
     log_lines: list[str] = field(default_factory=list)
+    open_warnings: list[str] = field(default_factory=list)  # the last fit's WARNING lines
+    finish_refused: bool = False  # finish pushes back once on unresolved warnings
+    turns_left: int = MAX_STEPS
 
     def __post_init__(self):
         self.client = self.client or OpenAI(base_url=BASE_URL, api_key=os.environ[API_KEY_ENV], timeout=600)
@@ -921,6 +926,7 @@ class Agent:
         info = json.loads(path.read_text())
         info["fit_warnings"] = [line for line in lines if line.startswith("WARNING:")]
         path.write_text(json.dumps(info, indent=2))
+        self.open_warnings = info["fit_warnings"]
 
     def video_sheet(self, path: Path, frames: list[int]) -> np.ndarray:
         cap = cv2.VideoCapture(str(path))
@@ -936,8 +942,29 @@ class Agent:
             t += 1
         return cv2.hconcat(imgs)
 
+    def check_status(self) -> tuple[str, list[str]]:
+        """checks_passed / needs_review / failed, from what the automatic checks know: whether a
+        model exists, whether it was fit on the current tracks, and the last fit's warnings. Passing
+        means no check objected, not that the model is verified against the real object."""
+        if not (self.track_dir / "model.xml").exists():
+            return "failed", ["no model was built"]
+        issues = []
+        if self.last_fit is None:
+            issues.append("the parts were re-tracked or a fit failed after the model on disk was built")
+        return ("needs_review" if issues or self.open_warnings else "checks_passed"), issues + self.open_warnings
+
     def tool_finish(self, report: str) -> str:
-        self.report = report
+        status, issues = self.check_status()
+        if status != "checks_passed" and not self.finish_refused and self.turns_left >= 3:
+            self.finish_refused = True  # once: estimated masses or hidden sides aren't worth a loop
+            return ("Not finished yet. The automatic checks have unresolved issues:\n- " + "\n- ".join(issues) +
+                    "\nFix the cause once if you can (re-segment, re-track, or refit with other parts or roles). "
+                    "If it can't be fixed from this video, call finish again and start the report with "
+                    "'NEEDS REVIEW:' and what is unverified.")
+        (self.out / "status.json").write_text(json.dumps(
+            {"status": status, "issues": issues, "finish_refused_once": self.finish_refused}, indent=2) + "\n")
+        self.report = (f"Automatic checks: {status.replace('_', ' ')}"
+                       + (f" ({len(issues)} unresolved)" if issues else "") + "\n\n" + report)
         return "done"
 
     # --- loop ----------------------------------------------------------------------------
@@ -967,6 +994,7 @@ class Agent:
             if not calls:
                 messages.append({"role": "user", "content": "Call a tool, or finish with a report."})
                 continue
+            self.turns_left = MAX_STEPS - step - 1
             for c in calls:
                 try:
                     args = json.loads(c.function.arguments or "{}")
@@ -990,7 +1018,9 @@ class Agent:
             messages.append({"role": "user", "content": "Out of turns. Write your final report now as plain text."})
             cap_images(messages)
             r = self._chat(messages=messages)
-            self.report = (r.choices[0].message.content or "").strip() or "(no report)"
+            self.report = None
+            self.turns_left = 0  # no refusal now: record the status with the report
+            self.tool_finish((r.choices[0].message.content or "").strip() or "(no report)")
             self.log(f"## {WHO} (final report, out of turns)\n\n{self.report}")
         report = self.report
         (self.out / "report.md").write_text(report + "\n")

@@ -31,6 +31,8 @@ from robot_demo import ARM_JOINTS, HOME, PANDA_DIR, geom_points, smooth  # noqa:
 
 W, H, FPS = 1920, 1080, 30
 GRASP = np.array([0, 0, 0.1035])  # between the finger pads, in the hand frame
+FINGER_TIP = 0.1123  # how far the fingertips reach along the hand's z (Menagerie's finger collision)
+TIP_CLEARANCE = 0.002  # fingertips this far off a drawer's front while they hold its handle
 OPEN, CLOSED = 255, 0  # gripper actuator
 REACH_X, GRASP_Z = 0.52, 0.32  # where the grasp point is placed in front of the robot
 MAX_JOINT_STEP = 0.05
@@ -270,7 +272,14 @@ def plan_grasp(model, data, kind: str, joint: str | None) -> Grasp:
             c = hp.mean(axis=0)
             along = np.linalg.svd(hp - c, full_matrices=False)[2][0]  # the handle bar's length
             fingers = np.cross(along, out)  # close across the bar, perpendicular to the pull
-            p = c  # the pads cover the whole bar (the drawer's own box doesn't collide here)
+            # The pads hold the bar's outer part, the fingertips just off the drawer's front: the
+            # drawer and the cabinet keep their measured collision.
+            rest = [g for g in range(model.ngeom) if model.geom_bodyid[g] == body and model.geom_contype[g] != 0
+                    and g not in handles]
+            p = c
+            if rest:
+                front = float(np.max((np.vstack([geom_points(model, data, g) for g in rest]) - c) @ out))
+                p = c + (front + TIP_CLEARANCE + FINGER_TIP - GRASP[2]) * out
             return Grasp(model.body(body).name, to_body(data, body, p), to_body(data, body, None, -out),
                          to_body(data, body, None, fingers))
         pts = collision_points(model, data, body)
@@ -400,8 +409,7 @@ def main():
         rp = collision_points(model, data, model.jnt_bodyid[model.joint(joint).id])
         thin = np.linalg.svd(rp - rp.mean(axis=0), full_matrices=False)[1][2] / np.sqrt(len(rp)) * 4 < 0.01
         thin = thin and any(n.startswith(f"design_{worked}_") for n in DESIGN_NAMES)
-    model = build(pos, yaw, free, pedestal, pass_root=kind == "drawer",
-                  ghost=worked if kind == "drawer" else None, solid=worked if thin else None,
+    model = build(pos, yaw, free, pedestal, solid=worked if thin else None,
                   hold=joint[4:] if joint else None)
     # Menagerie's gripper servo squeezes in proportion to how far open it is: about 1 N on an 18 mm
     # handle. The real Panda Hand holds up to 70 N; a stiffer servo squeezes ~30 N.
@@ -511,6 +519,9 @@ def main():
     log, ik_err = [], []
     obj_start = data.xpos[b].copy()
     bias = np.zeros(3)
+    hand_bodies = {model.body(n).id for n in ("hand", "left_finger", "right_finger")}
+    held_geoms = {g for g in range(model.ngeom) if "handle" in DESIGN_NAMES.get(model.geom(g).name[4:], "").lower()}
+    deepest = {}  # object body -> the hand's deepest contact with it (a handle being held aside)
     for title, dur, target, grip in segments:
         for f in range(int(dur * FPS)):
             u = (f + 1) / (dur * FPS)
@@ -526,6 +537,12 @@ def main():
             for _ in range(steps):
                 data.qfrc_applied[ik.dadr] = data.qfrc_bias[ik.dadr]  # gravity compensation, as the real Panda has
                 mujoco.mj_step(model, data)
+            for c in data.contact[:data.ncon]:
+                b1, b2 = model.geom_bodyid[c.geom1], model.geom_bodyid[c.geom2]
+                if (b1 in hand_bodies) != (b2 in hand_bodies) and not {c.geom1, c.geom2} & held_geoms \
+                        and model.body(b2 if b1 in hand_bodies else b1).name.startswith("obj_"):
+                    other = model.body(b2 if b1 in hand_bodies else b1).name[4:]
+                    deepest[other] = max(deepest.get(other, 0.0), -c.dist)
             renderer.update_scene(data, camera=cam)
             img = cv2.cvtColor(renderer.render(), cv2.COLOR_RGB2BGR)
             k = titles.index(title) + 1
@@ -559,6 +576,8 @@ def main():
     renderer.close()
     scene.unlink(missing_ok=True)
     print(f"{kind} ({joint or 'free body'}); IK error max {1000 * max(ik_err):.0f} mm; video -> {out}")
+    print("  deepest hand contact per part (a handle being held aside; the held part includes the squeeze): "
+          + (", ".join(f"{k} {1000 * v:.1f} mm" for k, v in sorted(deepest.items())) or "none"))
     for title, v in log:
         hinge = joint and int(model.jnt_type[model.joint(joint).id]) == int(mujoco.mjtJoint.mjJNT_HINGE)
         print(f"  after '{title}': " + (f"{np.rad2deg(v - q_start):+.1f} deg" if hinge else

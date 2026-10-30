@@ -56,7 +56,7 @@ Spark Open and SAM weights, `--glimmer` on Muse Glimmer 30B served by us.
 | Office drawer, iPhone LiDAR | pulls out 248 mm | hand fit 253 |
 | LED desk lamp, iPhone LiDAR, 2 rods | Spark judged the pole's motion depth noise; refit with it fixed (our step): arm 380 mm, 2..89 deg | video |
 | Shape design, three Meta models per round | lamp: best of three 0.62 / 0.63 per round, Muse Spark alone 0.60 / 0.62 (mask F-score) | measured meshes 0.69 |
-| Robot tasks on the measured models | 6 of 6: lids closed and reopened, drawer out 213 mm and back, lamp arms swung, mouse carried and turned | joint values reached in physics |
+| Robot tasks on the measured models | 6 of 6: lids closed and reopened, drawer out 199 mm and back (cabinet collision on), lamp arms swung, mouse carried and turned | joint values reached in physics |
 | SAM tracking, 1385 frames, 4 parts | 520 s -> 285 s, masks IoU 0.97-0.995 | previous pipeline |
 | Scale for plain video | card x0.75 (8 frames agree); object's usual size x1.01 | expected 1.0 |
 
@@ -149,6 +149,19 @@ quarter-resolution replay improved base mask coverage from 15.6% to 86.0% and 31
 95.0% respectively. This is not a new independent run; one refit produced a suspect 24 mm
 lid thickness and remains flagged. Coverage is computed only on the usable tracked frames,
 not against independent ground truth. See [validation details](docs/appearance_validation.md).
+
+### The agent can't finish over its own warnings
+
+The fit tools flag part choices the numbers contradict (a plate track that slid onto the shut
+lid, a base mask that holds the plate, a replay covering under half its mask, a "fixed" drawer
+front that stands out). `finish` refuses once while the last fit's warnings are unresolved, and
+every run ends with a status in `agent/status.json` and the report's first line:
+`checks_passed`, `needs_review` or `failed` (no model). It refuses only once, so estimated
+masses or hidden sides can't loop. On a fresh LiDAR-laptop run (10/31) Spark's first finish was
+refused (the screen track had slid onto the lid's back on 806/923 frames); it re-segmented the
+lid, re-tracked it, refit (769/923) and finished as `needs_review`, saying what stays
+unverified: lid 306 x 210 mm (spec 304 x 212), replay 88% / 91%. Passing the checks means none
+objected, not that the model was verified against the real object.
 
 ### Benchmark: RBO dataset (real RGB-D with motion capture)
 
@@ -280,12 +293,15 @@ aside, then brought back turned a quarter. The gripper's own actuator squeezes (
 than Menagerie's default, which holds ~1 N on an 18 mm handle; the real Panda Hand holds 70 N) and
 the object moves only through finger contact; arm joints get gravity compensation. Each video
 titles its tasks and shows the joint value the object actually reaches. Results: LiDAR laptop
-closed 87 deg and reopened; drawer out 213 mm and back to 18 mm; LiDAR lamp's arm lowered 40 deg
+closed 87 deg and reopened; drawer out 199 mm and back to 0 mm; LiDAR lamp's arm lowered 40 deg
 and raised back; mouse carried 18 cm and returned turned 90 deg; side-view laptop closed and
 reopened; side-view lamp's arm raised 33 deg and lowered back. A side-view rod is measured as a
 6 mm silhouette, too thin to hold, so there the fingers hold the rod Shape design drew (14 x 9 mm),
-and joints not being worked are held by friction. For the drawer, the fingers pass through the measured cabinet box, which is
-coarse around the drawer slots.
+and joints not being worked are held by friction. The drawer and the cabinet keep their measured
+collision (the cabinet has an open slot, the drawer is an open tray): the pads hold the handle's
+outer part with the fingertips 2 mm off the drawer's front, and the hand's deepest contact with
+anything but the handle is 1.2 mm, MuJoCo's soft contact. `robot_tasks.py` prints that depth for
+every part the hand touches.
 
 ```bash
 .venv/bin/python scripts/robot_tasks.py data/tracks_agent2/mouse_lidar   # -> robot_tasks.mp4 in the run
