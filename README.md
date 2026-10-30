@@ -193,8 +193,8 @@ weights on Modal, code fixed at one commit; `data/repeat5`, not committed):
 Every laptop run was refused once at `finish` for the same reason (the screen track slides onto
 the lid's back as it shuts; an expected case the check still flags). The drawer run that measured
 the wrong front ended `needs_review`, not passed. The lamp passes with the arm's replay covering
-only 19-34% of its thin mask, and the pole's length varies: the rod-chain fit has no coverage
-warning yet, which is a gap in the checks.
+only 19-34% of its thin mask, and the pole's length varies: the rod-chain fit had no coverage
+warning then, a gap in the checks (it now warns under 25%, see below).
 
 Then three captures filmed after the code was fixed, never used in development, run once each
 with that same code: a microwave, a step trash bin and an AirPods case. **None gave a usable
@@ -210,8 +210,21 @@ model, and all three ended `needs_review` rather than passing:**
   few depth points on the small white case, and Spark then forced a hinge fit on it (flagged,
   replay 14-18%).
 
-These are the current limits: doors on vertical hinges, bases the camera sees whole with their
-lid, and small objects for the static path.
+After those runs we fixed what they exposed, then ran the same three captures again (10/31).
+The code changed after seeing them, so these are development results, not blind tests:
+
+- `fit_lidar` now tells a door from a lid (its axis lies along the base's normal) and places a
+  door's hinge by the circle its centroid moves on. Refit on the first run's microwave tracks:
+  the hinge stands 2.5 deg off vertical on the left, the door comes out 241 x 259 mm and its
+  replay covers 63% of the mask (was 6%); the hinge still sits about 10 cm too far left, since
+  the door's mask was a strip by the handle. The agent's own fresh run failed at the fit
+  (the reference frame's door angle was rejected on the glossy door) and ended `failed`.
+- The static fit picks a reference frame where depth sees the object: the AirPods case now
+  passes, 66.8 x 52.5 x 37 mm, replay 91%.
+- The prompt names the body wall or rim as a lidded bin's base: the trash bin's hinge now lies
+  along the top rear edge and the replay covers 60% / 72%, but the open lid is misaligned and it
+  stays `needs_review`.
+- The rod-chain fit now warns when a rod's replay covers under 25% of its mask.
 
 ### Benchmark: RBO dataset (real RGB-D with motion capture)
 
@@ -281,7 +294,7 @@ taken modulo 360 deg. Per-sequence results: `scripts/rbo_bench.py` writes `data/
   `needs_review`: it took all three fronts as moving drawers, so two barely move and the replay
   covers 12% / 0% / 0%, which its report says plainly; the desk lamp came out `checks_passed` but
   with the fixed pole fit as a joint and the rods' replay covering 18% / 22%: the rod-chain fit
-  doesn't yet warn about low coverage, so the automatic checks passed it.
+  didn't warn about low coverage then, so the automatic checks passed it (it now warns under 25%).
 - **The RBO benchmark on open weights only** (10/31, Muse Spark Open + SAM weights, one run per
   sequence): laptops and books 7 of 7, hinge axis 2.8 deg and angle 3.9 deg (medians; the Meta
   API run: 2.2 / 2.0 deg); box lids 3 of 6 produced no model and the other 3 are poor, as on the
