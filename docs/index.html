@@ -305,11 +305,18 @@ async function load(entry) {
   const seenFaces = textureMeshes.reduce((sum, mesh) => sum + (mesh.faces_seen || 0), 0);
   const totalFaces = textureMeshes.reduce((sum, mesh) => sum + (mesh.faces || 0), 0);
   const design = spec.design?.applied ? spec.design : null;
-  const designNote = design ? `Muse Spark identified a ${design.object} and rebuilt each link from ` +
+  const sam3dLinks = Object.entries(spec.sam3d || {}).filter(([, r]) => r.accepted).map(([l]) => l);
+  const designNote = design && sam3dLinks.length && sam3dLinks.length === design.design.links.length
+    ? `Muse Spark identified a ${design.object}. The visual (Realistic) is SAM 3D's mesh, placed by our LiDAR depth and ` +
+      `checked against it and over the video; Spark's primitive design stays in model.xml as a hidden alternative. ` +
+      `Collisions, joints and physics are the measured ones.`
+    : design ? `Muse Spark identified a ${design.object} and rebuilt each link from ` +
     `${design.design.links.reduce((n, l) => n + l.primitives.length, 0)} primitives sized from the measurements ` +
     `(Realistic); checked over the video against the SAM masks: ${design.score === "f_near" ? "mask F-score" : "score"} ` +
     `${design.rounds.find((r) => r.round === design.best_round).mean_score.toFixed(2)} vs ${design.measured_mean_score.toFixed(2)} ` +
     `for the measured meshes (Measured). Collisions, joints and physics are the measured ones.` +
+    (design.backends?.length > 1 ? ` Each round ${design.backends.map((b) => b.model.split("/").pop()).join(", ")} ` +
+      `each proposed a design; the best over the video (${design.rounds.find((r) => r.round === design.best_round).model?.split("/").pop()}) carried on.` : "") +
     (design.warnings?.length ? " " + design.warnings.join(" ") : "") : "";
   const appearanceNotes = [
     designNote,
@@ -358,6 +365,11 @@ function facts(s) {
     const lidNote = m.plate_thickness_clipped ? " Lid thickness was assumed or clipped." : "";
     return `${depth}: lid ${m.plate_size_mm[0].toFixed(0)} × ${m.plate_size_mm[1].toFixed(0)} mm, ` +
       `${base}, hinge range ${(m.hinge_range_deg[1] - m.hinge_range_deg[0]).toFixed(0)}°.${lidNote}`;
+  }
+  if (s.three_d && m.joints && m.joints.length && m.joints[0].rod_length_mm !== undefined) {  // chain3d: rods on hinges
+    return `${depth}: ` + m.joints.map((j) => `${j.child} ${j.rod_length_mm.toFixed(0)} mm` +
+      (j.type === "revolute" ? `, hinge ${j.range_deg[0].toFixed(0)}..${j.range_deg[1].toFixed(0)}°` : " (fixed)")).join("; ") +
+      ". Each rod is a 3D line per frame from its depth; each hinge is where its rod turns.";
   }
   if (s.three_d && m.joints) {
     return `${depth}: ` + m.joints.map((j) =>
@@ -411,7 +423,8 @@ function tick() {
 const index = await (await fetch("models/index.json")).json();
 const tabs = $("tabs");
 const titles = { laptop_lidar: "Laptop · iPhone LiDAR · agent", drawer: "Drawer · iPhone LiDAR", notebook: "Laptop · side view", stand: "Desk lamp · side view" };
-const captures = { laptop_lidar: "iPhone LiDAR", drawer: "iPhone LiDAR", notebook: "side view", stand: "side view" };
+const captures = { laptop_lidar: "iPhone LiDAR", drawer: "iPhone LiDAR", notebook: "side view", stand: "side view",
+                   lamp_lidar: "iPhone LiDAR", mouse_lidar: "iPhone LiDAR" };
 for (const entry of index) {
   const b = document.createElement("button");
   const named = entry.label && entry.label[0].toUpperCase() + entry.label.slice(1);  // what Spark identified
