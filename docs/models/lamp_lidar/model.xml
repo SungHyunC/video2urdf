@@ -14,26 +14,24 @@
     <body name="lamp_base" pos="0.00000 0.00000 0.00000">
       <inertial pos="0.00209377 0.00488872 0.00866059" quat="-0.169878 0.686397 0.169878 0.686397" mass="0.3" diaginertia="0.000644488 0.000448166 0.000211322" />
       <geom type="mesh" mesh="lamp_base_0" rgba="0.69412 0.70980 0.76471 1" friction="0.5 0.005 0.0001" group="3" />
-      <geom name="design_lamp_base_0" rgba="0.94000 0.94000 0.93000 1" contype="0" conaffinity="0" mass="0" type="mesh" mesh="design_lamp_base_0" />
-      <geom name="design_lamp_base_1" rgba="0.91000 0.91000 0.91000 1" contype="0" conaffinity="0" mass="0" type="box" pos="0.00200 -0.01200 0.01790" quat="1.000000 0.000000 0.000000 0.000000" size="0.04600 0.01900 0.00050" />
-      <geom name="design_lamp_base_2" rgba="0.20000 0.20000 0.22000 1" contype="0" conaffinity="0" mass="0" type="box" pos="0.00200 -0.02800 0.01840" quat="1.000000 0.000000 0.000000 0.000000" size="0.03500 0.00500 0.00060" />
-      <geom name="design_lamp_base_3" rgba="0.96000 0.96000 0.96000 1" contype="0" conaffinity="0" mass="0" type="cylinder" pos="0.08300 0.06560 0.04940" quat="1.000000 0.000000 0.000000 0.000000" size="0.01100 0.03210" />
-      <body name="rod1" pos="0.08305 0.06557 0.08146">
-        <joint name="rod1_joint" type="hinge" axis="0.99891 0.00000 -0.04675" range="-0.3744 0.9165" limited="true" frictionloss="0.02" solreffriction="0.005 1" solimpfriction="0.99 0.999 0.001" damping="0.02" />
-        <inertial pos="0.00902651 0.0236815 0.144755" quat="0.996244 -0.0809535 0.030625 -0.00248855" mass="0.3" diaginertia="0.00216822 0.00216822 1.71966e-05" />
+      <geom name="design_lamp_base_0" rgba="0.96000 0.96000 0.96000 1" contype="0" conaffinity="0" mass="0" type="mesh" mesh="design_lamp_base_0" />
+      <geom name="design_lamp_base_1" rgba="0.95000 0.95000 0.95000 1" contype="0" conaffinity="0" mass="0" type="cylinder" pos="0.08270 0.06170 0.02070" quat="1.000000 0.000000 0.000000 0.000000" size="0.01200 0.00340" />
+      <geom name="design_lamp_base_2" rgba="0.88000 0.88000 0.88000 1" contype="0" conaffinity="0" mass="0" type="box" pos="0.00000 -0.01800 0.01745" quat="1.000000 0.000000 0.000000 0.000000" size="0.03500 0.01500 0.00030" />
+      <geom name="design_lamp_base_3" rgba="0.60000 0.60000 0.60000 1" contype="0" conaffinity="0" mass="0" type="box" pos="-0.02000 -0.03200 0.01780" quat="1.000000 0.000000 0.000000 0.000000" size="0.00400 0.00400 0.00040" />
+      <geom name="design_lamp_base_4" rgba="0.60000 0.60000 0.60000 1" contype="0" conaffinity="0" mass="0" type="box" pos="0.00000 -0.03200 0.01780" quat="1.000000 0.000000 0.000000 0.000000" size="0.00400 0.00400 0.00040" />
+      <geom name="design_lamp_base_5" rgba="0.60000 0.60000 0.60000 1" contype="0" conaffinity="0" mass="0" type="box" pos="0.02000 -0.03200 0.01780" quat="1.000000 0.000000 0.000000 0.000000" size="0.00400 0.00400 0.00040" />
+      <body name="rod1" pos="0.08271 0.06173 0.02411">
+        <inertial pos="0.0091516 0.025528 0.173409" quat="0.996992 -0.0729916 0.0260097 -0.00190422" mass="0.3" diaginertia="0.00308921 0.00308921 1.71966e-05" />
         <geom type="mesh" mesh="rod1_0" rgba="0.42745 0.39608 0.37647 1" friction="0.4 0.005 0.0001" group="3" />
-        <geom name="design_rod1_0" rgba="0.80000 0.80000 0.82000 1" contype="0" conaffinity="0" mass="0" type="cylinder" pos="0.00915 0.02440 0.14465" quat="0.996028 -0.083253 0.031471 0.002631" size="0.00750 0.14698" />
-        <geom name="design_rod1_1" rgba="0.96000 0.96000 0.96000 1" contype="0" conaffinity="0" mass="0" type="sphere" pos="0.00000 0.00000 0.00000" size="0.01000" />
-        <geom name="design_rod1_2" rgba="0.96000 0.96000 0.96000 1" contype="0" conaffinity="0" mass="0" type="cylinder" pos="0.01215 0.03675 0.29035" quat="0.652967 0.397219 -0.550933 0.335149" size="0.00600 0.01357" />
-        <geom name="design_rod1_3" rgba="0.96000 0.96000 0.96000 1" contype="0" conaffinity="0" mass="0" type="sphere" pos="0.00600 0.02470 0.29140" size="0.00900" />
-        <body name="rod2" pos="0.00597 0.02474 0.29137">
-          <joint name="rod2_joint" type="hinge" axis="0.07712 -0.98077 0.17927" range="-0.1347 1.3434" limited="true" frictionloss="0.426169" solreffriction="0.005 1" solimpfriction="0.99 0.999 0.001" damping="0.02" />
-          <inertial pos="-0.168443 -0.071171 -0.027074" quat="0.418405 0.361018 0.544459 0.631005" mass="0.2" diaginertia="0.0022811 0.0022811 6.03751e-06" />
+        <geom name="design_rod1_0" rgba="0.82000 0.82000 0.84000 1" contype="0" conaffinity="0" mass="0" type="box" pos="0.00290 -0.00200 0.17560" quat="0.506973 -0.501232 -0.493023 -0.498671" size="0.17564 0.01200 0.00400" />
+        <geom name="design_rod1_1" rgba="0.96000 0.96000 0.96000 1" contype="0" conaffinity="0" mass="0" type="cylinder" pos="0.00580 0.00000 0.35120" quat="-0.500000 0.500000 0.500000 0.500000" size="0.00850 0.01200" />
+        <body name="rod2" pos="0.00581 -0.00403 0.35116">
+          <joint name="rod2_joint" type="hinge" axis="0.13633 -0.99064 -0.00714" range="0.0326 1.5515" limited="true" frictionloss="0.431942" solreffriction="0.005 1" solimpfriction="0.99 0.999 0.001" damping="0.02" />
+          <inertial pos="-0.179739 -0.0538876 -0.0306048" quat="0.454853 0.386676 0.51961 0.611225" mass="0.2" diaginertia="0.00241291 0.00241291 6.27309e-06" />
           <geom type="mesh" mesh="rod2_0" rgba="0.52157 0.54118 0.53333 1" friction="0.4 0.005 0.0001" group="3" />
-          <geom name="design_rod2_0" rgba="0.81000 0.81000 0.83000 1" contype="0" conaffinity="0" mass="0" type="cylinder" pos="-0.16870 -0.07070 -0.02700" quat="-0.636385 -0.126474 0.746336 -0.148325" size="0.00750 0.18490" />
-          <geom name="design_rod2_1" rgba="0.96000 0.96000 0.96000 1" contype="0" conaffinity="0" mass="0" type="sphere" pos="0.00000 0.00000 0.00000" size="0.00900" />
-          <geom name="design_rod2_2" rgba="0.96000 0.96000 0.96000 1" contype="0" conaffinity="0" mass="0" type="sphere" pos="-0.33740 -0.14140 -0.05400" size="0.00850" />
-          <geom name="design_rod2_3" rgba="0.99000 0.97000 0.88000 1" contype="0" conaffinity="0" mass="0" type="box" pos="-0.16870 -0.07070 -0.03400" quat="-0.088264 -0.189767 0.681167 0.701576" size="0.18490 0.00500 0.00075" />
+          <geom name="design_rod2_0" rgba="0.82000 0.82000 0.84000 1" contype="0" conaffinity="0" mass="0" type="box" pos="-0.17990 -0.05335 -0.03055" quat="0.083159 -0.141240 0.986405 -0.011907" size="0.19011 0.01200 0.00400" />
+          <geom name="design_rod2_1" rgba="0.96000 0.96000 0.96000 1" contype="0" conaffinity="0" mass="0" type="sphere" pos="-0.35980 -0.10670 -0.06110" size="0.00750" />
+          <geom name="design_rod2_2" rgba="0.96000 0.96000 0.96000 1" contype="0" conaffinity="0" mass="0" type="cylinder" pos="0.00000 0.00000 0.00000" quat="-0.500000 0.500000 0.500000 0.500000" size="0.00850 0.01000" />
         </body>
       </body>
     </body>
