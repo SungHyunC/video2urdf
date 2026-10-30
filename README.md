@@ -211,6 +211,27 @@ applied; it also flags a scale far from the object's usual size.
   of the measured meshes) plus the depth check. The mouse's mesh: measured points 0.5 mm from it
   (median), mask F-score 0.89 vs 0.94; it is the mouse's visual in the viewer.
 
+### The robot works the object: grasp, open, close, carry
+
+`scripts/robot_tasks.py` puts the measured object in front of a Franka Panda (MuJoCo Menagerie)
+and picks tasks from what was measured: a hinged plate is pinched at its free edge, closed and
+opened again; a hinged rod (a lamp's arm) is pinched near its tip and swung to the far end of its
+measured range and back; a drawer is pulled out by the handle Shape design drew (its collision is
+switched on in this scene) and pushed back in; an object without joints is picked up, carried
+aside, then brought back turned a quarter. The gripper's own actuator squeezes (~30 N, stiffer
+than Menagerie's default, which holds ~1 N on an 18 mm handle; the real Panda Hand holds 70 N) and
+the object moves only through finger contact; arm joints get gravity compensation. Each video
+titles its tasks and shows the joint value the object actually reaches. Results: LiDAR laptop
+closed 87 deg and reopened; drawer out 213 mm and back to 18 mm; LiDAR lamp's arm lowered 40 deg
+and raised back; mouse carried 18 cm and returned turned 90 deg; side-view laptop closed and
+reopened. The side-view lamp isn't done: its rods' in-plane thickness is a 6 mm silhouette and
+the fingers slip. For the drawer, the fingers pass through the measured cabinet box, which is
+coarse around the drawer slots.
+
+```bash
+.venv/bin/python scripts/robot_tasks.py data/tracks_agent2/mouse_lidar   # -> robot_tasks.mp4 in the run
+```
+
 ### Faster tracking, and scale without a reference
 
 - **SAM tracking ~1.8x faster.** The forward pass and the backward pass (a reversed clip) are
