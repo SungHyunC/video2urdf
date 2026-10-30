@@ -11,7 +11,7 @@ import re
 import subprocess
 import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +34,9 @@ MIN_MASK_FRAC = 5e-4  # of the frame; smaller masks count as lost
 # px; videos are tracked at most this big (0 = as is). 960 tracks the LiDAR laptop ~3x faster with the same
 # masks (IoU 0.99) on parts in view, but parts that vanish and return (a screen) were found on different frames.
 TRACK_MAX_SIDE = int(os.environ.get("SAM_TRACK_MAX_SIDE", "0"))
+# Track every Nth frame of a fast video and give the frames between the nearest tracked mask:
+# at 60 fps a hand moves a few millimetres between frames. "auto" = 2 above 40 fps.
+TRACK_STRIDE = os.environ.get("SAM_TRACK_STRIDE", "auto")
 
 
 @dataclass(frozen=True)
@@ -193,6 +196,60 @@ def tracks(dets: list[Detection]) -> dict[int, dict[int, Detection]]:
     return out
 
 
+def _records_of(text: str) -> dict[int, dict[int, str]]:
+    """frame -> object id -> its raw record."""
+    out: dict[int, dict[int, str]] = {}
+    for line in text.splitlines():
+        m = _FRAME.match(line)
+        if m:
+            for r in _RECORD.finditer(line, m.end()):
+                out.setdefault(int(m.group(1)), {})[int(r.group(1))] = r.group(0)
+    return out
+
+
+def _text_of(records: dict[int, dict[int, str]]) -> str:
+    return "\n".join(f"<{f}f>" + ",".join(records[f][o] for o in sorted(records[f])) for f in sorted(records)) + "\n"
+
+
+def track_stride(video: Path) -> int:
+    if TRACK_STRIDE != "auto":
+        return max(1, int(TRACK_STRIDE))
+    cap = cv2.VideoCapture(str(video))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    cap.release()
+    return 2 if fps > 40 else 1
+
+
+def strided_track(track, video: Path, size: tuple[int, int], anchors: dict[int, list], stride: int) -> str:
+    """``track`` (a client's full-rate track_boxes) on every ``stride``th frame, the frames between
+    filled with the nearest tracked one. Anchors move to the nearest kept frame."""
+    with tempfile.TemporaryDirectory() as tmp:
+        clip = Path(tmp) / "strided.mp4"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-vf", f"select=not(mod(n\\,{stride}))",
+                        "-fps_mode", "passthrough", "-an", "-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p",
+                        str(clip)], check=True)
+        cap, kept = cv2.VideoCapture(str(clip)), 0
+        while cap.grab():
+            kept += 1
+        cap.release()
+        moved = {oid: [(min(kept - 1, int(round(f / stride))), box) for f, box in fb] for oid, fb in anchors.items()}
+        text = track(clip, size, moved)
+    cap, n = cv2.VideoCapture(str(video)), 0
+    while cap.grab():
+        n += 1
+    cap.release()
+    sparse = _records_of(text)
+    out = {}
+    for f in range(n):
+        near = min(kept - 1, int(round(f / stride)))
+        for g in (near, near - 1, near + 1):
+            if g in sparse:
+                out[f] = dict(sparse[g])
+                break
+    return _text_of(out)
+
+
+
 class SamClient:
     def __init__(self, api_key: str | None = None):
         self.client = OpenAI(base_url=BASE_URL, api_key=api_key or os.environ["MODEL_API_KEY"], timeout=600)
@@ -256,7 +313,8 @@ class SamClient:
             {"type": "input_video", "file_id": self.upload(video)},
         ], {"propagation_direction": "forward"})
 
-    def track_boxes(self, video: Path, size: tuple[int, int], boxes: dict[int, tuple | list]) -> str:
+    def track_boxes(self, video: Path, size: tuple[int, int], boxes: dict[int, tuple | list],
+                    stride: int | None = None) -> str:
         """Track up to 16 objects through the whole video.
 
         ``boxes`` maps obj_id to one (frame, (x1, y1, x2, y2)) or a list of them: several
@@ -268,23 +326,32 @@ class SamClient:
         """
         anchors = {oid: [fb] if isinstance(fb, tuple) and isinstance(fb[0], int) else [tuple(x) for x in fb]
                    for oid, fb in boxes.items()}
+        if stride is None:
+            stride = track_stride(video)
+        if stride > 1:
+            return strided_track(lambda v, sz, a: self.track_boxes(v, sz, a, stride=1), video, size, anchors, stride)
         k = TRACK_MAX_SIDE / max(size) if TRACK_MAX_SIDE and max(size) > TRACK_MAX_SIDE else 1.0
         if k < 1:  # track a smaller copy (much faster), then put the boxes back in source pixels
             with tempfile.TemporaryDirectory() as tmp:
                 small, small_size = scaled_clip(video, k, Path(tmp) / "small.mp4")
                 k = small_size[0] / size[0]
                 text = self.track_boxes(small, small_size, {
-                    oid: [(f, tuple(int(round(v * k)) for v in box)) for f, box in fb] for oid, fb in anchors.items()})
+                    oid: [(f, tuple(int(round(v * k)) for v in box)) for f, box in fb] for oid, fb in anchors.items()},
+                    stride=1)
             return rescale_boxes(text, 1 / k, size)
-        text = self._track_forward(video, size, anchors)
         first = {oid: min(f for f, _ in fb) for oid, fb in anchors.items()}
         last = max(first.values())
         if last == 0:
-            return text
-        with tempfile.TemporaryDirectory() as tmp:
-            clip = reversed_clip(video, last, Path(tmp) / "reversed.mp4")
-            back = self._track_forward(clip, size, {oid: [(last - f, box) for f, box in fb if f <= last]
-                                                    for oid, fb in anchors.items()})
+            return self._track_forward(video, size, anchors)
+
+        def backward():
+            with tempfile.TemporaryDirectory() as tmp:
+                clip = reversed_clip(video, last, Path(tmp) / "reversed.mp4")
+                return self._track_forward(clip, size, {oid: [(last - f, box) for f, box in fb if f <= last]
+                                                        for oid, fb in anchors.items()})
+        with ThreadPoolExecutor(2) as ex:  # the two passes are independent requests: run them together
+            fwd, bwd = ex.submit(self._track_forward, video, size, anchors), ex.submit(backward)
+            text, back = fwd.result(), bwd.result()
         # Forward output can start before an object's own prompt frame (SAM tracks every
         # object from the earliest prompt in the request), so keep one record per
         # (frame, object), preferring the forward pass.
