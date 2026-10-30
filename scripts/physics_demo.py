@@ -69,7 +69,9 @@ def main():
     out = args.out or args.run / "physics_demo.mp4"
     writer = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"avc1"), FPS, (W, H))
     unit = "N m" if info["type"] == "revolute" else "N"
-    titles = [f"joint friction measured from the video: {info['friction']:.3f} {unit}", "no joint friction"]
+    provenance = args.run / "physics_input_provenance.json"
+    label = "estimated joint friction" if provenance.exists() else "joint friction measured from the video"
+    titles = [f"{label}: {info['friction']:.3f} {unit}", "no joint friction"]
     steps = int(round(1 / FPS / model.opt.timestep))
     for frame in range(int(SECONDS * FPS)):
         halves = []

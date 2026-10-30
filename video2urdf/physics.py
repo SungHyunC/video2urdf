@@ -293,7 +293,7 @@ def apply(track_dir: Path, parts: dict[str, dict], released: dict[str, list[tupl
         report["joints"][name] = info
     (track_dir / "physics.json").write_text(json.dumps(report, indent=2))
     for l, r in report["links"].items():
-        log(f"{l}: {r['material']}, {r['mass_kg']:.3f} kg over {r['solid_volume_l']:.3f} l of measured solid "
+        log(f"{l}: {r['material']}, {r['mass_kg']:.3f} kg over {r['solid_volume_l']:.3f} l of solid geometry "
             f"({r['implied_density_kg_m3']} kg/m^3)")
     for name, info in report["joints"].items():
         if info.get("friction_measured"):

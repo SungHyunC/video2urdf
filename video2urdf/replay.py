@@ -100,7 +100,7 @@ def _hold_poses(poses: np.ndarray) -> np.ndarray:
 
 def replay3d(model_xml: Path, cam_to_world: np.ndarray, intr, joint_q: dict[str, np.ndarray],
              masks: dict[str, dict[int, Detection]], video: Path, out_video: Path,
-             only_when: dict | None = None) -> dict[str, np.ndarray]:
+             only_when: dict | None = None, *, experimental: bool = False) -> dict[str, np.ndarray]:
     """Render a 3D model from the phone's own camera pose on every frame, over the video.
 
     ``cam_to_world`` (n, 4, 4) maps camera coordinates (x right, y down, z forward) to the
@@ -131,7 +131,7 @@ def replay3d(model_xml: Path, cam_to_world: np.ndarray, intr, joint_q: dict[str,
     cover = {b: np.full(n, np.nan) for b in masks}
     writer = cv2.VideoWriter(str(out_video), cv2.VideoWriter_fourcc(*"avc1"), cap.get(cv2.CAP_PROP_FPS) or 30, (w, h))
     flip = np.diag([1.0, -1.0, -1.0])  # camera axes: OpenCV -> MuJoCo (y up, looking along -z)
-    plot = _plot(model, joint_q, n, w, h)
+    plot = _plot(model, joint_q, n, w, h, experimental=experimental)
     for t in range(n):
         ok, img = cap.read()
         if not ok:
@@ -159,7 +159,7 @@ def replay3d(model_xml: Path, cam_to_world: np.ndarray, intr, joint_q: dict[str,
             cv2.drawContours(img, contours, -1, color.tolist(), 3)
         img = _inset(img, plot, t, n, [f"{b} covers {100 * cover[b][t]:.0f}% of its mask" for b in body_ids
                                        if not np.isnan(cover[b][t])])
-        label = "MuJoCo replay of the depth-measured model  " + "  ".join(
+        label = ("Experimental aligned visual  " if experimental else "MuJoCo replay of the depth-based model  ") + "  ".join(
             f"{j} {np.rad2deg(q[t]):.0f} deg" if model.jnt_type[model.joint(j).id] == mujoco.mjtJoint.mjJNT_HINGE
             else f"{j} {1000 * q[t]:.0f} mm" for j, q in qs.items()) + ("  (interpolated)" if gaps[t] else "")
         k = w / 1920  # text scales with the frame
@@ -171,7 +171,7 @@ def replay3d(model_xml: Path, cam_to_world: np.ndarray, intr, joint_q: dict[str,
     return cover
 
 
-def _plot(model, joint_q: dict[str, np.ndarray], n: int, w: int, h: int) -> dict:
+def _plot(model, joint_q: dict[str, np.ndarray], n: int, w: int, h: int, *, experimental: bool = False) -> dict:
     """The measured joint values over the whole video, drawn once (deg or mm)."""
     pw, ph = int(0.36 * w), int(0.2 * h)
     pad = int(0.012 * w)
@@ -190,7 +190,8 @@ def _plot(model, joint_q: dict[str, np.ndarray], n: int, w: int, h: int) -> dict
         for t in np.flatnonzero(~np.isnan(v)):
             cv2.circle(img, (int(xs(t)), int(ys(v[t]))), max(1, w // 960), color, -1)
     k = w / 1920
-    cv2.putText(img, f"measured from the video: {lo:.0f}..{hi:.0f} {curves[0][2] if curves else ''}",
+    label = 'experimental adjusted trajectory' if experimental else 'video-derived trajectory'
+    cv2.putText(img, f"{label}: {lo:.0f}..{hi:.0f} {curves[0][2] if curves else ''}",
                 (pad, int(2.2 * pad)), cv2.FONT_HERSHEY_SIMPLEX, 0.8 * k, (60, 60, 60), max(1, int(2 * k)))
     return {"img": img, "xs": xs, "ys": ys, "curves": curves}
 

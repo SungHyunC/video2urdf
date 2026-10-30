@@ -28,7 +28,48 @@ MAX_CELL = 1024  # px, a face's longest side in the atlas
 PX_PER_M = 4000  # texture resolution (0.25 mm per px) unless the face is too big for MAX_CELL
 ATLAS_W = 4096
 MASK_DILATE = 12  # px: SAM masks hug the outline; a face's edge may sit just outside
-MIN_SEEN = 0.6  # of a face's sample points visible on a frame (a big face is often partly hidden)
+MIN_SEEN = 0.4  # minimum visible sample fraction; occluded pixels are excluded before painting
+
+
+def depth_visible(point_depth, rendered_depth):
+    """Check that a projected sample is on the rendered front surface, in metres."""
+    point_depth = np.asarray(point_depth)
+    rendered_depth = np.asarray(rendered_depth)
+    # The visibility buffer is downsampled; nearby pixels on oblique faces can
+    # differ by several millimetres even when the surface is genuinely visible.
+    tolerance = np.maximum(.015, .01 * point_depth)
+    return ((point_depth > 0) & np.isfinite(rendered_depth)
+            & (np.abs(point_depth - rendered_depth) <= tolerance))
+
+
+def lid_mask_on_open_frame(candidate, base_mask):
+    """Exclude visible base pixels from a potentially mixed lid mask."""
+    return candidate & ~base_mask
+
+
+def texture_link_mask(bname, t, tracks, shows, roles, w, h):
+    """Use the same filtered observed pixels for frame selection and painting."""
+    mask = np.zeros((h, w), np.uint8)
+    for part in shows.get(bname, []):
+        detection = tracks.get(part, {}).get(t)
+        if detection is None:
+            continue
+        candidate = detection.full_mask(h, w)
+        indicator = tracks.get(roles.get("open_indicator"), {}).get(t)
+        base = tracks.get(roles.get("base"), {}).get(t)
+        if bname == "lid" and base is not None and candidate.any():
+            base_mask = base.full_mask(h, w)
+            plate = tracks.get(roles.get("plate"), {}).get(t)
+            same_surface = False
+            if plate is not None:
+                plate_mask = plate.full_mask(h, w)
+                union = (plate_mask | base_mask).sum()
+                same_surface = bool(union and (plate_mask & base_mask).sum() > .8 * union)
+            if (indicator is not None and indicator.usable(w, h)) or same_surface:
+                candidate = lid_mask_on_open_frame(candidate, base_mask)
+        mask |= candidate.astype(np.uint8)
+    return mask
+
 MIN_FACE_M = 0.01  # faces thinner than this (a lid's edge) take the link's colour: a mm off shows the floor
 
 
@@ -57,6 +98,13 @@ def planar_faces(tris: np.ndarray) -> list[np.ndarray]:
 
 def link_masks(track_dir: Path) -> dict[str, list[str]]:
     """Which tracked parts show each link: from roles.json (a hinged plate) or drawers.json."""
+    if (track_dir / 'joints.json').exists() and not (track_dir / 'roles.json').exists():
+        from .pipeline import slug
+        parts = json.loads((track_dir / 'parts.json').read_text())
+        return {slug(v.get('name') or v.get('prompt', '')): [slug(v.get('name') or v.get('prompt', ''))]
+                for v in parts.values()}
+    if (track_dir / "static.json").exists():
+        return {"base": [json.loads((track_dir / "static.json").read_text())["part"]]}
     if (track_dir / "drawers.json").exists():
         d = json.loads((track_dir / "drawers.json").read_text())
         out = {"base": list(d["base"])}
@@ -64,12 +112,23 @@ def link_masks(track_dir: Path) -> dict[str, list[str]]:
             out[f"drawer{i + 1}"] = [part]
         return out
     r = json.loads((track_dir / "roles.json").read_text())
+    if (track_dir / "slide.json").exists():
+        return {"base": [r["base"]], "drawer": [r["plate"]]}
     # the open indicator (a keyboard) is part of the base, seen only while the lid is up
     return {"base": [p for p in (r["base"], r.get("open_indicator")) if p],
             "lid": [p for p in (r["plate"], r.get("plate_closed")) if p and p != r["base"]]}
 
 
-def texture_model(track_dir: Path, video: Path, log=print) -> dict:
+def mask_rectified_cell(cell: np.ndarray, inside: np.ndarray) -> np.ndarray | None:
+    """Keep observed pixels and fill outside the part with their median colour."""
+    if np.count_nonzero(inside) < 5:
+        return None
+    cell = cell.copy()
+    cell[~inside] = np.median(cell[inside], axis=0)
+    return cell
+
+
+def texture_model(track_dir: Path, video: Path, log=print, appearance: dict | None = None) -> dict:
     cams = np.load(track_dir / "replay3d.npz")
     cam_to_world = cams["cam_to_world"]
     f, cx, cy = float(cams["f"]), float(cams["cx"]), float(cams["cy"])
@@ -82,13 +141,18 @@ def texture_model(track_dir: Path, video: Path, log=print) -> dict:
     n = min(n, len(cam_to_world))
     names, tracks = load_parts(track_dir)
     shows = link_masks(track_dir)
+    roles_path = track_dir / "roles.json"
+    roles = json.loads(roles_path.read_text()) if roles_path.exists() else {}
 
     # Mesh geoms by asset file; the file's coordinates are the body's frame (emit/emit3d put no pose on geoms).
     root = ET.parse(src).getroot()
+    previous_files = {m.get("name"): m.get("file") for m in root.iter("mesh")}
     files = {m.get("name"): m.get("file").replace("_tex.obj", ".stl") for m in root.iter("mesh")}  # again: from the STL
     geoms = []  # (geom id, body id, body name, mesh name, triangles in body frame, faces)
     for g in range(model.ngeom):
         if model.geom_type[g] != mujoco.mjtGeom.mjGEOM_MESH:
+            continue
+        if model.geom_group[g] == 3:  # measured collision geometry, hidden under inferred visuals
             continue
         mesh = model.mesh(model.geom_dataid[g]).name
         if not files.get(mesh, "").endswith(".stl"):
@@ -140,14 +204,16 @@ def texture_model(track_dir: Path, video: Path, log=print) -> dict:
         pose(t)
         renderer.update_scene(data, camera="video")
         seg = renderer.render()
+        renderer.disable_segmentation_rendering()
+        renderer.enable_depth_rendering()
+        rendered_depth = renderer.render()
+        renderer.disable_depth_rendering()
+        renderer.enable_segmentation_rendering()
         gid = np.where(seg[..., 1] == int(mujoco.mjtObj.mjOBJ_GEOM), seg[..., 0], -1)
         masks = {}
         for gi, (g, body, bname, mesh, tris, faces) in enumerate(geoms):
             if bname not in masks:
-                m = np.zeros((h, w), np.uint8)
-                for part in shows.get(bname, []):
-                    if t in tracks.get(part, {}):
-                        m |= tracks[part][t].full_mask(h, w).astype(np.uint8)
+                m = texture_link_mask(bname, t, tracks, shows, roles, w, h)
                 masks[bname] = cv2.dilate(m, kernel) > 0
             mask = masks[bname]
             if not mask.any():
@@ -162,7 +228,8 @@ def texture_model(track_dir: Path, video: Path, log=print) -> dict:
                     continue
                 ui, vi = np.clip(uv[:, 0], 0, w - 1).astype(int), np.clip(uv[:, 1], 0, h - 1).astype(int)
                 si, sj = np.minimum((vi * SEG_SCALE).astype(int), sh - 1), np.minimum((ui * SEG_SCALE).astype(int), sw - 1)
-                seen = (gid[si, sj] == g) & mask[vi, ui] & inside
+                seen = ((gid[si, sj] == g) & mask[vi, ui] & inside
+                        & depth_visible(z, rendered_depth[si, sj]))
                 if seen.mean() < MIN_SEEN:
                     continue
                 tri_uv = uv.reshape(len(face), 7, 2)[:, :3]
@@ -175,12 +242,14 @@ def texture_model(track_dir: Path, video: Path, log=print) -> dict:
                 area *= abs(fn @ view) / (np.linalg.norm(fn) * np.linalg.norm(view) + 1e-12) * seen.mean() ** 2
                 if area > best.get((gi, fi), (0, -1))[0]:
                     best[(gi, fi)] = (area, int(t))
-    renderer.close()
-
     # Atlas: each seen face rectified to a front view (a homography from its best frame), at
     # PX_PER_M but at most MAX_CELL px, so oblique views aren't skewed.
     cells = []  # (gi, fi, frame, in-plane coords of its corners (3T, 2), lo, k, cw, ch, basis)
-    for (gi, fi), (_, t) in sorted(best.items(), key=lambda kv: kv[1][1]):
+    choices = [(key, value[1]) for key, value in sorted(best.items(), key=lambda kv: kv[1][1])]
+    if appearance:
+        choices += [((gi, fi), None) for gi, (_, _, _, _, _, faces) in enumerate(geoms)
+                    for fi in range(len(faces)) if (gi, fi) not in best and (gi, fi) not in thin]
+    for (gi, fi), t in choices:
         g, body, bname, mesh, tris, faces = geoms[gi]
         pts = tris[faces[fi]].reshape(-1, 3)
         nrm = np.cross(pts[1] - pts[0], pts[2] - pts[0])
@@ -204,8 +273,10 @@ def texture_model(track_dir: Path, video: Path, log=print) -> dict:
     # one 8x8 patch per mesh along the bottom row, for its faces never seen (filled below)
     cache = {}
     face_uv = {}  # (gi, fi) -> per-triangle-corner uv in atlas pixels
-    for gi, fi, t, ab, lo, k, cw, ch, (e1, e2, d, nrm) in cells:
+    for ci, (gi, fi, t, ab, lo, k, cw, ch, (e1, e2, d, nrm)) in enumerate(cells):
         g, body, bname, mesh, tris, faces = geoms[gi]
+        if t is None:
+            continue  # filled after the observed colours are available
         if t not in cache:
             cache.clear()
             cache[t] = read_frame(video, t)
@@ -219,24 +290,33 @@ def texture_model(track_dir: Path, video: Path, log=print) -> dict:
         cell = cv2.warpPerspective(cache[t], hmg, (cw, ch), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
         # Pixels outside the link's own mask on that frame (floor at a slightly-off edge, a
         # hand) take the face's median colour.
-        own = np.zeros((h, w), np.uint8)
-        for part in shows.get(bname, []):
-            if t in tracks.get(part, {}):
-                own |= tracks[part][t].full_mask(h, w).astype(np.uint8)
+        own = texture_link_mask(bname, t, tracks, shows, roles, w, h)
+        # A SAM mask can include pixels hidden by another modeled link. Keep only
+        # pixels where the selected geom is actually visible in the replay.
+        renderer.update_scene(data, camera="video")
+        seg = renderer.render()
+        visible = (seg[..., 1] == int(mujoco.mjtObj.mjOBJ_GEOM)) & (seg[..., 0] == g)
+        own &= cv2.resize(visible.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
         inside = cv2.warpPerspective(own, hmg, (cw, ch), flags=cv2.INTER_NEAREST) > 0
-        if inside.mean() > 0.2:
-            cell[~inside] = np.median(cell[inside], axis=0)
+        cell = mask_rectified_cell(cell, inside)
+        if cell is None:
+            # The coarse visibility test can pass while the rectified mask has
+            # almost no source pixels. Do not label background as observed.
+            best.pop((gi, fi), None)
+            cells[ci] = (gi, fi, None, ab, lo, k, cw, ch, (e1, e2, d, nrm))
+            continue
         atlas[ay: ay + ch, ax: ax + cw] = cell
         face_uv[(gi, fi)] = (ab - lo) * k + np.array([ax, ay])
+    renderer.close()
 
     # One textured OBJ per mesh asset, all on one atlas; faces never seen take the link's colour.
-    done, out = {}, {"meshes": {}}
+    done, out = {}, {"meshes": {}, "appearance": appearance}
     mesh_dir = track_dir / Path(files[geoms[0][3]]).parent if geoms else track_dir
     for gi, (g, body, bname, mesh, tris, faces) in enumerate(geoms):
         if mesh in done:
             continue
         fill = (ATLAS_W - 8 * (gi + 1), atlas_h - 8)
-        seen = [(gi, fi) for fi in range(len(faces)) if (gi, fi) in face_uv]
+        seen = [(gi, fi) for fi in range(len(faces)) if (gi, fi) in best]
         if seen:  # the link's colour: the median of its largest painted face
             k = max(seen, key=lambda k: np.ptp(face_uv[k], axis=0).prod())
             (x0, y0), (x1, y1) = face_uv[k].min(axis=0).astype(int), face_uv[k].max(axis=0).astype(int)
@@ -244,6 +324,28 @@ def texture_model(track_dir: Path, video: Path, log=print) -> dict:
         else:
             rgba = model.geom_rgba[g]
             mean = np.array([rgba[2], rgba[1], rgba[0]]) * 255
+            # An already textured model has white geom colour. Preserve its previous
+            # atlas colour for completely unobserved meshes rather than inventing white.
+            previous = track_dir / previous_files.get(mesh, "")
+            old_atlas = cv2.imread(str(previous.parent / "video_tex.png")) if previous.suffix == ".obj" else None
+            if old_atlas is not None and previous.exists():
+                uv = [line.split()[1:3] for line in previous.read_text().splitlines() if line.startswith("vt ")]
+                if uv:
+                    uv = np.asarray(uv, dtype=float)
+                    xx = np.clip((uv[:, 0] * old_atlas.shape[1]).astype(int), 0, old_atlas.shape[1] - 1)
+                    yy = np.clip(((1 - uv[:, 1]) * old_atlas.shape[0]).astype(int), 0, old_atlas.shape[0] - 1)
+                    mean = np.median(old_atlas[yy, xx], axis=0)
+        inferred = []
+        if appearance:
+            material = appearance.get("links", {}).get(bname, {}).get("material", "unknown")
+            for c in cells:
+                g_i, fi, t, ab, lo, k, cw, ch, _ = c
+                if g_i != gi or t is not None:
+                    continue
+                ax, ay = place[(gi, fi)]
+                atlas[ay:ay + ch, ax:ax + cw] = inferred_surface(mean, material, cw, ch, gi * 1000 + fi)
+                face_uv[(gi, fi)] = (ab - lo) * k + np.array([ax, ay])
+                inferred.append(fi)
         stem = Path(files[mesh]).stem + "_tex"
         lines = ["mtllib video_tex.mtl", "usemtl video_tex"]
         vt = []
@@ -266,6 +368,7 @@ def texture_model(track_dir: Path, video: Path, log=print) -> dict:
         done[mesh] = str(Path(files[mesh]).parent / f"{stem}.obj")
         out["meshes"][mesh] = {"faces_seen": len(seen), "faces": len(faces),
                                "frames": sorted({best[k][1] for k in seen}),
+                               "inferred_faces": inferred,
                                "by_face": {int(fi): {"frame": best[(gi, fi)][1], "triangles": len(faces[fi])}
                                            for _, fi in seen}}
         log(f"{mesh}: {len(seen)}/{len(faces)} faces painted from frames {out['meshes'][mesh]['frames']}")
@@ -284,6 +387,29 @@ def texture_model(track_dir: Path, video: Path, log=print) -> dict:
         _switch_urdf(path, {files[m]: f for m, f in done.items()})
     (track_dir / "texture.json").write_text(json.dumps(out, indent=2))
     return out
+
+
+def inferred_surface(bgr, material: str, width: int, height: int, seed: int) -> np.ndarray:
+    """A restrained procedural material; it is a guess, never evidence of hidden detail."""
+    rng = np.random.default_rng(seed)
+    material = material.lower()
+    if material == "wood":
+        x = np.arange(width, dtype=float)
+        grain = 4 * np.sin(x * 0.10 + 1.3 * np.sin(x * 0.017)) + 2 * np.sin(x * 0.27)
+        noise = np.tile(grain, (height, 1)) + rng.normal(0, 0.6, (height, width))
+    elif material == "metal":
+        grain = rng.normal(0, 1.0, width)
+        noise = np.tile(grain, (height, 1))
+    elif material in ("plastic", "glass"):
+        noise = rng.normal(0, 0.5, (height, width))
+    elif material == "paper":
+        noise = rng.normal(0, 0.8, (height, width))
+    elif material == "fabric":
+        noise = rng.normal(0, 1.0, (height, width))
+        noise += np.sin(np.arange(width)[None, :] * 1.1) * .7
+    else:
+        noise = np.zeros((height, width))
+    return np.clip(np.asarray(bgr)[None, None, :] + noise[:, :, None], 0, 255).astype(np.uint8)
 
 
 def _switch_mjcf(path: Path, done: dict[str, str]):
