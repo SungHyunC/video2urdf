@@ -104,6 +104,7 @@
   <p class="facts" id="appearance" hidden></p>
   <p class="facts" id="quality" hidden></p>
   <p class="facts" id="physics" hidden></p>
+  <p class="facts" id="provenance" hidden></p>
   <details id="reportBox" hidden><summary>Muse Spark agent report</summary><pre id="report"></pre></details>
   <details id="traceBox" hidden><summary>How the Meta models built this model, turn by turn</summary>
     <div class="seg" id="traceTabs"></div>
@@ -382,6 +383,8 @@ async function load(entry) {
   $("quality").textContent = spec.quality ? spec.quality.warnings.join(" ") : "";
   $("physics").hidden = !spec.physics;
   $("physics").textContent = spec.physics ? physicsFacts(spec.physics, spec.physics_input_provenance) : "";
+  $("provenance").hidden = !spec.provenance;
+  $("provenance").textContent = spec.provenance ? `Provenance: ${spec.provenance}` : "";
   showTraces(spec, base);
   $("reportBox").hidden = !spec.agent_report;
   $("report").textContent = spec.agent_report || "";

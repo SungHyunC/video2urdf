@@ -49,13 +49,13 @@ Spark Open and SAM weights, `--glimmer` on Muse Glimmer 30B served by us.
 
 | Measured | Result | vs |
 |---|---|---|
-| RBO benchmark: 13 real RGB-D videos with motion capture, agent from scratch | hinge axis 2.5 deg, angle 3.3 deg (median); laptops 0.9-2.2 deg | motion capture |
+| RBO benchmark: 13 real RGB-D videos with motion capture, agent from scratch | laptops and books (7): axis 2.2 deg, angle 2.0 deg (medians); box lids (6): axis 5.5 deg but angle 37 deg, SAM loses the lid; 2,040 of 3,046 frames measured | motion capture |
 | Desk lamp seen obliquely, 2 hinges (synthetic, `fit_chain`) | axis 0.4 / 4.8 deg, angle 0.06 / 1.1 deg mean | ground truth |
 | 13" MacBook Pro, iPhone LiDAR | lid 309 x 205 mm; the model covers 95% / 94% of the video's masks | spec 304 x 212 |
-| Black mouse, phone circling it | 121 x 75 x 55 mm; SAM 3D mesh 0.5 mm (median) from the measured depth | spec 125 x 84 x 51 |
+| Black mouse, phone circling it | 121 x 75 x 55 mm; the depth points seen on one frame lie 0.5 mm (median) from the SAM 3D mesh | spec 125 x 84 x 51 |
 | Office drawer, iPhone LiDAR | pulls out 248 mm | hand fit 253 |
-| LED desk lamp, iPhone LiDAR, 2 rods | Spark judged the pole fixed, arm 2..89 deg | video |
-| Shape design, three Meta models per round | lamp 0.61 (best single) -> 0.66 mask F-score | measured meshes 0.66 |
+| LED desk lamp, iPhone LiDAR, 2 rods | Spark judged the pole's motion depth noise; refit with it fixed (our step): arm 380 mm, 2..89 deg | video |
+| Shape design, three Meta models per round | lamp: best of three 0.62 / 0.63 per round, Muse Spark alone 0.60 / 0.62 (mask F-score) | measured meshes 0.69 |
 | Robot tasks on the measured models | 6 of 6: lids closed and reopened, drawer out 213 mm and back, lamp arms swung, mouse carried and turned | joint values reached in physics |
 | SAM tracking, 1385 frames, 4 parts | 520 s -> 285 s, masks IoU 0.97-0.995 | previous pipeline |
 | Scale for plain video | card x0.75 (8 frames agree); object's usual size x1.01 | expected 1.0 |
@@ -120,9 +120,10 @@ weights is one flag.
 ### Real objects, filmed for this project
 
 - **13" MacBook Pro, iPhone LiDAR, no card**, agent from scratch: lid 309 x 205 mm (spec
-  304 x 212), base 14 mm, lid 3.8 mm, opening about 0..110 deg, hinge drawn on the real hinge;
+  304 x 212), base 14 mm, lid 3.8 mm, opening 0..117 deg, hinge drawn on the real hinge;
   the replayed model covers 95% (lid) and 94% (base) of SAM's masks over the 923 frames, while
-  the phone moves. The Panda then closes it to within 1 deg of its measured limit.
+  the phone moves. The Panda then closes it to within 1 deg of its measured limit. (These are the
+  agent's tracks refit with the later fit_lidar; the agent's own fit that day read 304 x 215 mm.)
 - **Office pedestal drawer, iPhone LiDAR**, agent from scratch: it finds which of three
   look-alike drawers moves (the tool warns when a "fixed" part stands out like a drawer),
   measures how far the drawer's front stands out of the cabinet's front in every frame (camera
@@ -221,7 +222,7 @@ SAM masks (F-score counting pixels within 1% of the frame, fair to thin parts); 
 overlay, three views of its design over the measured meshes and the per-axis size differences,
 and revises (up to 3 rounds). Each round three Meta models answer in parallel (Muse Spark on the
 Meta API, Muse Spark Open on Baseten and on Fireworks) and the design that scores best over the
-video carries on: on the LiDAR lamp the best single-model design scored 0.61, the three together 0.66. The best design becomes the visual if it scores within 0.10 of the
+video carries on: on the LiDAR lamp Muse Spark alone scored 0.60 and 0.62 in the two rounds, the best of the three 0.62 and 0.63. The best design becomes the visual if it scores within 0.10 of the
 measured meshes and Spark judges the measurement consistent with the object; collisions,
 joints and physics stay measured (MJCF group 3 / URDF `<collision>`).
 `design/log.md` keeps every overlay Spark saw.
@@ -230,7 +231,7 @@ joints and physics stay measured (MJCF group 3 / URDF `<collision>`).
 |---|---|---|---|
 | iPhone LiDAR laptop | Apple MacBook laptop (silver): body, lid, display, keyboard, trackpad, hinge barrel, logo | 7 | 0.88 / 0.89 |
 | iPhone LiDAR drawer | light beech office pedestal cabinet with three drawers: carcass, fronts, handles, lock | 13 | 0.50 / 0.49 |
-| iPhone LiDAR desk lamp (new, 10/30) | LED desk/task lamp: base with control panel, pole, LED bar arm, pivots | 12 | 0.66 / 0.66 |
+| iPhone LiDAR desk lamp (new, 10/30) | LED desk/task lamp: base with control panel, pole, LED bar arm, pivots | 12 | 0.62 / 0.69 (the thin arm: 0.39 / 0.42) |
 | iPhone LiDAR mouse (new, 10/30) | ergonomic wireless mouse, Logitech MX Master style (shown: SAM 3D's mesh, see below) | 8 | 0.89 / 0.94 |
 | 2D lamp video (`stand_2`) | white foldable LED desk lamp: base with control panel, pole, LED housing and diffuser, pivots | 11 | 0.70 / 0.71 |
 
@@ -252,16 +253,21 @@ applied; it also flags a scale far from the object's usual size.
   wall behind its edge dropped) gets a 3D line, held in the plane its image centre line spans; a
   hinge is the plane the rod's direction turns in, at the rod's near end, and a child rod is
   measured after undoing its parent's turn. Synthetic oblique lamp: axis 0.4 / 4.8 deg, angle
-  0.06 / 1.1 deg mean. Real lamp (1385 frames, Spark chose `fit_chain` itself): pole 294 mm, arm
-  370 mm, elbow 0..77 deg folded to open; the replay covers 75% of the pole's masks.
+  0.06 / 1.1 deg mean. Real lamp (1385 frames, Spark chose `fit_chain` itself): Spark fit both
+  rods as hinges (pole 294 mm, arm 370 mm, elbow -8..77 deg) and reported the pole's motion as depth
+  noise, to be treated as fixed. We refit the same tracks with the pole fixed (`fixed=rod1`, our
+  step, not the agent's): pole 351 mm, arm 380 mm, 2..89 deg; the replay covers 63% / 76% / 31% of
+  the base's, pole's and arm's masks.
 - **A black mouse the phone circled** (`fit_static`). Its few confident depth points made a
   59 x 27 x 25 mm box. When the phone went more than 60 deg around, the object is now carved
   from 48 views' masks (a visual hull) and capped at the depth-measured top: 121 x 75 x 55 mm
   (MX Master 3S: 125 x 84 x 51), covering 88% of its masks. Spark judged 0.14 kg (spec 141 g).
 - **SAM 3D Objects on any fitted model**: placed by the replay's camera poses and joint values,
   and for static objects and rod chains judged like the shape design (over the video, within 0.10
-  of the measured meshes) plus the depth check. The mouse's mesh: measured points 0.5 mm from it
-  (median), mask F-score 0.89 vs 0.94; it is the mouse's visual in the viewer.
+  of the measured meshes) plus the depth check. The mouse's mesh: the depth points seen on its
+  frame lie 0.5 mm from it (median; one direction only: the mesh's unseen side is generated, and
+  its points lie 32 mm from those depth points, median), mask F-score 0.89 vs 0.94; it is the
+  mouse's visual in the viewer.
 
 ### The robot works the object: grasp, open, close, carry
 
