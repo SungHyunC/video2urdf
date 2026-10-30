@@ -51,7 +51,7 @@ Two capture paths:
 
 | Model | Where | Role |
 |---|---|---|
-| **Muse Spark** (`muse-spark-1.3-contributor`, Meta Model API) | `video2urdf/agent.py`, `scripts/add_physics.py` | The agent: watches the whole video (mp4 input), looks at frames, chooses noun prompts for SAM, picks the parts' roles, calls track / fit / fit_lidar, watches the replay (the model drawn over the video) to judge the fit over time, refits, then judges each link's material and mass and finds when a part stood still with no hand on it (`set_physics`), and writes the report. Chat Completions with tool calls, images, video and structured output. |
+| **Muse Spark** (`muse-spark-1.3-contributor`, Meta Model API) | `video2urdf/agent.py`, `scripts/add_physics.py` | The agent: watches the whole video (mp4 input), looks at frames, chooses noun prompts for SAM, picks the parts' roles, calls track / fit / fit_lidar, watches the replay (the model drawn over the video) to judge the fit over time, refits, then judges each link's material and mass and finds when a part stood still with no hand on it (`set_physics`), and writes the report. After the fit it names the object and designs its clean visual from primitives, checking each design over the video (`video2urdf/designer.py`). Chat Completions with tool calls, images, video and structured output. |
 | **SAM 3.1** (`sam-3.1`, Meta Model API) | `video2urdf/sam.py`, `scripts/track_video.py` | Concept prompts on key frames find each part; one box-anchored video request tracks all parts with stable IDs. |
 | **Muse Spark Open** (open weights, Baseten) | `run_agent.py --open-weights` | The same agent on open weights (it takes video too). |
 | **Muse Glimmer 30B** (open weights `meta-models/Muse-Glimmer-30B`, our own Modal Dedicated Endpoint, SGLang) | `run_agent.py --glimmer` | The same agent on a 30B dense open model we serve ourselves: tool calls and images (the endpoint drops video, so it works from frames). |
@@ -156,6 +156,37 @@ taken modulo 360 deg. Per-sequence results: `scripts/rbo_bench.py` writes `data/
   no hand on it (released in MuJoCo: 0.1 deg). Its base candidate was the whole laptop, so the
   base replay is low (5%), which its report notes. A first try spent all its turns collecting
   candidates; the turn note now says to track once half the budget is gone.
+
+### The model looks like the object: Spark designs it, the video checks it
+
+The measured meshes have the right sizes but read as blobs: silhouettes voted over the video,
+or depth points. After the fit, Muse Spark watches the video, names the object and each link's
+real part, and rebuilds every link from a few primitives (boxes, rounded boxes, cylinders,
+spheres, bars) in that link's frame, sized from the measured extents; sides the camera never
+saw get proportions typical for that object, listed as assumptions. Every design is rendered
+from the recorded camera at the recorded joint values over the video and scored against the
+SAM masks (F-score counting pixels within 1% of the frame, fair to thin parts); Spark sees that
+overlay, three views of its design over the measured meshes and the per-axis size differences,
+and revises (up to 3 rounds). The best design becomes the visual if it scores within 0.10 of the
+measured meshes and Spark judges the measurement consistent with the object; collisions,
+joints and physics stay measured (MJCF group 3 / URDF `<collision>`).
+`design/log.md` keeps every overlay Spark saw.
+
+| Capture | Spark's identification | Primitives | Score: design / measured |
+|---|---|---|---|
+| iPhone LiDAR laptop | Apple MacBook laptop (silver): body, lid, display, keyboard, trackpad, hinge barrel, logo | 7 | 0.88 / 0.89 |
+| iPhone LiDAR drawer | light beech office pedestal cabinet with three drawers: carcass, fronts, handles, lock | 13 | 0.50 / 0.49 |
+| 2D lamp video (`stand_2`) | white foldable LED desk lamp: base with control panel, pole, LED housing and diffuser, pivots | 11 | 0.70 / 0.71 |
+
+Round 2 on the lamp: Spark saw its first arms were too thick against the masks and thinned
+them (0.66 -> 0.70). When the measurement itself is wrong (an RGB-only capture without a
+reference whose fitted box is a 2.6 m slab lying flat) Spark says so, and the design is not
+applied; it also flags a scale far from the object's usual size.
+
+```bash
+.venv/bin/python scripts/design_shape.py data/tracks/my_video my_video.mov   # run_agent.py does this by default
+.venv/bin/python scripts/design_shape.py data/tracks/my_video --remove        # back to the measured visuals
+```
 
 ### The model looks like the object: painted with its own video
 
