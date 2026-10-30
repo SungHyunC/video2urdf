@@ -241,6 +241,16 @@ taken modulo 360 deg. Per-sequence results: `scripts/rbo_bench.py` writes `data/
   no hand on it (released in MuJoCo: 0.1 deg). Its base candidate was the whole laptop, so the
   base replay is low (5%), which its report notes. A first try spent all its turns collecting
   candidates; the turn note now says to track once half the budget is gone.
+- **Muse Glimmer on the newer captures** (10/31, same setup, one run each): the mouse
+  `checks_passed`, 121.5 x 75.1 x 54.5 mm (the Meta API run: 121.3 x 75.2 x 54.7); the drawer
+  `needs_review`: it took all three fronts as moving drawers, so two barely move and the replay
+  covers 12% / 0% / 0%, which its report says plainly; the desk lamp came out `checks_passed` but
+  with the fixed pole fit as a joint and the rods' replay covering 18% / 22%: the rod-chain fit
+  doesn't yet warn about low coverage, so the automatic checks passed it.
+- **The RBO benchmark on open weights only** (10/31, Muse Spark Open + SAM weights, one run per
+  sequence): laptops and books 7 of 7, hinge axis 2.8 deg and angle 3.9 deg (medians; the Meta
+  API run: 2.2 / 2.0 deg); box lids 3 of 6 produced no model and the other 3 are poor, as on the
+  Meta API. `scripts/rbo_bench.py --open-weights` keeps these runs apart from the Meta API ones.
 
 ### The model looks like the object: Spark designs it, the video checks it
 
