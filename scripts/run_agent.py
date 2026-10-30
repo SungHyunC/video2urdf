@@ -71,6 +71,8 @@ def main():
     ap.add_argument("--sam3d", action="store_true", help="generate depth-checked SAM 3D visuals after appearance completion")
     ap.add_argument("--sam3d-retries", type=int, default=0, help="retry failed SAM 3D links on other frames (0–4)")
     ap.add_argument("--sam3d-video-texture", action="store_true", help="experimentally transfer observed textures to accepted SAM 3D visuals")
+    ap.add_argument("--no-design", action="store_true",
+                    help="skip the shape design step (Spark rebuilds each link as clean primitives, checked on the video)")
     args = ap.parse_args()
     if args.sam3d_retries < 0 or args.sam3d_retries > 4 or (args.sam3d_retries and not args.sam3d):
         ap.error("--sam3d-retries requires --sam3d and must be 0–4")
@@ -128,6 +130,15 @@ def main():
                 print("SAM 3D failed; keeping the fitted appearance. See the error above and quality.json.", flush=True)
         from video2urdf.assessment import assess
         assess(track_dir)
+    if not args.no_design and agent.last_fit is not None and (track_dir / "model.xml").exists():
+        from video2urdf.designer import design_shape
+        try:
+            result = design_shape(track_dir, video, log=lambda s: print(s, flush=True))
+            print(f"Shape design: {result.get('object')}, {'applied' if result['applied'] else 'not applied'} "
+                  f"(see {track_dir / 'design' / 'log.md'})", flush=True)
+        except Exception as error:  # the measured model stands on its own
+            print(f"Shape design failed ({type(error).__name__}: {error}); keeping the measured visuals.", flush=True)
+
 
 if __name__ == "__main__":
     main()

@@ -180,10 +180,15 @@ async function geomObject(g, base) {
     const geo = await stl.loadAsync(base + g.mesh);
     geo.computeVertexNormals();
     mesh = new THREE.Mesh(geo, mat);
-  } else if (g.type === "box") {
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(2 * g.size[0], 2 * g.size[1], 2 * g.size[2]), mat);
+  } else if (["box", "cylinder", "sphere"].includes(g.type)) {  // primitives (design.py: Spark's clean visual)
+    let geo;
+    if (g.type === "box") geo = new THREE.BoxGeometry(2 * g.size[0], 2 * g.size[1], 2 * g.size[2]);
+    else if (g.type === "sphere") geo = new THREE.SphereGeometry(g.size[0], 32, 16);
+    else geo = new THREE.CylinderGeometry(g.size[0], g.size[0], 2 * g.size[1], 40).rotateX(Math.PI / 2);  // MuJoCo: along z
+    mesh = new THREE.Mesh(geo, mat);
     mesh.position.fromArray(g.pos);
-    if (g.axisangle) mesh.quaternion.setFromAxisAngle(new THREE.Vector3(...g.axisangle.slice(0, 3)).normalize(), g.axisangle[3]);
+    if (g.quat) mesh.quaternion.set(g.quat[1], g.quat[2], g.quat[3], g.quat[0]);  // MuJoCo w x y z
+    else if (g.axisangle) mesh.quaternion.setFromAxisAngle(new THREE.Vector3(...g.axisangle.slice(0, 3)).normalize(), g.axisangle[3]);
   } else {
     return null;
   }
@@ -299,8 +304,16 @@ async function load(entry) {
   const textureMeshes = Object.values(spec.texture?.meshes || {});
   const seenFaces = textureMeshes.reduce((sum, mesh) => sum + (mesh.faces_seen || 0), 0);
   const totalFaces = textureMeshes.reduce((sum, mesh) => sum + (mesh.faces || 0), 0);
+  const design = spec.design?.applied ? spec.design : null;
+  const designNote = design ? `Muse Spark identified a ${design.object} and rebuilt each link from ` +
+    `${design.design.links.reduce((n, l) => n + l.primitives.length, 0)} primitives sized from the measurements ` +
+    `(Realistic); checked over the video against the SAM masks: ${design.score === "f_near" ? "mask F-score" : "score"} ` +
+    `${design.rounds.find((r) => r.round === design.best_round).mean_score.toFixed(2)} vs ${design.measured_mean_score.toFixed(2)} ` +
+    `for the measured meshes (Measured). Collisions, joints and physics are the measured ones.` +
+    (design.warnings?.length ? " " + design.warnings.join(" ") : "") : "";
   const appearanceNotes = [
-    spec.appearance ? `Object identified as ${spec.appearance.object}. Materials and unseen surfaces are estimates.` : "",
+    designNote,
+    !design && spec.appearance ? `Object identified as ${spec.appearance.object}. Materials and unseen surfaces are estimates.` : "",
     spec.shape_inference?.shape || "", spec.measurement_source?.note || "",
     spec.replay_experimental && spec.videos.replay ? "The replay shows the experimental visual and adjusted angles; they are not validated physics." :
       hasCompletedVisual && spec.videos.replay ? "The replay shows the earlier fitted geometry, before visual completion." : "",
@@ -397,10 +410,12 @@ function tick() {
 
 const index = await (await fetch("models/index.json")).json();
 const tabs = $("tabs");
-const titles = { laptop_lidar: "Laptop · iPhone LiDAR · agent", drawer: "Drawer · iPhone LiDAR", notebook: "Laptop · side view", stand: "Monitor stand · side view" };
+const titles = { laptop_lidar: "Laptop · iPhone LiDAR · agent", drawer: "Drawer · iPhone LiDAR", notebook: "Laptop · side view", stand: "Desk lamp · side view" };
+const captures = { laptop_lidar: "iPhone LiDAR", drawer: "iPhone LiDAR", notebook: "side view", stand: "side view" };
 for (const entry of index) {
   const b = document.createElement("button");
-  b.textContent = entry.label || titles[entry.name] || entry.name;
+  const named = entry.label && entry.label[0].toUpperCase() + entry.label.slice(1);  // what Spark identified
+  b.textContent = named ? (captures[entry.name] ? `${named} · ${captures[entry.name]}` : named) : titles[entry.name] || entry.name;
   b.onclick = async () => { for (const x of tabs.children) x.setAttribute("aria-pressed", String(x === b)); await load(entry); };
   tabs.append(b);
 }

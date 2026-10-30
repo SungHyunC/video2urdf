@@ -46,10 +46,10 @@ def body_tree(el: ET.Element) -> dict:
         out["geoms"].append({
             "mesh": g.get("mesh"), "type": g.get("type"), "rgba": floats(g.get("rgba"), [0.7, 0.7, 0.7, 1]),
             "pos": floats(g.get("pos"), [0, 0, 0]), "size": floats(g.get("size"), []),
-            "axisangle": floats(g.get("axisangle"), None),
+            "axisangle": floats(g.get("axisangle"), None), "quat": floats(g.get("quat"), None),
             "material": g.get("material"),  # the video texture (texture.py), resolved in export
             "realistic": ((g.get("mesh") or "").endswith(("_sam3d", "_infer"))
-                          or g.get("name", "").startswith("inferred_")),  # generated visual
+                          or g.get("name", "").startswith(("inferred_", "design_"))),  # generated visual
             "measured": g.get("group") == "3"})  # hidden under a realistic visual in MuJoCo
     return out
 
@@ -206,7 +206,7 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
             "measured": meta, "agent_report": report.read_text() if report.exists() else None,
             "three_d": (run / "model3d.json").exists(), "physics": phys,
             "appearance": read_optional("appearance.json"), "shape_inference": read_optional("shape_inference.json"),
-            "texture": read_optional("texture.json"),
+            "texture": read_optional("texture.json"), "design": read_optional("design.json"),
             "measurement_source": read_optional("measurement_source.json"),
             "experimental_alignment": read_optional("experimental_alignment.json"),
             "experimental_comparison": read_optional("experimental_comparison.json"),
@@ -221,7 +221,7 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
         for p in [dst / "model.urdf", dst / "model.xml", *sorted((dst / "meshes").rglob("*"))]:
             if p.is_file():
                 archive.write(p, p.relative_to(dst))
-        for name_ in ("model3d.json", "static.json", "appearance.json", "shape_inference.json", "texture.json",
+        for name_ in ("model3d.json", "static.json", "appearance.json", "shape_inference.json", "texture.json", "design.json",
                       "measurement_source.json", "sam3d.json", "sam3d_attempts.json", "sam3d_status.json", "quality.json", "physics.json",
                       "track_unions.json", "repair.json", "manual_selection.json", "physics_input_provenance.json", "experimental_alignment.json", "experimental_comparison.json", "experimental_drawer_collision.json", "physics.original.json", "resume.json"):
             p = run / name_
@@ -229,7 +229,8 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
                 archive.write(p, name_)
     size = sum(f.stat().st_size for f in dst.rglob("*") if f.is_file())
     print(f"{name}: {size / 1e6:.1f} MB -> {dst}")
-    label = (spec.get('appearance') or {}).get('object')
+    label = (spec.get('design') or {}).get('object') if (spec.get('design') or {}).get('applied') else None
+    label = label or (spec.get('appearance') or {}).get('object')
     return {"name": name, "path": f"models/{name}/model.json", "three_d": spec["three_d"],
             **({'label': label} if isinstance(label, str) and label.strip() else {})}
 

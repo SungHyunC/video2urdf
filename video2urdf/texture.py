@@ -98,13 +98,13 @@ def planar_faces(tris: np.ndarray) -> list[np.ndarray]:
 
 def link_masks(track_dir: Path) -> dict[str, list[str]]:
     """Which tracked parts show each link: from roles.json (a hinged plate) or drawers.json."""
+    if (track_dir / "static.json").exists():  # before the planar case: a static fit writes an empty joints.json
+        return {"base": [json.loads((track_dir / "static.json").read_text())["part"]]}
     if (track_dir / 'joints.json').exists() and not (track_dir / 'roles.json').exists():
         from .pipeline import slug
         parts = json.loads((track_dir / 'parts.json').read_text())
         return {slug(v.get('name') or v.get('prompt', '')): [slug(v.get('name') or v.get('prompt', ''))]
                 for v in parts.values()}
-    if (track_dir / "static.json").exists():
-        return {"base": [json.loads((track_dir / "static.json").read_text())["part"]]}
     if (track_dir / "drawers.json").exists():
         d = json.loads((track_dir / "drawers.json").read_text())
         out = {"base": list(d["base"])}
