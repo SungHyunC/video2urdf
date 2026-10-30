@@ -164,22 +164,28 @@ def design_shape(track_dir: Path, video: Path, rounds: int = ROUNDS, log=print, 
           "![measured](measured_overlay.jpg)\n", "![views](measured_views.png)\n"]
     for k in range(1, rounds + 1):
         _cap_images(messages)
-        text = ""
+        text, failures = "", []
         for attempt in range(3):
             try:
-                resp = client.chat.completions.create(model=MODEL, messages=messages, max_tokens=12000,
+                resp = client.chat.completions.create(model=MODEL, messages=messages, max_tokens=16000,
                                                       response_format={"type": "json_object"})
                 text = resp.choices[0].message.content or ""
+                finish = resp.choices[0].finish_reason
                 design = _parse(text)
                 problems = D.validate_design(design, links)
                 break
             except (ValueError, json.JSONDecodeError) as e:
                 design, problems = None, [f"unreadable answer: {e}"]
+                failures.append(f"attempt {attempt + 1}: {e} (finish_reason {finish}, {len(text)} chars: {text[:200]!r})")
                 messages += [{"role": "assistant", "content": text or "(empty)"},
-                             {"role": "user", "content": f"That was not a valid JSON object ({e}). Answer with the JSON object only."}]
+                             {"role": "user", "content": f"That was not a valid JSON object ({e}). Answer with one short, "
+                              "complete JSON object only: at most 6 primitives per link, numbers rounded to 1 mm."}]
         if design is None:
-            log(f"round {k}: no usable answer")
-            break
+            log(f"round {k}: no usable answer: " + " | ".join(failures))
+            md.append(f"\n## Round {k}: no usable answer\n\n" + "\n".join(f"- {f}" for f in failures) + "\n")
+            if history:
+                break
+            continue
         messages.append({"role": "assistant", "content": json.dumps(design)})
         if problems:
             log(f"round {k}: problems {problems}")
