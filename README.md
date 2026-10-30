@@ -17,6 +17,49 @@ repository was written during the hackathon; see [Built on](#built-on) for what 
 **Live viewer:** https://sunghyunc.github.io/video2urdf/ (the phone video, the MuJoCo replay over it,
 the robot demo, and the measured model in 3D with its URDF/MJCF).
 
+## At a glance
+
+```mermaid
+flowchart LR
+  V["Phone video<br/>or iPhone LiDAR"] --> A
+  subgraph meta["Meta models decide"]
+    A["Muse Spark agent<br/>watches the video, names parts,<br/>chooses tools, judges the replay"]
+    S["SAM 3.1<br/>finds and tracks each part"]
+    D["Shape design<br/>Muse Spark + Spark Open x2<br/>propose, the video picks"]
+    M["SAM 3D Objects<br/>realistic mesh"]
+    P["Muse Spark<br/>materials, masses, still spans"]
+    MA["MapAnything<br/>depth for plain video"]
+  end
+  A -->|noun prompts| S
+  S --> F["Joint fit<br/>hinge / slide / rod chain / static"]
+  MA -.-> F
+  F --> R["MuJoCo replay over the video<br/>scored against SAM masks"]
+  R -->|re-segment, re-track, refit| A
+  F --> D
+  F --> M
+  F --> P
+  D --> U["URDF + MJCF<br/>measured collision, physics"]
+  M --> U
+  P --> U
+  U --> RB["Franka Panda in MuJoCo<br/>grasps and works the object"]
+```
+
+Every model called at runtime is a Meta model; `--open-weights` runs the same pipeline on Muse
+Spark Open and SAM weights, `--glimmer` on Muse Glimmer 30B served by us.
+
+| Measured | Result | vs |
+|---|---|---|
+| RBO benchmark: 13 real RGB-D videos with motion capture, agent from scratch | hinge axis 2.5 deg, angle 3.3 deg (median); laptops 0.9-2.2 deg | motion capture |
+| Desk lamp seen obliquely, 2 hinges (synthetic, `fit_chain`) | axis 0.4 / 4.8 deg, angle 0.06 / 1.1 deg mean | ground truth |
+| 13" MacBook Pro, iPhone LiDAR | lid 309 x 205 mm; the model covers 95% / 94% of the video's masks | spec 304 x 212 |
+| Black mouse, phone circling it | 121 x 75 x 55 mm; SAM 3D mesh 0.5 mm (median) from the measured depth | spec 125 x 84 x 51 |
+| Office drawer, iPhone LiDAR | pulls out 248 mm | hand fit 253 |
+| LED desk lamp, iPhone LiDAR, 2 rods | Spark judged the pole fixed, arm 2..89 deg | video |
+| Shape design, three Meta models per round | lamp 0.61 (best single) -> 0.66 mask F-score | measured meshes 0.66 |
+| Robot tasks on the measured models | 6 of 6: lids closed and reopened, drawer out 213 mm and back, lamp arms swung, mouse carried and turned | joint values reached in physics |
+| SAM tracking, 1385 frames, 4 parts | 520 s -> 285 s, masks IoU 0.97-0.995 | previous pipeline |
+| Scale for plain video | card x0.75 (8 frames agree); object's usual size x1.01 | expected 1.0 |
+
 ## What it does
 
 ```
@@ -35,8 +78,9 @@ phone video (or iPhone LiDAR capture)
   -> report with the measured sizes and what is uncertain
 ```
 
-The model is then used: a Franka Panda in MuJoCo closes the measured laptop by pushing along
-the measured hinge (`scripts/robot_demo.py`).
+The model is then used: a Franka Panda in MuJoCo grasps the measured object and works it (closes
+and reopens a lid, pulls a drawer out by its handle and pushes it back, swings a lamp's arm,
+carries a mouse; `scripts/robot_tasks.py`).
 
 Two capture paths:
 
