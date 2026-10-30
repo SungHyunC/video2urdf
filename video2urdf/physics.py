@@ -35,6 +35,9 @@ def joint_trajectories(track_dir: Path) -> dict[str, np.ndarray]:
     def arr(q):
         return np.array([np.nan if v is None else v for v in q], float)
 
+    if (track_dir / "chain.json").exists():  # chain3d: rods on hinges
+        return {f"{j['child']}_joint": arr(j["q"]) for j in json.loads((track_dir / "chain.json").read_text())["joints"]
+                if j["type"] != "fixed"}
     if (track_dir / "slides.json").exists():
         s = json.loads((track_dir / "slides.json").read_text())
         return {j["name"]: arr(d["q"]) for j, d in zip(s["joints"], s["drawers"])}
