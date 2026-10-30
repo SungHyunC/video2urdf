@@ -281,7 +281,11 @@ def build_static_model(c, part, floor=None, *, shape='box', log=print, up_overri
     frames = [t for t in c.by.get(part, {}) if t < c.n and (not floor or c.has(floor, t))]
     if not frames:
         raise ValueError('No frame has a usable object and supporting surface track.')
-    ref = max(frames, key=lambda t: c.by[part][t].area)
+    # The largest mask, among frames where depth sees the object and the floor: the largest mask
+    # overall can be a frame too close for the depth sensor (an AirPods case read 0 points there).
+    sampled = sorted(frames, key=lambda t: -c.by[part][t].area)[:40]
+    measured = [t for t in sampled if len(c.cloud(part, t)) >= 200 and (not floor or len(c.cloud(floor, t)) >= 50)]
+    ref = measured[0] if measured else max(frames, key=lambda t: c.by[part][t].area)
     if up_override is not None:
         # Override is in the capture's current reference-camera coordinates.
         up_override = transform_reference_up(up_override, c.world[ref])

@@ -35,6 +35,8 @@ from .shape import part_color, prism, write_stl
 
 SCREEN_DEPTH = 0.0008  # m, the dark display layer drawn on the plate's inner face
 BASE_FALLBACK_M = 0.012  # base thickness when the capture can't measure it
+DOOR_THICKNESS_M = 0.02  # a door's thickness when it isn't measured (only seen edge-on)
+VERTICAL_HINGE_DEG = 30  # a hinge this close to the floor's normal is a door's
 OFF_BASE_M = 0.015  # points this far off the base's top plane belong to a half-open plate
 MAX_LEVEL_TILT_DEG = 4.0  # a floor fit tilted more than this from the reference is a bad fit
 LEVEL_WINDOW = 31  # frames; ARKit drift is slow
@@ -486,6 +488,10 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
     axis, point = np.array(hinge["axis"]), np.array(hinge["point"])
     q = np.array([np.nan if v is None else v for v in hinge["q"]])
 
+    up = floor_up(c, roles)
+    if up is not None and abs(axis @ up) > np.cos(np.deg2rad(VERTICAL_HINGE_DEG)):
+        return build_door_model(c, roles, hinge, up, log=log)
+
     # Model frame: z up off the base, x along the hinge, origin on the hinge.
     seen = sorted(c.by[roles.base])
     base_c = c.cloud(roles.base, min(seen, key=lambda t: abs(t - ref)))
@@ -593,7 +599,115 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
         "reference_frame": ref, "camera_to_model": {"rotation": rot.tolist(), "hinge_point": point.tolist(),
                                                     "root_pos": root_pos.tolist()},
         "base_thickness_m": z_top - z_floor, "lid_thickness_m": thick, "hinge_limits_rad": limits, **summary}))
+    return replay_hinged(c, roles, rot, point, root_pos, q, summary, log)
 
+
+def floor_up(c: Capture, roles: Roles) -> np.ndarray | None:
+    """Up, in reference-camera coordinates: the floor's normal toward the camera, else gravity."""
+    if roles.floor and c.has(roles.floor, c.ref):
+        f = c.cloud(roles.floor, c.ref)
+        if len(f) >= 50:
+            up, _, _ = fit_plane(f, np.random.default_rng(0))
+            return up if up @ (-f.mean(axis=0)) > 0 else -up
+    return None if c.up is None else np.asarray(c.up, float)
+
+
+def _turn(axis: np.ndarray, angle: float) -> np.ndarray:
+    k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    return np.eye(3) * np.cos(angle) + np.sin(angle) * k + (1 - np.cos(angle)) * np.outer(axis, axis)
+
+
+def build_door_model(c: Capture, roles: Roles, hinge: dict, up: np.ndarray, log=print) -> dict:
+    """A plate on a vertical hinge beside its base (a microwave's or cupboard's door). Model frame:
+    z up (the floor's normal), x horizontal from the hinge toward the door on the reference frame,
+    origin on the hinge; the joint turns about the measured axis. The door's outline gathers its
+    points from open frames turned back to the reference pose; its thickness isn't seen face-on
+    and is set (DOOR_THICKNESS_M). The body is a box from the floor to the base's top over the
+    base's footprint as seen: its hidden depth is unmeasured."""
+    ref, n, h, w = c.ref, c.n, c.h, c.w
+    axis, point = np.array(hinge["axis"]), np.array(hinge["point"])
+    q = np.array([np.nan if v is None else v for v in hinge["q"]])
+    if axis @ up < 0:  # turn about +up: the joint value keeps its sense about the axis
+        axis, q = -axis, -q
+    plate_ref = c.cloud(roles.plate, ref)
+    out = plate_ref.mean(axis=0) - point
+    out -= (out @ up) * up
+    out /= np.linalg.norm(out)
+    rot = np.stack([out, np.cross(up, out), up])
+
+    def to_model(p):
+        return (p - point) @ rot.T
+
+    seen = sorted(c.by[roles.base])
+    base_m = to_model(c.cloud(roles.base, min(seen, key=lambda t: abs(t - ref))))
+    floor_c = c.cloud(roles.floor, ref) if roles.floor and c.has(roles.floor, ref) else None
+    measured_floor = floor_c is not None and len(floor_c) >= 50
+    z_floor = float(np.median(to_model(floor_c)[:, 2])) if measured_floor else float(np.percentile(base_m[:, 2], 2))
+    z_top = float(np.percentile(base_m[:, 2], 98))
+
+    a_m = rot @ axis  # the hinge in the model frame, nearly +z
+    pm = to_model(plate_ref)
+    centre = pm.mean(axis=0)
+    e2 = centre - (centre @ a_m) * a_m
+    e2 /= np.linalg.norm(e2)
+    e3 = np.cross(a_m, e2)
+    w_face = float(np.median(pm @ e3))
+    # Open frames, each turned back to the reference pose about the hinge, fill in the door.
+    frames = [t for t in range(n) if c.has(roles.plate, t) and not np.isnan(q[t])]
+    pooled = [pm]
+    for t in frames[:: max(1, len(frames) // 40)]:
+        p_t = to_model(c.cloud(roles.plate, t))
+        if len(p_t) > 100:
+            pooled.append(p_t @ _turn(a_m, -q[t]).T)
+    pts = np.vstack(pooled)
+    pts = pts[np.abs(pts @ e3 - w_face) < 0.03]  # on the door's plane, not the cabinet behind it
+    s_, r_ = pts @ a_m, pts @ e2
+    lo, hi = np.percentile(np.column_stack([s_, r_]), [1, 99], axis=0)
+    thick = DOOR_THICKNESS_M
+
+    mesh_dir = c.track_dir / "meshes"
+    mesh_dir.mkdir(exist_ok=True)
+    image = read_frame(c.video, ref)
+    base_rgb = part_color(image, c.by[roles.base][ref].full_mask(h, w)) if c.has(roles.base, ref) else (0.5, 0.5, 0.5)
+    door_rgb = part_color(image, c.by[roles.plate][ref].full_mask(h, w))
+    v, f = prism(_hull(base_m[:, :2]), np.zeros(3), np.array([1.0, 0, 0]), np.array([0, 1.0, 0]),
+                 np.array([0, 0, 1.0]), z_floor, z_top)
+    write_stl(mesh_dir / "base.stl", v, f)
+    door = np.array([[lo[0], 0.0], [hi[0], 0.0], [hi[0], hi[1]], [lo[0], hi[1]]])  # the door reaches its hinge
+    v, f = prism(door, np.zeros(3), a_m, e2, e3, w_face - thick / 2, w_face + thick / 2)
+    write_stl(mesh_dir / "lid.stl", v, f)
+
+    valid = q[~np.isnan(q)]
+    limits = (float(np.percentile(valid, 1)), float(np.percentile(valid, 99)))
+    links = [emit3d.Link3D("base", [emit3d.Visual("meshes/base.stl", base_rgb)]),
+             emit3d.Link3D("lid", [emit3d.Visual("meshes/lid.stl", door_rgb)], parent="base",
+                           joint_type="revolute", axis=a_m, limits=limits)]
+    root_pos = np.array([0, 0, -z_floor])
+    (c.track_dir / "model.urdf").write_text(emit3d.urdf(c.video.stem, links))
+    (c.track_dir / "model.xml").write_text(emit3d.mjcf(c.video.stem, links, root_pos, (w, h)))
+    summary = {
+        "hinge_vertical": True,
+        "base_thickness_mm": 1000 * (z_top - z_floor), "base_thickness_measured": measured_floor,
+        "plate_thickness_mm": 1000 * thick, "plate_thickness_clipped": True,
+        "plate_size_mm": [float(1000 * (hi[0] - lo[0])), float(1000 * hi[1])],
+        "hinge_range_deg": [float(np.rad2deg(limits[0])), float(np.rad2deg(limits[1]))],
+        "closed_frames_used": 0, "door_frames_pooled": len(pooled),
+    }
+    log(f"door: the hinge stands {np.rad2deg(np.arccos(min(1.0, abs(axis @ up)))):.1f} deg off vertical; door "
+        f"{summary['plate_size_mm'][1]:.0f} mm wide x {summary['plate_size_mm'][0]:.0f} mm tall from {len(pooled)} "
+        f"views turned back to the reference; its thickness is not seen and is set to {1000 * thick:.0f} mm; the "
+        f"body is {summary['base_thickness_mm']:.0f} mm tall over its seen footprint (depth behind it unmeasured)")
+    (c.track_dir / "model3d.json").write_text(json.dumps({
+        "reference_frame": ref, "camera_to_model": {"rotation": rot.tolist(), "hinge_point": point.tolist(),
+                                                    "root_pos": root_pos.tolist()},
+        "base_thickness_m": z_top - z_floor, "lid_thickness_m": thick, "hinge_limits_rad": limits, **summary}))
+    return replay_hinged(c, roles, rot, point, root_pos, q, summary, log)
+
+
+def replay_hinged(c: Capture, roles: Roles, rot, point, root_pos, q, summary: dict, log=print) -> dict:
+    """Replay a written base + lid model from the phone's camera over the video, score it against
+    the masks, and add the coverage to model3d.json and the summary."""
+    n = c.n
     a = np.eye(4)
     a[:3, :3], a[:3, 3] = rot, -rot @ point + root_pos
     cam_to_world = np.array([a @ np.linalg.inv(c.world[t]) for t in range(n)])
