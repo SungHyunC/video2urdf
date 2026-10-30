@@ -42,6 +42,8 @@ clean, recognisable CAD-style model from a few primitives, so that anyone who se
 the object in the video".
 
 Rules
+- Name the object plainly by what the video shows (e.g. "LED desk lamp", "three-drawer cabinet"); don't add
+  details you can't see, such as a mounting style or a brand.
 - Identify the object and every link's real part (e.g. "desk lamp: weighted base, aluminium pole, arm with
   LED bar"). Model what the part really looks like: a laptop lid is a thin slab with a screen inset, a lamp
   pole is a thin cylinder or bar, a cabinet has a carcass and drawer fronts with handles, a base plate has

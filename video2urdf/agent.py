@@ -179,7 +179,10 @@ TOOLS = [
          "base": {"type": "string", "description": "tracked part that stays put (the lamp's base)"},
          "chain": {"type": "array", "items": {"type": "string"},
                    "description": "tracked rods in order from the base outward (e.g. [pole, arm])"},
-         "floor": {"type": "string", "description": "tracked surface the base stands on (optional)"}},
+         "floor": {"type": "string", "description": "tracked surface the base stands on (optional)"},
+         "fixed": {"type": "array", "items": {"type": "string"},
+                   "description": "rods you saw NOT turn on their joint in the video (they move only with their "
+                                  "parent); their measured angle would be depth noise"}},
          "required": ["base", "chain"]}},
     {"name": "fit_static", "description": "RGB-D only: approximate a stationary rigid object as a box or upright cylinder; do not use for moving objects.",
      "parameters": {"type": "object", "properties": {
@@ -781,7 +784,7 @@ class Agent:
                            f"much bigger than the fitted {part} (wrong candidate) or the fit is off. Check that mask.")
         return out
 
-    def tool_fit_chain(self, base: str, chain: list, floor: str | None = None) -> str:
+    def tool_fit_chain(self, base: str, chain: list, floor: str | None = None, fixed: list | None = None) -> str:
         if self.capture is None:
             return "fit_chain needs an RGB-D capture; use fit with explicit parents for a video"
         if not self.tracked:
@@ -803,7 +806,8 @@ class Agent:
             fix = c.level_with(floor)
             lines.append(f"floor levelling adjusted the camera pose by up to {fix['shift_mm_max']:.0f} mm")
         try:
-            summary = fit_chain(c, base, chain, floor, log=lines.append)
+            fixed = json.loads(fixed) if isinstance(fixed, str) else (fixed or [])
+            summary = fit_chain(c, base, chain, floor, log=lines.append, fixed=tuple(slug(p) for p in fixed))
         except ValueError as error:
             return f"fit_chain failed: {error}"
         self.last_fit = summary

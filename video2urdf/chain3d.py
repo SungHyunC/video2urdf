@@ -227,7 +227,19 @@ def chain_reference(c, base: str, chain: list[str]) -> int | None:
     return best
 
 
-def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=print) -> dict:
+def _smooth(q: np.ndarray, window: int = 9) -> np.ndarray:
+    """A running median over measured frames (NaN stays NaN): depth jitter on a thin rod."""
+    from scipy.ndimage import median_filter
+    ok = np.isfinite(q)
+    if ok.sum() < window:
+        return q
+    out = q.copy()
+    out[ok] = median_filter(q[ok], size=window, mode="nearest")
+    return out
+
+
+def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=print,
+              fixed: tuple[str, ...] = ()) -> dict:
     """Fit base -> chain[0] -> chain[1] ..., write model.xml/urdf, replay3d and model3d.json."""
     track_dir = c.track_dir
     raw = stray.load(c.source, min_confidence=0).depth if c.source is not None else c.cap.depth
@@ -249,6 +261,13 @@ def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=prin
             lines = {t: l for t, l in moved.items() if l is not None}
         j = fit_rod_joint(lines, ref, c.n, near)
         j.parent, j.child = base if k == 0 else chain[k - 1], part
+        if part in fixed:  # seen not to turn (the video shows it; its depth jitter says otherwise)
+            j.fixed = True
+            j.q = np.zeros(c.n)
+            first = lines[min(lines, key=lambda t: abs(t - ref))]
+            j.point = first.center + first.lo * first.direction
+        else:
+            j.q = _smooth(j.q)
         joints.append(j)
         lines_by[part] = lines
         ref_line = lines[min(lines, key=lambda t: abs(t - ref))]
@@ -333,7 +352,7 @@ def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=prin
                "mask_coverage": {k: float(np.nanmean(v)) if np.isfinite(v).any() else None for k, v in cover.items()},
                "video_frames": c.n}
     (track_dir / "model3d.json").write_text(json.dumps(summary, indent=2))
-    (track_dir / "chain.json").write_text(json.dumps({"base": base, "chain": chain, "floor": floor, "joints": [
+    (track_dir / "chain.json").write_text(json.dumps({"base": base, "chain": chain, "floor": floor, "fixed": list(fixed), "joints": [
         {"child": j.child, "type": "fixed" if j.fixed else "revolute",
          "q": [None if not np.isfinite(v) else float(v) for v in j.q]} for j in joints]}))
     log("model: " + "; ".join(f"{s['child']} {s['type']} rod {s['rod_length_mm']:.0f} mm x r{s['rod_radius_mm']:.0f}"

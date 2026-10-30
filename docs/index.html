@@ -296,7 +296,7 @@ async function load(entry) {
     b.dataset.key = k;
     vt.append(b);
   }
-  showVideo(order.includes("replay") ? "replay" : order[0], base);
+  showVideo(order.includes("phone") ? "phone" : order[0], base);  // the object alone; the overlay is a click away
 
   $("dlUrdf").href = base + "model.urdf";
   $("dlUrdf").download = `${spec.name}.urdf`;
