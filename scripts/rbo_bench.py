@@ -1,13 +1,16 @@
 """RBO benchmark: run the Muse Spark agent on each downloaded sequence, score it against
 motion capture, and summarise.
 
-Usage: .venv/bin/python scripts/rbo_bench.py [laptop02 book03 ...]
+Usage: .venv/bin/python scripts/rbo_bench.py [laptop02 book03 ...] [--open-weights]
 Without names, runs every sequence of a plate-hinge object (laptop, book, treasurebox,
 cardboardbox) found in data/rbo/x/. Agent runs are cached (data/rbo/agent/<name>/agent/report.md);
 results go to data/rbo/results/<name>.json and data/rbo/results/summary.{json,md}.
+--open-weights runs the agent on Muse Spark Open and SAM weights, into data/rbo/agent_open and
+data/rbo/results_open, leaving the Meta API runs and results alone.
 RBO dataset: TU Berlin, CC BY 4.0 (see video2urdf/rbo.py).
 """
 
+import argparse
 import json
 import subprocess
 import sys
@@ -27,18 +30,26 @@ def run(cmd: list[str], log: Path) -> int:
 
 
 def main():
-    names = sys.argv[1:] or sorted(p.name for p in (DATA / "x").iterdir()
-                                   if p.is_dir() and p.name.rstrip("0123456789") in PLATES)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("names", nargs="*", help="sequences (default: every plate-hinge sequence downloaded)")
+    ap.add_argument("--open-weights", action="store_true", help="Muse Spark Open + SAM weights (run_agent.py --open-weights)")
+    args = ap.parse_args()
+    agent_dir = DATA / ("agent_open" if args.open_weights else "agent")
+    results = DATA / ("results_open" if args.open_weights else "results")
+    results.mkdir(parents=True, exist_ok=True)
+    names = args.names or sorted(p.name for p in (DATA / "x").iterdir()
+                                 if p.is_dir() and p.name.rstrip("0123456789") in PLATES)
     rows = []
     for name in names:
-        log = DATA / "logs" / f"{name}.log"
+        log = DATA / "logs" / f"{name}{'_open' if args.open_weights else ''}.log"
         log.parent.mkdir(parents=True, exist_ok=True)
         run([PY, "scripts/rbo_eval.py", name, "--prepare-only"], log)
-        if not (DATA / "agent" / name / "agent" / "report.md").exists():
-            run([PY, "scripts/run_agent.py", str(DATA / "prep" / name), "--out", str(DATA / "agent")], log)
-        ok = (DATA / "agent" / name / "roles.json").exists() and \
-            run([PY, "scripts/rbo_eval.py", name, "--tracks", str(DATA / "agent")], log) == 0
-        result = DATA / "results" / f"{name}.json"
+        if not (agent_dir / name / "agent" / "report.md").exists():
+            run([PY, "scripts/run_agent.py", str(DATA / "prep" / name), "--out", str(agent_dir), "--no-design"]
+                + (["--open-weights"] if args.open_weights else []), log)
+        ok = (agent_dir / name / "roles.json").exists() and \
+            run([PY, "scripts/rbo_eval.py", name, "--tracks", str(agent_dir), "--results", str(results)], log) == 0
+        result = results / f"{name}.json"
         rows.append(json.loads(result.read_text()) if ok and result.exists() else {"sequence": name, "failed": True})
         print(name, "ok" if ok else "FAILED (see " + str(log.relative_to(ROOT)) + ")", flush=True)
 
@@ -46,7 +57,7 @@ def main():
     keys = ["axis_direction_error_deg", "axis_position_error_mm", "angle_error_deg_median", "angle_error_deg_p90"]
     summary = {"sequences": len(rows), "scored": len(done),
                **{k: float(np.median([r[k] for r in done])) if done else None for k in keys}}
-    (DATA / "results" / "summary.json").write_text(json.dumps({"summary": summary, "rows": rows}, indent=2))
+    (results / "summary.json").write_text(json.dumps({"summary": summary, "rows": rows}, indent=2))
     lines = ["| sequence | axis dir (deg) | axis pos (mm) | angle median (deg) | angle p90 (deg) | frames |",
              "|---|---|---|---|---|---|"]
     for r in rows:
@@ -59,7 +70,7 @@ def main():
     if done:
         lines.append(f"| **median of {len(done)}** | **{summary[keys[0]]:.1f}** | **{summary[keys[1]]:.0f}** | "
                      f"**{summary[keys[2]]:.1f}** | **{summary[keys[3]]:.1f}** | |")
-    (DATA / "results" / "summary.md").write_text("\n".join(lines) + "\n")
+    (results / "summary.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
 
 

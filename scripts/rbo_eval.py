@@ -68,6 +68,7 @@ def main():
     ap.add_argument("--open-indicator")
     ap.add_argument("--data", type=Path, default=ROOT / "data" / "rbo")
     ap.add_argument("--tracks", type=Path, help="track folder root (default <data>/tracks)")
+    ap.add_argument("--results", type=Path, help="where to write the score (default <data>/results)")
     args = ap.parse_args()
 
     prep = args.data / "prep" / args.name
@@ -134,7 +135,7 @@ def main():
         "true_range_deg": float(np.rad2deg(np.ptp(q_true))), "measured_range_deg": float(np.rad2deg(np.nanmax(q) - np.nanmin(q))),
         "true_hinge_fit_residual_mm": 1000 * true_res, "ours": ours,
     }
-    out = args.data / "results"
+    out = args.results or args.data / "results"
     out.mkdir(parents=True, exist_ok=True)
     (out / f"{args.name}.json").write_text(json.dumps(result, indent=2))
 
