@@ -245,6 +245,8 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
     spec = {"name": name, "fps": fps, "frames": n, "tree": tree, "joints": joint_tracks(run), "videos": videos,
             "bundle": "model.zip",
             "measured": meta, "agent_report": report.read_text() if report.exists() else None,
+            # how the model shown relates to the agent's run, when a person refit it or a log was replaced
+            "provenance": (run / "provenance.txt").read_text().strip() if (run / "provenance.txt").exists() else None,
             "traces": traces,
             "three_d": (run / "model3d.json").exists(), "physics": phys,
             "appearance": read_optional("appearance.json"), "shape_inference": read_optional("shape_inference.json"),

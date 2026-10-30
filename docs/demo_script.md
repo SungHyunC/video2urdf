@@ -21,7 +21,7 @@ Spark checks its own work. Its first model had the base as a thin sliver. Spark 
 The measured meshes have the right sizes but look like blobs. So Spark names the object and rebuilds it cleanly: a cabinet with fronts and handles, a lamp with its LED bar. Each round three Meta models propose a design, and the one that fits the video best wins.
 
 **1:30.6  6  It looks real**  
-For a curved object, SAM 3D Objects builds a realistic mesh, placed by our LiDAR depth: this mouse lies half a millimetre from its measured surface. Circling it with the phone gives its size from every side.
+For a curved object, SAM 3D Objects builds a realistic mesh, placed by our LiDAR depth: the depth the phone measured lies within half a millimetre of this mouse's mesh. Circling it with the phone gives its size from every side.
 
 **1:45.8  7  The robot uses it**  
 In MuJoCo physics the Panda grips the handle Spark drew and pulls the drawer out, then carries the mouse and turns it. Only the grip moves them.
@@ -30,7 +30,7 @@ In MuJoCo physics the Panda grips the handle Spark drew and pulls the drawer out
 Spark judges materials and masses. Where a part stands with no hand on it, the joint friction is measured, and checked by letting go in MuJoCo.
 
 **2:08.2  9  Benchmark**  
-On the RBO dataset, real RGB-D videos with motion capture, the median hinge axis error over thirteen sequences is two and a half degrees.
+On the RBO dataset, real RGB-D videos with motion capture, laptops and books come out with a median hinge axis error of two degrees; box lids are where it still fails.
 
 **2:18.5  10  URDF Doctor**  
 URDF Doctor checks the models you already have against a video. Three injected bugs and a sign flip in a joint log: all found.
