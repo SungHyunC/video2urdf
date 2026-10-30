@@ -193,6 +193,14 @@ taken modulo 360 deg. Per-sequence results: `scripts/rbo_bench.py` writes `data/
   video (closes, then reopens), lid replay covering 91% of its masks. The base was segmented in
   fragments (keyboard, trackpad), so its thickness could not be measured; the pipeline and
   Spark's report both flag it instead of passing on a wrong number.
+- **The new captures, everything on open weights** (10/30, Muse Spark Open on Baseten + SAM on
+  Modal; shape design by Spark Open on Baseten and on Fireworks; `data/tracks_open2`):
+  the black mouse came out 121.5 x 75.1 x 54.5 mm (the Meta API run: 121.3 x 75.2 x 54.7), 0.14 kg,
+  named "ergonomic computer mouse" and redesigned (mask F-score 0.90 vs 0.94 measured). The LED
+  desk lamp: Spark Open's first fit missed the rods (the replay covered 6% / 4% of their masks);
+  it watched the replay, re-tracked the pole and refit: pole 332 mm, arm 371 mm (0..75 deg),
+  replay 73% / 42%, joint friction measured on still spans (let go in MuJoCo: 0.0-0.1 deg),
+  redesigned as an "LED desk lamp".
 - **Everything on open weights, served by us**: Muse Glimmer 30B on our own Modal endpoint +
   SAM on Modal (`--open-weights --glimmer`), LiDAR laptop from scratch, through to physics:
   lid 307 x 201 mm, opening 0..108 deg, lid replay 87%; it set masses (base 1.1 kg, lid
@@ -653,11 +661,18 @@ DINOv2 (used inside SAM 3D Objects), MapAnything (Meta).
 | [meta-sam-parser](https://pypi.org/project/meta-sam-parser/) | SAM License | parsing SAM API output; `video2urdf/fast_mask.py` is a numba port of its decoder (`LICENSES/SAM_LICENSE`) |
 | [RBO dataset](https://zenodo.org/records/1036660) - R. Martín-Martín, C. Eppner, O. Brock, "The RBO Dataset of Articulated Objects and Interactions", IJRR 2019 | CC BY 4.0 | benchmark; downloaded, not redistributed |
 | [three.js](https://threejs.org) | MIT | web viewer (CDN) |
+| [marked](https://github.com/markedjs/marked) | MIT | the viewer's turn-by-turn logs (CDN) |
+| [Remotion](https://www.remotion.dev) | Remotion License (free for individuals) | the promo video in `promo/` |
+| [SGLang](https://github.com/sgl-project/sglang) | Apache-2.0 | serving Muse Glimmer on our Modal endpoint (via `modal endpoint create`) |
 | [mapbox-earcut](https://github.com/skogler/mapbox_earcut_python) | ISC | triangulating mesh caps |
 | OpenCV, NumPy, SciPy, numba, OpenAI Python SDK (as the OpenAI-compatible client), Modal | various OSS | |
 | [Stray Scanner](https://github.com/strayrobots/scanner) | app | recording iPhone LiDAR captures |
 
 What we built on top: the agent and its tools, the SAM tracking strategy (key-frame concept
-prompts, then multi-anchor box tracking forward and over a reversed clip), the 2D and 3D joint
-fits, link geometry, URDF/MJCF emission, the camera-pose MuJoCo replay and its scoring, the
-robot demo, the viewer and the RBO benchmark harness.
+prompts, then multi-anchor box tracking forward and over a reversed clip, both passes at once,
+strided on fast video), the 2D and 3D joint fits (plates, slides, drawers, rods on hinges from raw
+depth, visual hulls for static objects), link geometry, URDF/MJCF emission, the camera-pose MuJoCo
+replay and its scoring, Spark's shape design loop judged over the video with three Meta models per
+round, SAM 3D placement and checks, automatic scale for plain video, physics from still spans, the
+robot tasks (grasp planning on the measured geometry), URDF Doctor, the viewer with its
+turn-by-turn logs, and the RBO benchmark harness.
