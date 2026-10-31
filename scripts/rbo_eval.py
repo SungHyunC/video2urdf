@@ -84,11 +84,25 @@ def main():
         roles = lidar.Roles(args.floor, args.base, args.plate, args.plate_closed, args.open_indicator)
     else:  # the roles the agent chose
         roles = lidar.Roles(**json.loads((c.track_dir / "roles.json").read_text()))
+    raw_world, raw_ref = c.world.copy(), c.ref
     c.set_ref(c.ref_with(roles.base, roles.plate))
     followed = c.follow(roles.base, exclude=(roles.plate,))  # the object may be moved as a whole
     print(f"base followed on {followed['frames']} frames: moved up to {followed.get('moved_mm_max', 0):.0f} mm, "
           f"turned {followed.get('turned_deg_max', 0):.1f} deg")
-    ours = lidar.fit_hinge(c, roles)
+
+    def prepare_reference(capture, frame):
+        # As the agent's fit_lidar does: restart the camera transforms from the unfollowed
+        # capture, re-base them on the new reference, then follow the base from there.
+        capture.world = raw_world.copy()
+        capture.ref = raw_ref
+        capture.set_ref(frame)
+        capture.follow(roles.base, exclude=(roles.plate,))
+
+    # The agent retries a few open references when the plate's angle on the first one is
+    # rejected; score the same fit it would have made, not a stricter one.
+    ours, references = lidar.fit_hinge_with_reference_retries(c, roles, prepare_reference=prepare_reference)
+    if len(references) > 1:
+        print(f"reference attempts {references}; using frame {c.ref}")
     hinge = json.loads((c.track_dir / "hinge.json").read_text())
     axis, point = np.array(hinge["axis"]), np.array(hinge["point"])
     q = np.array([np.nan if v is None else v for v in hinge["q"]])
@@ -133,7 +147,7 @@ def main():
         "angle_error_deg_p90": float(np.percentile(err, 90)),
         "angle_error_vs_dataset_joint_deg_median": float(np.median(err_dataset)),
         "true_range_deg": float(np.rad2deg(np.ptp(q_true))), "measured_range_deg": float(np.rad2deg(np.nanmax(q) - np.nanmin(q))),
-        "true_hinge_fit_residual_mm": 1000 * true_res, "ours": ours,
+        "true_hinge_fit_residual_mm": 1000 * true_res, "reference_attempts": references, "ours": ours,
     }
     out = args.results or args.data / "results"
     out.mkdir(parents=True, exist_ok=True)
