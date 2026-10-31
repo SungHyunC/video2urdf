@@ -30,6 +30,20 @@ RELEASE_S = 2.0  # how long the released model is simulated
 DEFAULT_DAMPING = {"revolute": 0.02, "prismatic": 1.0}  # N m s / N s: not measured, keeps sims calm
 
 
+def hinge_q(track_dir: Path) -> np.ndarray:
+    """hinge.json's angle per frame (NaN where unmeasured) in the model's own sense. A door's model
+    turns about +up (lidar.build_door_model), which can negate the fitted angle; the replay
+    (replay3d.npz) drew the model's values, so the sign follows it."""
+    q = np.array([np.nan if v is None else v for v in json.loads((track_dir / "hinge.json").read_text())["q"]], float)
+    replay = track_dir / "replay3d.npz"
+    if replay.exists():
+        with np.load(replay) as r:
+            drawn = r["q_lid_joint"] if "q_lid_joint" in r.files else None
+        if drawn is not None and len(drawn) == len(q) and np.nansum(q * drawn) < 0:
+            q = -q
+    return q
+
+
 def joint_trajectories(track_dir: Path) -> dict[str, np.ndarray]:
     """Measured joint value per frame (NaN where unmeasured), by MJCF joint name."""
     def arr(q):
@@ -42,7 +56,7 @@ def joint_trajectories(track_dir: Path) -> dict[str, np.ndarray]:
         s = json.loads((track_dir / "slides.json").read_text())
         return {j["name"]: arr(d["q"]) for j, d in zip(s["joints"], s["drawers"])}
     if (track_dir / "hinge.json").exists():
-        return {"lid_joint": arr(json.loads((track_dir / "hinge.json").read_text())["q"])}
+        return {"lid_joint": hinge_q(track_dir)}
     if (track_dir / "slide.json").exists():
         return {"drawer_joint": arr(json.loads((track_dir / "slide.json").read_text())["q"])}
     joints = json.loads((track_dir / "joints.json").read_text())["joints"]
