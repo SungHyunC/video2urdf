@@ -87,11 +87,10 @@ def link_sizes(model_xml: Path) -> dict[str, dict]:
 
 
 def _quat_to_rpy(q) -> tuple[float, float, float]:
-    r = np.zeros(9)
-    mujoco.mju_quat2Mat(r, np.asarray(q, float))
-    r = r.reshape(3, 3)
-    pitch = float(np.arcsin(-np.clip(r[2, 0], -1, 1)))
-    return float(np.arctan2(r[2, 1], r[2, 2])), pitch, float(np.arctan2(r[1, 0], r[0, 0]))
+    """URDF rpy of a MuJoCo quaternion, also at pitch = +-90 deg (a slab's principal frame often
+    sits exactly there; taking roll and yaw apart there turned it up to 5 deg off)."""
+    from .portable import quat_rpy
+    return quat_rpy(q)
 
 
 def inertials(model_xml: Path, masses: dict[str, float]) -> dict[str, dict]:

@@ -49,15 +49,21 @@ class Joint:
     limited: bool
 
 
+def urdf_for_mujoco(text: str, folder: Path) -> str:
+    """URDF text that MuJoCo compiles from a string as the Doctor needs it: meshes found relative
+    to ``folder`` (or to the file's own meshdir, resolved against it), visuals kept, no bodies
+    fused. Merged into any <mujoco><compiler> the file already has (ours carries one)."""
+    from .portable import mujoco_compiler, with_mujoco_compiler
+    meshdir = mujoco_compiler(text).get("meshdir", "")
+    meshdir = str((folder / meshdir).resolve() if meshdir else folder.resolve())
+    return with_mujoco_compiler(text, meshdir=meshdir.rstrip("/") + "/", strippath="false", discardvisual="false",
+                                fusestatic="false", inertiafromgeom="auto")
+
+
 def load(path: Path) -> mujoco.MjModel:
     """A URDF or MJCF. URDF mesh paths are taken relative to the file."""
     if path.suffix.lower() == ".urdf":
-        text = path.read_text()
-        if "<mujoco" not in text:  # point MuJoCo's URDF reader at the meshes and keep visuals
-            i = text.index(">", text.index("<robot")) + 1
-            text = text[:i] + f'<mujoco><compiler meshdir="{path.parent}/" strippath="false" ' \
-                              f'discardvisual="false" fusestatic="false" inertiafromgeom="auto"/></mujoco>' + text[i:]
-        return mujoco.MjModel.from_xml_string(text)
+        return mujoco.MjModel.from_xml_string(urdf_for_mujoco(path.read_text(), path.parent))
     return mujoco.MjModel.from_xml_path(str(path))
 
 

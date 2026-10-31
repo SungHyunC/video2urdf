@@ -4,10 +4,14 @@ For each run: the MJCF's body tree (positions, joints, meshes, colours) as JSON,
 values per video frame, the STL meshes, URDF/MJCF downloads, and web-sized videos (phone
 video, replay over it, robot demo).
 
+The URDF/MJCF downloads go through video2urdf/portable.py (OBJ twins of STL meshes for Drake,
+MuJoCo's mesh-path block, a header on how to load them); scripts/check_exports.py checks them.
+
 Usage:
   .venv/bin/python scripts/export_viewer.py \\
       laptop_lidar:data/tracks_agent/laptop_lidar:data/real/laptop_lidar/laptop_lidar.mp4 \\
       notebook:data/tracks/notebook_2:data/real/notebook_2.MOV [--out docs]
+  .venv/bin/python scripts/export_viewer.py --repack docs/models/laptop_lidar   # downloads only
 """
 
 import argparse
@@ -25,6 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from video2urdf.pipeline import video_info  # noqa: E402
+from video2urdf.portable import make_portable, repack  # noqa: E402
 
 WEB_HEIGHT = 720  # px, long videos are scaled so their shorter side is at most this
 POLICY_DIR = ROOT / "data" / "policies" / "drawer_ppo_honest"  # scripts/run_drawer_policy.py's default --policy
@@ -256,6 +261,11 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
     fix_mesh_paths(tree)
     for f in ("model.urdf", "model.xml"):
         shutil.copy(run / f, dst / f)
+    # The downloads as other tools need them: OBJ twins of the URDF's STLs (Drake), MuJoCo's
+    # mesh-path block, inertial frames put right, a header saying how to load them.
+    portable = make_portable(dst, name)
+    if portable["inertial_fixed"]:
+        print(f"{name}: URDF inertial frames rewritten from model.xml for {portable['inertial_fixed']}")
     _, n, fps = video_info(video)
     videos = {}
     experimental_replay = run / "experimental_replay.mp4"
@@ -360,9 +370,19 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("runs", nargs="+", help="name:run_dir:video")
+    ap.add_argument("runs", nargs="*", help="name:run_dir:video")
     ap.add_argument("--out", type=Path, default=ROOT / "docs")
+    ap.add_argument("--repack", nargs="+", type=Path, metavar="VIEWER_DIR",
+                    help="only make already exported downloads portable (model.urdf, model.xml, model.zip, "
+                         "OBJ twins in meshes/), e.g. docs/models/laptop_lidar; nothing else is touched")
     args = ap.parse_args()
+    if args.repack:
+        for folder in args.repack:
+            done = repack(folder)
+            print(f"{folder}: {len(done['twins'])} OBJ twins, inertial frames fixed: {done['inertial_fixed'] or 'none'}")
+        return
+    if not args.runs:
+        ap.error("give name:run_dir:video, or --repack VIEWER_DIR")
     index = [export(name, Path(run), Path(video), args.out) for name, run, video in (r.split(":") for r in args.runs)]
     (args.out / "models" / "index.json").write_text(json.dumps(index))
 
