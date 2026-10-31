@@ -86,6 +86,21 @@ class SummaryTest(unittest.TestCase):
             self.assertEqual(json.loads((Path(tmp) / "summary.json").read_text())["status"], "failed")
 
 
+class RobotResultsTest(unittest.TestCase):
+    def test_last_value_per_task(self):
+        from video2urdf.run import robot_results
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "robot.log"
+            log.write_text("WARNING: x\nplate (obj_lid_joint); IK error max 0 mm; video -> a.mp4\n"
+                           "  after 'Close the lid': +1.7 deg\n  after 'Close the lid': -85.7 deg\n"
+                           "  after 'Open it again': +14.5 deg\n")
+            r = robot_results(log)
+            self.assertEqual(r["kind"], "plate (obj_lid_joint)")
+            self.assertEqual(r["tasks"], [{"task": "Close the lid", "ended": "-85.7 deg"},
+                                          {"task": "Open it again", "ended": "+14.5 deg"}])
+            self.assertIsNone(robot_results(Path(tmp) / "missing.log"))
+
+
 class StepsTest(unittest.TestCase):
     """The glue after the agent, with the agent and the repo scripts replaced by fakes."""
 

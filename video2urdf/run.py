@@ -300,6 +300,7 @@ class Run:
         if opt.robot:
             self.step("robot", self.script, "robot", [str(SCRIPTS / "robot_tasks.py"), str(self.model_dir),
                                                       "--out", str(self.model_dir / "robot_demo.mp4")])
+            self.summary["robot"] = robot_results(self.dir / "logs" / "robot.log")
         else:
             self.skip("robot", "add --robot for a simulated robot using the model")
         self.step("viewer", self._viewer, video)
@@ -445,6 +446,22 @@ class Run:
             issues.append(f"steps that failed (the model stands without them): {', '.join(failed)}")
         s["status"] = status if status in STATUSES else "needs_review"
         s["issues"] = issues + [i for i in s.get("issues", []) if i not in issues]
+
+
+def robot_results(log_path: Path) -> dict | None:
+    """What scripts/robot_tasks.py reports per task: the joint (or object) where each task left it,
+    relative to the start. Its exit code only says the simulation ran, not that the task worked."""
+    if not log_path.exists():
+        return None
+    tasks: dict[str, str] = {}
+    kind = None
+    for line in log_path.read_text(errors="replace").splitlines():
+        m = re.match(r"\s*after '(.+)': (.+)$", line)
+        if m:
+            tasks[m.group(1)] = m.group(2).strip()  # the last line per task is where it ended
+        elif re.match(r"^(plate|rod|drawer|static) \(", line):
+            kind = line.split(";")[0]
+    return {"kind": kind, "tasks": [{"task": k, "ended": v} for k, v in tasks.items()]} if tasks else None
 
 
 def run(source: Path, opt: Options) -> dict:
