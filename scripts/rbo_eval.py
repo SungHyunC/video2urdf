@@ -13,8 +13,9 @@ Or let the agent track and pick the roles, then score what it chose:
   .venv/bin/python scripts/rbo_eval.py laptop02 --tracks data/rbo/agent
 
 Ground truth: the plate's motion relative to the base, from the two motion-captured rigid
-bodies (tf frames), fitted as a hinge; its angle is the true joint value. Our side follows
-the base by ICP too, so moving the whole object doesn't count against either. The dataset's
+bodies (tf frames), fitted as a hinge; its angle is the true joint value. Our side is the
+agent's own fit_lidar hinge fit (lidar.fit_lidar_hinge: same steps and reference retries),
+which follows the base too, so moving the whole object doesn't count against either. The dataset's
 own joint values (from a fitted model) are scored as well. Writes data/rbo/results/<name>.json and <name>.jpg (our hinge red, truth green).
 """
 
@@ -84,25 +85,9 @@ def main():
         roles = lidar.Roles(args.floor, args.base, args.plate, args.plate_closed, args.open_indicator)
     else:  # the roles the agent chose
         roles = lidar.Roles(**json.loads((c.track_dir / "roles.json").read_text()))
-    raw_world, raw_ref = c.world.copy(), c.ref
-    c.set_ref(c.ref_with(roles.base, roles.plate))
-    followed = c.follow(roles.base, exclude=(roles.plate,))  # the object may be moved as a whole
-    print(f"base followed on {followed['frames']} frames: moved up to {followed.get('moved_mm_max', 0):.0f} mm, "
-          f"turned {followed.get('turned_deg_max', 0):.1f} deg")
-
-    def prepare_reference(capture, frame):
-        # As the agent's fit_lidar does: restart the camera transforms from the unfollowed
-        # capture, re-base them on the new reference, then follow the base from there.
-        capture.world = raw_world.copy()
-        capture.ref = raw_ref
-        capture.set_ref(frame)
-        capture.follow(roles.base, exclude=(roles.plate,))
-
-    # The agent retries a few open references when the plate's angle on the first one is
-    # rejected; score the same fit it would have made, not a stricter one.
-    ours, references = lidar.fit_hinge_with_reference_retries(c, roles, prepare_reference=prepare_reference)
-    if len(references) > 1:
-        print(f"reference attempts {references}; using frame {c.ref}")
+    # Exactly the agent's fit_lidar hinge fit (same steps, same order, same reference retries;
+    # it follows the base, which the operator may push around): score what the agent fits.
+    ours, references = lidar.fit_lidar_hinge(c, roles)
     hinge = json.loads((c.track_dir / "hinge.json").read_text())
     axis, point = np.array(hinge["axis"]), np.array(hinge["point"])
     q = np.array([np.nan if v is None else v for v in hinge["q"]])

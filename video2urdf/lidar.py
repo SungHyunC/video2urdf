@@ -112,6 +112,71 @@ def fit_hinge_with_reference_retries(c, roles, log=print, max_retries: int = 2, 
     raise AssertionError("at least one reference attempt is required")
 
 
+def levelling_line(fix: dict) -> str:
+    """What the floor levelling did, for the fit tools' output."""
+    if fix.get("no_floor_depth"):
+        return ("floor levelling skipped: the floor track has no depth near the reference frame (its mask may be "
+                "on a dark, shiny or distant surface), so the camera poses are ARKit's, unlevelled")
+    line = f"floor levelling adjusted the estimated camera pose by up to {fix['shift_mm_max']:.0f} mm"
+    seen = fix.get("floor_frames", 0)
+    if seen and fix["frames_used"] < 0.3 * seen:
+        line += (f", from only {fix['frames_used']} of the {seen} floor frames (the others' planes disagree with the "
+                 "reference frame's: the floor track may cover other surfaces), so the poses are close to ARKit's")
+    return line
+
+
+def fit_lidar_hinge(c, roles, log=print) -> tuple[dict, list[int]]:
+    """The hinge fit as the agent's fit_lidar runs it on a capture as opened, shared with
+    scripts/rbo_eval.py so the benchmark scores exactly what the agent fits. In order: plate
+    frames whose mask is plate_closed's are measured from plate_closed instead; plate masks that
+    coincide with the base on open frames are dropped; the reference is the open frame where the
+    plate is seen largest (ref_with); the camera is levelled against the floor (ARKit) or the
+    base followed (a fixed camera); then fit_hinge, retrying a few open references when the
+    reference's angle is rejected, each retry restarting the camera transforms from the capture
+    as opened. Returns the fit summary and the references tried; raises ValueError as fit_hinge
+    and ref_with do."""
+    c.drop_where_same(roles.plate, roles.plate_closed)
+    slid = list(getattr(c, "slid_frames", []))  # explained once the fit shows which were raised
+    overlapping = c.drop_open_base_overlap(roles)
+    if overlapping:
+        log(f"WARNING: removed {overlapping} open frames where the plate mask substantially "
+            "overlapped the base; these frames have no reliable plate observation.")
+    raw_world, raw_ref = c.world.copy(), c.ref
+    ref = c.ref_with(roles.base, roles.plate, roles.plate_closed, roles.open_indicator)
+    if ref != c.ref:
+        c.set_ref(ref)
+        log(f"reference frame {c.ref}: where the plate is seen largest")
+    if c.moving_camera:
+        log(levelling_line(c.level_with(roles.floor)))
+    else:  # a fixed camera: the object itself may be pushed around, so measure from its base
+        moved = c.follow(roles.base, exclude=(roles.plate,))
+        if moved["frames"]:
+            log(f"base followed on {moved['frames']} frames: moved up to {moved['moved_mm_max']:.0f} mm, "
+                f"turned {moved['turned_deg_max']:.1f} deg")
+
+    def prepare_reference(capture, frame):
+        # Restart camera transforms from the unlevelled capture; rebasing an
+        # already levelled/followed frame can change the measured opening.
+        capture.world = raw_world.copy()
+        capture.ref = raw_ref
+        capture.set_ref(frame)
+        if capture.moving_camera:
+            capture.level_with(roles.floor)
+        else:
+            capture.follow(roles.base, exclude=(roles.plate,))
+
+    summary, references = fit_hinge_with_reference_retries(c, roles, log=log, prepare_reference=prepare_reference)
+    if len(references) > 1:
+        log(f"Reference attempts: {references}; using frame {c.ref}.")
+    if slid:  # shut frames are the designed fallback; warn only when the plate sat on the closed surface while open
+        from .track_checks import slid_plate_lines
+        indicator = set(c.by.get(roles.open_indicator, {})) if roles.open_indicator else None
+        raised = summary.get("raised_from_closed_frames", []) if isinstance(summary, dict) else []
+        for line in slid_plate_lines(slid, c.n, indicator, raised):
+            log(line)
+    return summary, references
+
+
 def can_use_closed_fallback(c, roles, t: int) -> bool:
     """A visible open base cannot simultaneously stand in for a missing lid."""
     if not roles.open_indicator or not c.has(roles.open_indicator, t):

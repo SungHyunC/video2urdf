@@ -200,6 +200,29 @@ class ReferenceFrameTest(unittest.TestCase):
         self.assertEqual(prepared, [20])
         self.assertEqual(result["reference"], 20)
 
+    def test_agent_and_rbo_scorer_run_the_same_hinge_fit_steps(self):
+        from video2urdf.lidar import fit_lidar_hinge
+        calls = []
+
+        class CaptureStub:
+            n, ref, moving_camera, by = 10, 0, False, {}
+            world = np.tile(np.eye(4), (10, 1, 1))
+            def drop_where_same(self, *args): calls.append("drop_where_same"); return 0
+            def drop_open_base_overlap(self, *args): calls.append("drop_open_base_overlap"); return 0
+            def ref_with(self, *args): calls.append(("ref_with",) + args); return 3
+            def set_ref(self, t): calls.append(("set_ref", t)); self.ref = t
+            def follow(self, *args, **kwargs): calls.append("follow"); return {"frames": 0}
+
+        roles = Roles("floor", "base", "plate", "back", "keyboard")
+        with patch("video2urdf.lidar.fit_hinge", return_value={"fitted": True}):
+            summary, references = fit_lidar_hinge(CaptureStub(), roles, log=lambda _: None)
+        self.assertEqual(calls, ["drop_where_same", "drop_open_base_overlap",
+                                 ("ref_with", "base", "plate", "back", "keyboard"), ("set_ref", 3), "follow"])
+        self.assertEqual((summary, references), ({"fitted": True}, [3]))
+        root = Path(__file__).resolve().parent.parent
+        for path in (root / "video2urdf" / "agent.py", root / "scripts" / "rbo_eval.py"):
+            self.assertIn("lidar.fit_lidar_hinge(", path.read_text())  # one fit, so the benchmark scores the agent's
+
     def test_hinge_requires_actual_plate_mask_at_reference(self):
         from types import SimpleNamespace
         from video2urdf.lidar import fit_hinge
