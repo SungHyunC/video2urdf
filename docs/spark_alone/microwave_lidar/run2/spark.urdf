@@ -1,0 +1,133 @@
+<?xml version="1.0"?>
+<robot name="samsung_microwave">
+  <material name="black">
+    <color rgba="0.03 0.03 0.04 1.0"/>
+  </material>
+  <material name="dark_grey">
+    <color rgba="0.12 0.12 0.13 1.0"/>
+  </material>
+  <material name="silver">
+    <color rgba="0.75 0.76 0.78 1.0"/>
+  </material>
+  <material name="glass">
+    <color rgba="0.25 0.22 0.15 0.6"/>
+  </material>
+
+  <!-- Base / chassis. Origin at bottom-center sitting on shelf.
+       X forward (depth), Y left (width), Z up (height).
+       Real size: ~0.49 W x 0.275 H x 0.39 D -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0.1375" rpy="0 0 0"/>
+      <mass value="12.0"/>
+      <inertia ixx="0.316" ixy="0" ixz="0" iyy="0.228" iyz="0" izz="0.392"/>
+    </inertial>
+    <!-- top -->
+    <visual>
+      <origin xyz="0 0 0.2675" rpy="0 0 0"/>
+      <geometry><box size="0.39 0.49 0.015"/></geometry>
+      <material name="black"/>
+    </visual>
+    <!-- bottom -->
+    <visual>
+      <origin xyz="0 0 0.0075" rpy="0 0 0"/>
+      <geometry><box size="0.39 0.49 0.015"/></geometry>
+      <material name="black"/>
+    </visual>
+    <!-- back -->
+    <visual>
+      <origin xyz="-0.1875 0 0.1375" rpy="0 0 0"/>
+      <geometry><box size="0.015 0.49 0.275"/></geometry>
+      <material name="black"/>
+    </visual>
+    <!-- left wall -->
+    <visual>
+      <origin xyz="0 0.235 0.1375" rpy="0 0 0"/>
+      <geometry><box size="0.39 0.02 0.275"/></geometry>
+      <material name="black"/>
+    </visual>
+    <!-- right outer wall (behind control panel) -->
+    <visual>
+      <origin xyz="0 -0.235 0.1375" rpy="0 0 0"/>
+      <geometry><box size="0.39 0.02 0.275"/></geometry>
+      <material name="black"/>
+    </visual>
+    <!-- divider between cavity and electronics -->
+    <visual>
+      <origin xyz="0 -0.105 0.1375" rpy="0 0 0"/>
+      <geometry><box size="0.34 0.015 0.235"/></geometry>
+      <material name="dark_grey"/>
+    </visual>
+    <!-- control panel front -->
+    <visual>
+      <origin xyz="0.195 -0.17 0.1375" rpy="0 0 0"/>
+      <geometry><box size="0.02 0.14 0.235"/></geometry>
+      <material name="black"/>
+    </visual>
+    <!-- glass turntable inside (static) -->
+    <visual>
+      <origin xyz="0.0 0.065 0.035" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.14" length="0.01"/></geometry>
+      <material name="glass"/>
+    </visual>
+
+    <collision>
+      <origin xyz="0 0 0.2675" rpy="0 0 0"/>
+      <geometry><box size="0.39 0.49 0.015"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0 0 0.0075" rpy="0 0 0"/>
+      <geometry><box size="0.39 0.49 0.015"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.1875 0 0.1375" rpy="0 0 0"/>
+      <geometry><box size="0.015 0.49 0.275"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0 0.235 0.1375" rpy="0 0 0"/>
+      <geometry><box size="0.39 0.02 0.275"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0 -0.17 0.1375" rpy="0 0 0"/>
+      <geometry><box size="0.39 0.15 0.275"/></geometry>
+    </collision>
+  </link>
+
+  <!-- Door. Hinge on left-front edge, handle on right edge of door -->
+  <link name="door">
+    <inertial>
+      <origin xyz="0 -0.165 0" rpy="0 0 0"/>
+      <mass value="1.5"/>
+      <inertia ixx="0.0231" ixy="0" ixz="0" iyy="0.0079" iyz="0" izz="0.0154"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 -0.165 0" rpy="0 0 0"/>
+      <geometry><box size="0.025 0.33 0.235"/></geometry>
+      <material name="black"/>
+    </visual>
+    <!-- vertical silver handle -->
+    <visual>
+      <origin xyz="0.025 -0.30 0" rpy="0 0 0"/>
+      <geometry><box size="0.03 0.035 0.22"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0 -0.165 0" rpy="0 0 0"/>
+      <geometry><box size="0.025 0.33 0.235"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.025 -0.30 0" rpy="0 0 0"/>
+      <geometry><box size="0.03 0.035 0.22"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="door_hinge" type="revolute">
+    <parent link="base_link"/>
+    <child link="door"/>
+    <origin xyz="0.195 0.235 0.1375" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0" upper="1.75" effort="10" velocity="1.0"/>
+    <dynamics damping="0.2" friction="0.1"/>
+  </joint>
+
+</robot>

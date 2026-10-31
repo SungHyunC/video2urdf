@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<robot name="macbook_laptop">
+  <!-- keyboard base chassis: ~30.4cm wide x 21.2cm deep x 1.0cm thick -->
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.304 0.212 0.010"/>
+      </geometry>
+      <material name="silver">
+        <color rgba="0.75 0.76 0.78 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.304 0.212 0.010"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.9"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="0.003378" ixy="0" ixz="0" iyy="0.006939" iyz="0" izz="0.010302"/>
+    </inertial>
+  </link>
+
+  <!-- display lid: ~30.4cm wide x 21.2cm deep x 0.7cm thick -->
+  <link name="lid">
+    <visual>
+      <origin xyz="0 0.106 0.0035" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.304 0.212 0.007"/>
+      </geometry>
+      <material name="silver_dark">
+        <color rgba="0.70 0.71 0.73 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0.106 0.0035" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.304 0.212 0.007"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.4"/>
+      <origin xyz="0 0.106 0.0035" rpy="0 0 0"/>
+      <inertia ixx="0.001500" ixy="0" ixz="0" iyy="0.003082" iyz="0" izz="0.004579"/>
+    </inertial>
+  </link>
+
+  <!-- hinge at rear edge of base -->
+  <joint name="hinge" type="revolute">
+    <parent link="base"/>
+    <child link="lid"/>
+    <origin xyz="0 -0.106 0.005" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0.0" upper="1.92" effort="5.0" velocity="2.0"/>
+    <dynamics damping="0.1" friction="0.2"/>
+  </joint>
+</robot>

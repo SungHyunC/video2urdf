@@ -1,0 +1,40 @@
+{
+  "usable": true,
+  "prismatic_joints": 3,
+  "joint": "drawer_top_joint",
+  "travel_mm": 360.0,
+  "moving_extents_mm": [
+    525.0,
+    380.00000000000034,
+    150.00000000000003
+  ],
+  "all": [
+    {
+      "joint": "drawer_top_joint",
+      "travel_mm": 360.0,
+      "moving_extents_mm": [
+        525.0,
+        380.00000000000034,
+        150.00000000000003
+      ]
+    },
+    {
+      "joint": "drawer_middle_joint",
+      "travel_mm": 360.0,
+      "moving_extents_mm": [
+        525.0,
+        380.00000000000034,
+        150.00000000000003
+      ]
+    },
+    {
+      "joint": "drawer_bottom_joint",
+      "travel_mm": 360.0,
+      "moving_extents_mm": [
+        525.0,
+        380.00000000000034,
+        150.00000000000003
+      ]
+    }
+  ]
+}

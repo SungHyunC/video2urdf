@@ -1,0 +1,34 @@
+{
+  "case": "laptop02",
+  "model": "muse-spark-1.3-contributor",
+  "base_url": "https://api.meta.ai/v1",
+  "video": "data/rbo/prep/laptop02/laptop02.mp4",
+  "frames": [
+    51,
+    102,
+    153
+  ],
+  "prompt": "I filmed this object being moved. Write a URDF of it that I can load into MuJoCo to simulate it.\n\n- Links: simple box or cylinder geometry, sized in metres to match the real object.\n- Joints: the right type, axis, origin and limits, so the model moves the way the object moves in the video.\n\nMake it as close to the real object as you can tell from the video. Reply with the complete URDF in one ```xml code block.",
+  "answer": "```xml\n<?xml version=\"1.0\"?>\n<robot name=\"old_laptop\">\n  <!-- Base / keyboard body. X=width (left-right), Y=depth (+forward toward user), Z=up -->\n  <link name=\"base\">\n    <inertial>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <mass value=\"2.0\"/>\n      <inertia ixx=\"0.01002\" ixy=\"0\" ixz=\"0\" iyy=\"0.01542\" iyz=\"0\" izz=\"0.0246\"/>\n    </inertial>\n    <visual>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.30 0.24 0.05\"/>\n      </geometry>\n      <material name=\"beige\">\n        <color rgba=\"0.82 0.80 0.74 1\"/>\n      </material>\n    </visual>\n    <visual>\n      <!-- keyboard area -->\n      <origin xyz=\"0 0.01 0.026\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.26 0.18 0.005\"/>\n      </geometry>\n      <material name=\"keyboard\">\n        <color rgba=\"0.75 0.73 0.67 1\"/>\n      </material>\n    </visual>\n    <collision>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.30 0.24 0.05\"/>\n      </geometry>\n    </collision>\n  </link>\n\n  <!-- Lid / screen. Local frame aligned with base when closed (joint=0).\n       X=width, Y=depth, Z=thickness. Size Y=0.23 becomes height when open. -->\n  <link name=\"lid\">\n    <inertial>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <mass value=\"0.8\"/>\n      <inertia ixx=\"0.00357\" ixy=\"0\" ixz=\"0\" iyy=\"0.00604\" iyz=\"0\" izz=\"0.00953\"/>\n    </inertial>\n    <visual>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.30 0.23 0.025\"/>\n      </geometry>\n      <material name=\"beige_lid\">\n        <color rgba=\"0.82 0.80 0.74 1\"/>\n      </material>\n    </visual>\n    <visual>\n      <!-- black LCD on underside (-Z side). Faces down when closed, faces +Y when open -->\n      <origin xyz=\"0 0.01 -0.0125\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.26 0.20 0.002\"/>\n      </geometry>\n      <material name=\"screen\">\n        <color rgba=\"0.02 0.02 0.03 1\"/>\n      </material>\n    </visual>\n    <collision>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.30 0.23 0.025\"/>\n      </geometry>\n    </collision>\n  </link>\n\n  <!-- Hinge at rear edge of base. Rotation about X (left-right) opens lid.\n       0 = fully closed flat, ~1.85 rad = ~106 deg open (vertical, as in video) -->\n  <joint name=\"hinge\" type=\"revolute\">\n    <parent link=\"base\"/>\n    <child link=\"lid\"/>\n    <origin xyz=\"0 -0.12 0.025\" rpy=\"0 0 0\"/>\n    <axis xyz=\"1 0 0\"/>\n    <limit lower=\"0\" upper=\"1.85\" effort=\"10\" velocity=\"2.0\"/>\n    <dynamics damping=\"0.2\" friction=\"0.1\"/>\n  </joint>\n</robot>\n```",
+  "seconds": 31.5,
+  "usage": {
+    "completion_tokens": 3940,
+    "prompt_tokens": 4404,
+    "total_tokens": 8344,
+    "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": 3024,
+      "rejected_prediction_tokens": null,
+      "text_tokens": null
+    },
+    "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": null
+    }
+  },
+  "urdf_found": true
+}

@@ -1,0 +1,56 @@
+<robot name="old_laptop">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="2.0"/>
+      <inertia ixx="0.00833" ixy="0.0" ixz="0.0" iyy="0.01333" iyz="0.0" izz="0.02113"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.28 0.22 0.04"/>
+      </geometry>
+      <material name="beige">
+        <color rgba="0.82 0.80 0.74 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.28 0.22 0.04"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="lid_link">
+    <inertial>
+      <origin xyz="0 0.11 0.0125" rpy="0 0 0"/>
+      <mass value="0.8"/>
+      <inertia ixx="0.00327" ixy="0.0" ixz="0.0" iyy="0.00527" iyz="0.0" izz="0.00845"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0.11 0.0125" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.28 0.22 0.025"/>
+      </geometry>
+      <material name="beige_dark">
+        <color rgba="0.80 0.78 0.72 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0.11 0.0125" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.28 0.22 0.025"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="lid_hinge" type="revolute">
+    <parent link="base_link"/>
+    <child link="lid_link"/>
+    <origin xyz="0 -0.11 0.02" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0.0" upper="1.85" effort="5.0" velocity="2.0"/>
+    <dynamics damping="0.1" friction="0.2"/>
+  </joint>
+</robot>

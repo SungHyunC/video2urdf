@@ -27,6 +27,7 @@ the robot demo, and the measured model in 3D with its URDF/MJCF).
   (base lost on 89 of 408 frames: re-segmented, re-tracked, refit) and [the finish gate](#the-agent-cant-finish-over-its-own-warnings).
 - **Results**: [at a glance](#at-a-glance) · [RBO motion-capture benchmark](#benchmark-rbo-dataset-real-rgb-d-with-motion-capture) · [five fresh runs per object](#five-fresh-runs-per-object-and-three-objects-it-had-never-seen)
 - **Open weights only**: [the exact commands](#open-weights-only-for-the-open-weight-prize-check) and [what they gave](#open-weights-only).
+- **Why not just ask an AI?** [The same Muse Spark asked plainly for a URDF](#why-not-just-ask-an-ai-for-the-urdf), no tools.
 - **URDF Doctor**: [checking an existing URDF against a video](#urdf-doctor-checking-an-existing-urdf-against-the-video).
 
 ## At a glance
@@ -73,6 +74,7 @@ Spark Open and SAM weights, `--glimmer` on Muse Glimmer 30B served by us.
 | The unseen back of a microwave in a shelf | front measured (477 x 269 mm), depth bounded by the video (334-387 mm), the rest from Muse Spark (a Samsung 23 L): 477 x 365 x 269 mm with its cavity | measured front, video bound |
 | SAM tracking, 1385 frames, 4 parts | 520 s -> 285 s, masks IoU 0.97-0.995 | previous pipeline |
 | The downloads, loaded outside our own scripts (`scripts/check_exports.py`) | all 8 models' zips: the MJCF in MuJoCo, the URDF in PyBullet, yourdfpy and Drake, joints and limits equal to the fit's; MuJoCo's own URDF import runs 7 (the side-view laptop's lid overlaps its base 13 mm at the hinge, which only the MJCF can exclude) | the fit's records |
+| The same Muse Spark asked plainly for a URDF of each video, no tools (5 answers per object) | recalls the MacBook's spec (304 x 212 mm, 5 of 5); in 8 of 19 hinge answers the joint can't open as far as the video shows; every drawer gets the same 360-400 mm; 1 of 25 doesn't load | the measured model, motion capture |
 | Scale for plain video (MapAnything depth) | an ID-1 card: x0.75 on the side-view laptop, steady over 8 frames; the object's usual size: x1.01 on the laptop's RGB, already at LiDAR scale | 1.0 expected on the latter |
 
 ## Reproduce it
@@ -212,6 +214,32 @@ version of these checks also flagged every laptop (a screen's track is meant to 
 lid's back as it closes); that case is now an informational line, and a WARNING only when the
 plate sits on the closed surface while the object is open: fresh laptop runs pass (lid
 306 x 208 mm, replay 88% / 95%).
+
+### Why not just ask an AI for the URDF?
+
+We asked the same Muse Spark that drives Video2URDF (`muse-spark-1.3-contributor`) for a URDF of
+each video, plainly: the video, three frames and one request, no tools (5 answers per object,
+`scripts/spark_alone.py`). Each answer was placed on the measured model by URDF Doctor and, on the
+RBO laptops, scored against motion capture.
+
+![Left: the measured model over the video, the lid open 117 deg. Right: Muse Spark's own URDF placed where it fits best, stopped at its 110 deg limit](docs/media/spark_alone_laptop.jpg)
+
+- **It recognises products and recalls their specs.** The MacBook's lid came out at the spec's
+  304 x 212 mm in all five answers. On the RBO laptops, placed on our measured geometry, its hinge
+  along the back edge of the base is as close to motion capture as our fit in direction on two
+  of the three (1.9 / 1.0 deg against our 2.1 / 0.9; 6.5 against 1.8 on the third), and closer in
+  position (8-19 mm against our 20-32 mm).
+- **It can't measure this object.** In 8 of 19 hinge answers the joint range is shorter than the
+  opening the video shows, so the model can't reach a pose the real object reaches (above: the lid
+  opens 117 deg, Spark's model stops at its 110 deg limit). It gave all three of the pedestal's
+  drawers the same 360-400 mm of travel, whatever the video shows (the one in the video was
+  pulled out 248 mm; its full travel wasn't measured). Answers vary from run to run (joint ranges
+  90-120 deg), 1 of 25 doesn't load in MuJoCo (impossible inertia), and nothing in an answer says
+  which of its numbers are right.
+- **With tools, the same model measures those numbers and checks them against the video.** Its
+  prior for where a laptop's hinge sits is better than our fit's position, a prior we could add.
+
+Table, caveats and all 30 answers: [docs/spark_alone.md](docs/spark_alone.md).
 
 ### Five fresh runs per object, and three objects it had never seen
 

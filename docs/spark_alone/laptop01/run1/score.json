@@ -1,0 +1,65 @@
+{
+  "usable": true,
+  "joint": "lid_hinge",
+  "revolute_joints": 1,
+  "findings": [
+    "axis direction is 4.0 deg off the measured hinge",
+    "hinge axis sits 20 mm from the measured hinge (joint origin misplaced)",
+    "limits don't cover the motion in the video (needs -26 deg, lower limit is 0; needs 94 deg, upper limit is 90)",
+    "the moving part's geometry differs from the measured one by 12 mm on average"
+  ],
+  "axis_direction_error_deg": 4.001780450082582,
+  "axis_offset_mm": 19.637310013908838,
+  "shape_mismatch_mm": 12.104832293825392,
+  "q_per_opening": -0.9027196674105766,
+  "opening_seen_deg": [
+    -8.260401075779454,
+    123.84040973524996
+  ],
+  "q_needed_deg": [
+    -25.532142857142844,
+    93.71785714285714
+  ],
+  "urdf_limits_deg": [
+    0.0,
+    90.00021045914971
+  ],
+  "limits_cover_motion": false,
+  "moving_extents_mm": [
+    290.0000000000003,
+    229.99999999999997,
+    20.000000000000007
+  ],
+  "registration": [
+    [
+      0.019580911155305615,
+      0.9975618821155634,
+      -0.06698417177502393,
+      0.013175103180756459
+    ],
+    [
+      -0.9997690343050298,
+      0.020129729670863412,
+      0.007528082635481763,
+      -0.10494082151773391
+    ],
+    [
+      0.008858101552630315,
+      0.06682129401198282,
+      0.9977256379904486,
+      0.015183185783759273
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "q_when_closed_deg": 86.26103063105154,
+  "mocap": {
+    "axis_direction_error_deg": 3.8520651286987238,
+    "axis_position_error_mm": 13.307238312294842,
+    "true_range_deg": 117.16455766357107
+  }
+}

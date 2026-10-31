@@ -1,0 +1,92 @@
+<?xml version="1.0"?>
+<robot name="samsung_microwave">
+  <!-- Chassis / cavity body. Frame: x=right, y=forward, z=up. Origin at center of body. -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="12.0"/>
+      <inertia ixx="0.2052" ixy="0.0" ixz="0.0" iyy="0.3157" iyz="0.0" izz="0.3697"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.489 0.36 0.275"/>
+      </geometry>
+      <material name="black">
+        <color rgba="0.05 0.05 0.05 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.489 0.36 0.275"/>
+      </geometry>
+    </collision>
+    <!-- right-side control panel strip, part of body -->
+    <visual>
+      <origin xyz="0.18 0.185 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.13 0.02 0.26"/>
+      </geometry>
+      <material name="black_glass">
+        <color rgba="0.03 0.03 0.03 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.18 0.185 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.13 0.02 0.26"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Door. Link frame at hinge on left front edge. -->
+  <link name="door">
+    <inertial>
+      <origin xyz="0.18 0.015 0" rpy="0 0 0"/>
+      <mass value="2.0"/>
+      <inertia ixx="0.0114" ixy="0.0" ixz="0.0" iyy="0.0329" iyz="0.0" izz="0.0217"/>
+    </inertial>
+    <!-- door glass panel -->
+    <visual>
+      <origin xyz="0.18 0.015 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.36 0.03 0.26"/>
+      </geometry>
+      <material name="door_black">
+        <color rgba="0.05 0.05 0.05 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.18 0.015 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.36 0.03 0.26"/>
+      </geometry>
+    </collision>
+    <!-- vertical silver handle on right edge of door -->
+    <visual>
+      <origin xyz="0.32 0.045 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.025 0.03 0.22"/>
+      </geometry>
+      <material name="silver">
+        <color rgba="0.75 0.75 0.75 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.32 0.045 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.025 0.03 0.22"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="door_hinge" type="revolute">
+    <parent link="base_link"/>
+    <child link="door"/>
+    <origin xyz="-0.2445 0.18 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0" upper="1.745" effort="15" velocity="1.5"/>
+    <dynamics damping="0.2" friction="0.1"/>
+  </joint>
+</robot>

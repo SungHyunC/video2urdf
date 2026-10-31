@@ -1,0 +1,34 @@
+{
+  "case": "microwave_lidar",
+  "model": "muse-spark-1.3-contributor",
+  "base_url": "https://api.meta.ai/v1",
+  "video": "data/real/microwave_lidar/microwave_lidar.mp4",
+  "frames": [
+    320,
+    640,
+    960
+  ],
+  "prompt": "I filmed this object being moved. Write a URDF of it that I can load into MuJoCo to simulate it.\n\n- Links: simple box or cylinder geometry, sized in metres to match the real object.\n- Joints: the right type, axis, origin and limits, so the model moves the way the object moves in the video.\n\nMake it as close to the real object as you can tell from the video. Reply with the complete URDF in one ```xml code block.",
+  "answer": "```xml\n<?xml version=\"1.0\"?>\n<robot name=\"samsung_microwave\">\n  <!-- Base / body of microwave, 52cm W x 42cm D x 31cm H -->\n  <link name=\"base_link\">\n    <visual>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.52 0.42 0.31\"/>\n      </geometry>\n      <material name=\"black\">\n        <color rgba=\"0.05 0.05 0.06 1.0\"/>\n      </material>\n    </visual>\n    <!-- control panel strip on right front -->\n    <visual>\n      <origin xyz=\"0.195 0.205 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.13 0.02 0.29\"/>\n      </geometry>\n      <material name=\"black_glass\">\n        <color rgba=\"0.02 0.02 0.03 1.0\"/>\n      </material>\n    </visual>\n    <collision>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.52 0.42 0.31\"/>\n      </geometry>\n    </collision>\n    <inertial>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <mass value=\"12.0\"/>\n      <inertia ixx=\"0.35\" ixy=\"0\" ixz=\"0\" iyy=\"0.45\" iyz=\"0\" izz=\"0.55\"/>\n    </inertial>\n  </link>\n\n  <!-- Door: ~37.5cm wide, 29cm high, 3.5cm thick, hinged on left -->\n  <link name=\"door\">\n    <visual>\n      <origin xyz=\"0.1875 0.0175 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.375 0.035 0.29\"/>\n      </geometry>\n      <material name=\"door_black\">\n        <color rgba=\"0.04 0.04 0.05 1.0\"/>\n      </material>\n    </visual>\n    <!-- vertical silver handle on right edge of door -->\n    <visual>\n      <origin xyz=\"0.36 0.05 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.025 0.03 0.24\"/>\n      </geometry>\n      <material name=\"silver\">\n        <color rgba=\"0.75 0.75 0.76 1.0\"/>\n      </material>\n    </visual>\n    <collision>\n      <origin xyz=\"0.1875 0.0175 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.375 0.035 0.29\"/>\n      </geometry>\n    </collision>\n    <inertial>\n      <origin xyz=\"0.1875 0 0\" rpy=\"0 0 0\"/>\n      <mass value=\"1.5\"/>\n      <inertia ixx=\"0.02\" ixy=\"0\" ixz=\"0\" iyy=\"0.02\" iyz=\"0\" izz=\"0.03\"/>\n    </inertial>\n  </link>\n\n  <!-- Left-side vertical hinge, 0=closed, + rotates right edge forward -->\n  <joint name=\"door_hinge\" type=\"revolute\">\n    <parent link=\"base_link\"/>\n    <child link=\"door\"/>\n    <origin xyz=\"-0.245 0.21 0\" rpy=\"0 0 0\"/>\n    <axis xyz=\"0 0 1\"/>\n    <limit lower=\"0.0\" upper=\"1.75\" effort=\"10.0\" velocity=\"1.5\"/>\n    <dynamics damping=\"0.2\" friction=\"0.1\"/>\n  </joint>\n</robot>\n```",
+  "seconds": 21.2,
+  "usage": {
+    "completion_tokens": 4521,
+    "prompt_tokens": 7839,
+    "total_tokens": 12360,
+    "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": 3634,
+      "rejected_prediction_tokens": null,
+      "text_tokens": null
+    },
+    "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 7779,
+      "image_tokens": null,
+      "text_tokens": null
+    }
+  },
+  "urdf_found": true
+}

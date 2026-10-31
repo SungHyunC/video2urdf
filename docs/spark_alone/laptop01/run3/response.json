@@ -1,0 +1,34 @@
+{
+  "case": "laptop01",
+  "model": "muse-spark-1.3-contributor",
+  "base_url": "https://api.meta.ai/v1",
+  "video": "data/rbo/prep/laptop01/laptop01.mp4",
+  "frames": [
+    46,
+    93,
+    139
+  ],
+  "prompt": "I filmed this object being moved. Write a URDF of it that I can load into MuJoCo to simulate it.\n\n- Links: simple box or cylinder geometry, sized in metres to match the real object.\n- Joints: the right type, axis, origin and limits, so the model moves the way the object moves in the video.\n\nMake it as close to the real object as you can tell from the video. Reply with the complete URDF in one ```xml code block.",
+  "answer": "```xml\n<?xml version=\"1.0\"?>\n<robot name=\"old_laptop\">\n  <!-- Base / keyboard half, ~30cm wide x 24cm deep x 4.5cm thick -->\n  <link name=\"base_link\">\n    <visual>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.24 0.30 0.045\"/>\n      </geometry>\n      <material name=\"beige\">\n        <color rgba=\"0.82 0.80 0.74 1.0\"/>\n      </material>\n    </visual>\n    <collision>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.24 0.30 0.045\"/>\n      </geometry>\n    </collision>\n    <inertial>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <mass value=\"2.0\"/>\n      <inertia ixx=\"0.01534\" ixy=\"0.0\" ixz=\"0.0\" iyy=\"0.00994\" iyz=\"0.0\" izz=\"0.0246\"/>\n    </inertial>\n  </link>\n\n  <!-- Screen / lid half, ~30cm wide x 22.5cm tall x 2cm thick -->\n  <link name=\"screen_link\">\n    <visual>\n      <origin xyz=\"0 0 0.1125\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.02 0.30 0.225\"/>\n      </geometry>\n      <material name=\"beige_dark\">\n        <color rgba=\"0.80 0.78 0.72 1.0\"/>\n      </material>\n    </visual>\n    <collision>\n      <origin xyz=\"0 0 0.1125\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.02 0.30 0.225\"/>\n      </geometry>\n    </collision>\n    <inertial>\n      <origin xyz=\"0 0 0.1125\" rpy=\"0 0 0\"/>\n      <mass value=\"0.6\"/>\n      <inertia ixx=\"0.00715\" ixy=\"0.0\" ixz=\"0.0\" iyy=\"0.00267\" iyz=\"0.0\" izz=\"0.00452\"/>\n    </inertial>\n  </link>\n\n  <!-- Hinge at rear top edge of base. 0 = open vertical, +pi/2 = closed flat -->\n  <joint name=\"lid_hinge\" type=\"revolute\">\n    <parent link=\"base_link\"/>\n    <child link=\"screen_link\"/>\n    <origin xyz=\"-0.12 0 0.0225\" rpy=\"0 0 0\"/>\n    <axis xyz=\"0 1 0\"/>\n    <limit lower=\"-0.35\" upper=\"1.5708\" effort=\"5.0\" velocity=\"2.0\"/>\n    <dynamics damping=\"0.1\" friction=\"0.2\"/>\n  </joint>\n</robot>\n```",
+  "seconds": 31.0,
+  "usage": {
+    "completion_tokens": 3843,
+    "prompt_tokens": 4404,
+    "total_tokens": 8247,
+    "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": 3136,
+      "rejected_prediction_tokens": null,
+      "text_tokens": null
+    },
+    "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 4323,
+      "image_tokens": null,
+      "text_tokens": null
+    }
+  },
+  "urdf_found": true
+}

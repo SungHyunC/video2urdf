@@ -1,0 +1,84 @@
+<?xml version="1.0"?>
+<robot name="dell_laptop">
+  <material name="beige">
+    <color rgba="0.82 0.80 0.74 1.0"/>
+  </material>
+  <material name="beige_dark">
+    <color rgba="0.78 0.76 0.70 1.0"/>
+  </material>
+  <material name="black">
+    <color rgba="0.05 0.05 0.06 1.0"/>
+  </material>
+  <material name="grey_dark">
+    <color rgba="0.2 0.2 0.2 1.0"/>
+  </material>
+
+  <!-- Base / keyboard body. x forward (depth), y left (width), z up -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="2.2"/>
+      <inertia ixx="0.016495" ixy="0" ixz="0" iyy="0.010022" iyz="0" izz="0.02587"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.23 0.297 0.042"/>
+      </geometry>
+      <material name="beige"/>
+    </visual>
+    <visual>
+      <!-- keyboard inset on top face -->
+      <origin xyz="0.02 0 0.0215" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.17 0.26 0.002"/>
+      </geometry>
+      <material name="grey_dark"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.23 0.297 0.042"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Lid / display. Origin at hinge, geometry offset forward so 0 = closed -->
+  <link name="display_link">
+    <inertial>
+      <origin xyz="0.115 0 0.006" rpy="0 0 0"/>
+      <mass value="0.6"/>
+      <inertia ixx="0.004418" ixy="0" ixz="0" iyy="0.002652" iyz="0" izz="0.007055"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.115 0 0.006" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.23 0.297 0.012"/>
+      </geometry>
+      <material name="beige_dark"/>
+    </visual>
+    <visual>
+      <!-- black LCD on inner face (faces -z when closed, +x when open) -->
+      <origin xyz="0.115 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.19 0.26 0.002"/>
+      </geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <origin xyz="0.115 0 0.006" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.23 0.297 0.012"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="lid_hinge" type="revolute">
+    <parent link="base_link"/>
+    <child link="display_link"/>
+    <origin xyz="-0.115 0 0.021" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.9" upper="0" effort="10" velocity="2.0"/>
+    <dynamics damping="0.1" friction="0.1"/>
+  </joint>
+</robot>

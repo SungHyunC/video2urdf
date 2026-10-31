@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<robot name="laptop">
+  <!-- Base / keyboard half - sits on table -->
+  <!-- x = lateral (width), y = depth front(+)/back(-), z = up -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1.8"/>
+      <inertia ixx="0.00815" ixy="0" ixz="0" iyy="0.01372" iyz="0" izz="0.02144"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.30 0.23 0.038"/>
+      </geometry>
+      <material name="beige">
+        <color rgba="0.82 0.81 0.75 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.30 0.23 0.038"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Lid / screen half - origin at hinge line -->
+  <link name="lid_link">
+    <inertial>
+      <origin xyz="0 0.115 0.01" rpy="0 0 0"/>
+      <mass value="0.9"/>
+      <inertia ixx="0.0040" ixy="0" ixz="0" iyy="0.00678" iyz="0" izz="0.01072"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0.115 0.01" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.30 0.23 0.02"/>
+      </geometry>
+      <material name="beige_lid">
+        <color rgba="0.82 0.81 0.75 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0.115 0.01" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.30 0.23 0.02"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Hinge at rear top edge of base -->
+  <joint name="lid_hinge" type="revolute">
+    <parent link="base_link"/>
+    <child link="lid_link"/>
+    <origin xyz="0 -0.115 0.019" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0" upper="1.92" effort="10" velocity="2.0"/>
+    <dynamics damping="0.1" friction="0.1"/>
+  </joint>
+</robot>
