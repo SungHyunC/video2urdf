@@ -1706,7 +1706,7 @@ def complete_body(run_dir: Path, video: Path, capture: Path, log=print, spark: b
     if inertia and (run_dir / "physics.json").exists():
         phys = json.loads((run_dir / "physics.json").read_text())
         link = phys["links"].get(door.base, {})
-        link.update({"material": f"{name} body (completed: estimated)", "mass_kg": mass, "inertial": {**inertia, "mass": mass},
+        link.update({"material": f"{name} body, completed: estimated", "mass_kg": mass, "inertial": {**inertia, "mass": mass},
                      "mass_source": dims["mass"]["source"] + (f" ({dims['mass']['model']})" if dims["mass"].get("model") else ""),
                      "measured_part_mass_kg": link.get("mass_kg")})
         phys["links"][door.base] = link

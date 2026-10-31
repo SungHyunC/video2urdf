@@ -55,8 +55,39 @@ def body_tree(el: ET.Element) -> dict:
             "material": g.get("material"),  # the video texture (texture.py), resolved in export
             "realistic": ((g.get("mesh") or "").endswith(("_sam3d", "_infer"))
                           or g.get("name", "").startswith(("inferred_", "design_"))),  # generated visual
+            # a body completed behind a measured front (completion.py): estimated, shown in both looks
+            "estimated": g.get("name", "").startswith("completed_"),
             "measured": g.get("group") == "3"})  # hidden under a realistic visual in MuJoCo
     return out
+
+
+def completion_summary(run: Path) -> dict | None:
+    """What completion.json says about a completed body, compact: its size, what was measured,
+    the video's bound, each estimate's source, and the coverage of the whole object's masks."""
+    p = run / "completion.json"
+    if not p.exists():
+        return None
+    c = json.loads(p.read_text())
+    dims = c["estimated"]["dims"]
+
+    def est(k):
+        d = dims.get(k)
+        if not d:
+            return None
+        return {"mm": round(1000 * d["value_m"], 1), "source": d["source"], "model": d.get("model"),
+                "typical_mm": round(1000 * d["typical_m"], 1) if d.get("typical_m") else None,
+                "range_mm": [round(1000 * x) for x in d["range_m"]] if d.get("range_m") else None,
+                "reason": d.get("reason"), "clamped_from_mm": round(1000 * d["clamped"]["from_m"], 1) if d.get("clamped") else None,
+                "clamped_by": d["clamped"]["by"] if d.get("clamped") else None}
+    cover = c["checks"]["whole_object_coverage"]
+    return {"object": c["object"], "size_mm": [round(v, 1) for v in c["built"]["size_mm"]],
+            "front_mm": [round(c["measured"]["front_width_mm"], 1), round(c["measured"]["front_height_mm"], 1)],
+            "bound": {k: c["bounded"][k] for k in ("upper_mm", "upper_why", "lower_mm", "lower_why")},
+            "estimates": {k: est(k) for k in ("outer_depth", "cavity_width", "cavity_height", "cavity_depth", "wall_thickness")},
+            "mass_kg": round(dims["mass"]["value_kg"], 2), "mass_source": dims["mass"]["source"],
+            "estimated_by": c["estimated"].get("model"),
+            "whole_object_coverage": {k: round(cover[k]["covers"], 3) for k in ("measured_only", "completed") if k in cover},
+            "not_measured": c["not_measured"]}
 
 
 def export_trace(log: Path, out: Path, width: int = 1200) -> str:
@@ -300,7 +331,7 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
             "replay_experimental": replay_experimental,
             "physics_input_provenance": read_optional("physics_input_provenance.json"),
             "sam3d": read_optional("sam3d.json"), "sam3d_attempts": read_optional("sam3d_attempts.json"),
-            "quality": read_optional("quality.json"),
+            "quality": read_optional("quality.json"), "completion": completion_summary(run),
             "front": front(run / "model.xml") if (run / "model3d.json").exists() else None}
     (dst / "model.json").write_text(json.dumps(spec))
     # Individual XML downloads reference relative meshes; bundle them for actual use.
@@ -310,7 +341,8 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
                 archive.write(p, p.relative_to(dst))
         for name_ in ("model3d.json", "static.json", "appearance.json", "shape_inference.json", "texture.json", "design.json",
                       "measurement_source.json", "sam3d.json", "sam3d_attempts.json", "sam3d_status.json", "quality.json", "physics.json",
-                      "track_unions.json", "repair.json", "manual_selection.json", "physics_input_provenance.json", "experimental_alignment.json", "experimental_comparison.json", "experimental_drawer_collision.json", "physics.original.json", "resume.json"):
+                      "track_unions.json", "repair.json", "manual_selection.json", "physics_input_provenance.json", "experimental_alignment.json", "experimental_comparison.json", "experimental_drawer_collision.json", "physics.original.json", "resume.json",
+                      "completion.json", "model.measured.xml", "model.measured.urdf"):
             p = run / name_
             if p.exists():
                 archive.write(p, name_)

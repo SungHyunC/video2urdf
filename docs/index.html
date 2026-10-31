@@ -407,8 +407,13 @@ function facts(s) {
       "Hidden surfaces and full dimensions are not verified.";
   }
   if (s.three_d && m.plate_size_mm && m.hinge_vertical) {  // a door: plate_size_mm is [tall along the hinge, wide]
+    const c = s.completion;  // a body completed behind the measured front (completion.py): its depth is estimated
     return `${depth}: door ${m.plate_size_mm[1].toFixed(0)} mm wide × ${m.plate_size_mm[0].toFixed(0)} mm tall ` +
-      `on a vertical hinge, opening over ${(m.hinge_range_deg[1] - m.hinge_range_deg[0]).toFixed(0)}° in the video.`;
+      `on a vertical hinge, opening over ${(m.hinge_range_deg[1] - m.hinge_range_deg[0]).toFixed(0)}° in the video.` +
+      (c ? ` Body completed behind its measured front (${c.front_mm[0].toFixed(0)} × ${c.front_mm[1].toFixed(0)} mm): ` +
+        `${c.size_mm[0].toFixed(0)} wide × ${c.size_mm[1].toFixed(0)} deep (estimated` +
+        (c.bound.upper_mm ? `, the video allows at most ${c.bound.upper_mm.toFixed(0)} mm` : "") +
+        `) × ${c.size_mm[2].toFixed(0)} tall, hollow behind the door, and it collides.` : "");
   }
   if (s.three_d && m.plate_size_mm) {
     const base = m.base_thickness_measured === false
@@ -489,10 +494,11 @@ for (const entry of index) {
   b.onclick = async () => { for (const x of tabs.children) x.setAttribute("aria-pressed", String(x === b)); await load(entry); };
   tabs.append(b);
 }
-tabs.children[0].setAttribute("aria-pressed", "true");
+const first = Math.max(0, index.findIndex((e) => e.name === location.hash.slice(1)));  // #microwave_lidar opens that tab
+tabs.children[first].setAttribute("aria-pressed", "true");
 resize();
 tick();
-await load(index[0]);
+await load(index[first]);
 </script>
 </body>
 </html>
