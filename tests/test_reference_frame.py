@@ -431,6 +431,11 @@ class DoorHingeTest(unittest.TestCase):
         self.assertTrue(is_door(np.array(door), up))
         self.assertFalse(is_door(np.array(lid), up))
         self.assertFalse(is_door(np.array(door), None))
+        # a door shut most of the time, open on a quarter of the frames, plus one stray flat plane
+        shut = [np.array([1.0, 0, 0])] * 40
+        swung = [np.array([np.cos(a), 0, np.sin(a)]) for a in np.linspace(0.3, 0.9, 14)]
+        self.assertTrue(is_door(np.array(shut + swung + [np.array([0, 1.0, 0.05]) / np.hypot(1, 0.05)]), up))
+        self.assertFalse(is_door(np.array(shut + [np.array([0.999, 0.0, 0.045])] * 3), up))  # never turns
 
     def test_door_told_from_the_plate_track_before_the_lid_fallback(self):
         from video2urdf.lidar import looks_like_door

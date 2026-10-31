@@ -339,11 +339,18 @@ class PlanarHinge:
 def is_door(normals: np.ndarray, base_normal: np.ndarray | None) -> bool:
     """Plates turning about an axis along the base's normal (a microwave's or cupboard's door on a
     vertical hinge beside its top): the direction most perpendicular to every plate normal is
-    then that normal, and it is sharp (the normals spread around it)."""
+    then that normal, and it is sharp (the normals spread around it, by 10 deg or more). Judged
+    on the planes standing along that direction when they are most of them: one stray plane (a
+    sliver of the shelf under a door seen edge-on) must not hide the door."""
     if base_normal is None or len(normals) < 3:
         return False
     w, vecs = np.linalg.eigh(normals.T @ normals)
-    return abs(vecs[:, 0] @ base_normal) > np.cos(np.deg2rad(30)) and w[0] < 0.1 * w[1]
+    along = np.abs(normals @ vecs[:, 0]) < np.sin(np.deg2rad(20))
+    if along.mean() < 0.7 or along.sum() < 3:
+        return False
+    w, vecs = np.linalg.eigh(normals[along].T @ normals[along])
+    return (abs(vecs[:, 0] @ base_normal) > np.cos(np.deg2rad(30)) and w[0] < 0.1 * w[1]
+            and w[1] > np.sin(np.deg2rad(10)) ** 2 * along.sum())
 
 
 DOOR_EDGE_SEARCH_M = 0.15  # how far past the closed door's ends its hinge is looked for
