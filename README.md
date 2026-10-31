@@ -544,17 +544,34 @@ video once, structured output; `--reuse` re-applies the saved estimate).
 
 ### Open weights only (for the Open Weight prize check)
 
+With `--open-weights` every model call goes to open weights: Muse Spark Open on Baseten (the agent,
+its physics judgement and the shape design; also on Fireworks when `FIREWORKS_API_KEY` is set) and
+SAM 3.1 / SAM 3 weights in your own Modal workspace. The Meta Model API is not called, so
+`MODEL_API_KEY` can stay empty.
+
 ```bash
-# 1. Muse Spark Open on Baseten: put BASETEN_API_KEY in .env.
-# 2. SAM on your own Modal GPU: accept the SAM License on huggingface.co/facebook/sam3.1
-#    and huggingface.co/facebook/sam3, then
-.venv/bin/modal setup
-.venv/bin/modal secret create huggingface HF_TOKEN=hf_...
-.venv/bin/modal deploy modal_apps/sam3_open.py
-.venv/bin/python scripts/check_sam_open.py --e2e          # synthetic lamp vs the hosted tracks
-# 3. Run everything on open weights:
+# 0. The sample capture in data/real/laptop_lidar (see "Reproduce it" above).
+# 1. Muse Spark Open: BASETEN_API_KEY in .env. A Baseten workspace that lists the model as
+#    meta-models/muse-spark-open (not ...-1026) also needs BASETEN_MODEL=meta-models/muse-spark-open.
+.venv/bin/python scripts/smoke_test.py   # look for "[PASS] baseten chat"; lines for keys you don't have fail, fine here
+# 2. SAM weights on your Modal account. On Hugging Face, request access to facebook/sam3.1 and
+#    facebook/sam3 (SAM License), wait until both are granted, and make a read token.
+.venv/bin/modal setup                                       # browser login; token in ~/.modal.toml
+.venv/bin/modal secret create huggingface HF_TOKEN=hf_...   # the secret the Modal app reads
+.venv/bin/modal deploy modal_apps/sam3_open.py              # the first build takes minutes; ends with "App deployed"
+# 3. Everything on open weights. The first SAM call downloads the 3.5 GB checkpoint into the
+#    sam3-weights volume (once).
 .venv/bin/python scripts/run_agent.py data/real/laptop_lidar --open-weights --out data/tracks_open
 ```
+
+When it works, the run prints `model meta-models/muse-spark-open-1026` first, then each turn
+(`segment`, `track`, `fit_lidar`, `watch`, `set_physics`, `finish`), then `=== report ===`, whose
+first line is the automatic checks' status, then `Shape design: <object>, applied` (or `not
+applied` when the design scores below the measured meshes). The SAM calls show on modal.com under
+the app `video2urdf-sam3-open`. The files land in `data/tracks_open/laptop_lidar/` (listed under
+[Reproduce it](#reproduce-it), with the numbers to expect). `scripts/check_sam_open.py` checks the
+mask wire format locally (`RLE ok: ...`); its `--e2e` mode compares the deployed SAM with the
+hosted API's tracks of the synthetic lamp, so it needs a hosted run first (`data/tracks/lamp/`).
 
 `--sam api` keeps the hosted segmenter while reasoning runs on open weights. The Modal app
 scales to zero after 2 idle minutes (A10G, about $0.05-0.10 per video).
@@ -571,8 +588,20 @@ it is up; stop it when done):
 .venv/bin/modal endpoint stop glimmer --yes
 ```
 
-Locally, Glimmer runs under vLLM, SGLang, llama.cpp (`meta-models/Muse-Glimmer-30B-GGUF`) or
-LM Studio with 24 GB+ of VRAM; point `AGENT_BASE_URL`/`AGENT_MODEL` at it.
+Any other OpenAI-compatible server works the same way: Glimmer under vLLM, SGLang, llama.cpp's
+`llama-server` (`meta-models/Muse-Glimmer-30B-GGUF`) or LM Studio, with 24 GB+ of VRAM. Point the
+agent at it without `--open-weights` (that flag selects Baseten) and keep SAM on your Modal app:
+
+```bash
+# AGENT_MODEL: the name your server serves the model under; LOCAL_KEY: any value unless the server checks keys
+export LOCAL_KEY=none AGENT_API_KEY_ENV=LOCAL_KEY AGENT_BASE_URL=http://localhost:8000/v1 \
+       AGENT_MODEL=muse-glimmer-30b AGENT_VIDEO=0 AGENT_MAX_IMAGES=8
+.venv/bin/python scripts/run_agent.py data/real/laptop_lidar --sam open --out data/tracks_local
+```
+
+`AGENT_VIDEO=0` sends frames instead of mp4 video, for servers that drop video (our Glimmer
+endpoint does). With `BASETEN_API_KEY` or `FIREWORKS_API_KEY` set, the shape design (here and with
+`--glimmer`) also asks Spark Open there; add `--no-design` to keep every call on your own server.
 
 ### More commands
 
