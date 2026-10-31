@@ -1,0 +1,82 @@
+<?xml version="1.0"?>
+<robot name="old_laptop">
+  <!-- Base / keyboard body. X=width (left-right), Y=depth (+forward toward user), Z=up -->
+  <link name="base">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="2.0"/>
+      <inertia ixx="0.01002" ixy="0" ixz="0" iyy="0.01542" iyz="0" izz="0.0246"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.30 0.24 0.05"/>
+      </geometry>
+      <material name="beige">
+        <color rgba="0.82 0.80 0.74 1"/>
+      </material>
+    </visual>
+    <visual>
+      <!-- keyboard area -->
+      <origin xyz="0 0.01 0.026" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.26 0.18 0.005"/>
+      </geometry>
+      <material name="keyboard">
+        <color rgba="0.75 0.73 0.67 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.30 0.24 0.05"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Lid / screen. Local frame aligned with base when closed (joint=0).
+       X=width, Y=depth, Z=thickness. Size Y=0.23 becomes height when open. -->
+  <link name="lid">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.8"/>
+      <inertia ixx="0.00357" ixy="0" ixz="0" iyy="0.00604" iyz="0" izz="0.00953"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.30 0.23 0.025"/>
+      </geometry>
+      <material name="beige_lid">
+        <color rgba="0.82 0.80 0.74 1"/>
+      </material>
+    </visual>
+    <visual>
+      <!-- black LCD on underside (-Z side). Faces down when closed, faces +Y when open -->
+      <origin xyz="0 0.01 -0.0125" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.26 0.20 0.002"/>
+      </geometry>
+      <material name="screen">
+        <color rgba="0.02 0.02 0.03 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.30 0.23 0.025"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Hinge at rear edge of base. Rotation about X (left-right) opens lid.
+       0 = fully closed flat, ~1.85 rad = ~106 deg open (vertical, as in video) -->
+  <joint name="hinge" type="revolute">
+    <parent link="base"/>
+    <child link="lid"/>
+    <origin xyz="0 -0.12 0.025" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0" upper="1.85" effort="10" velocity="2.0"/>
+    <dynamics damping="0.2" friction="0.1"/>
+  </joint>
+</robot>

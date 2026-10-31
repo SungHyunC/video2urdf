@@ -1,0 +1,168 @@
+<?xml version="1.0"?>
+<robot name="office_pedestal">
+  <material name="light_wood">
+    <color rgba="0.84 0.69 0.51 1.0"/>
+  </material>
+  <material name="dark_metal">
+    <color rgba="0.15 0.17 0.19 1.0"/>
+  </material>
+  <material name="silver">
+    <color rgba="0.75 0.77 0.78 1.0"/>
+  </material>
+
+  <!-- Cabinet carcass: 0.56 deep (x), 0.42 wide (y), 0.60 high (z) -->
+  <link name="base_link">
+    <origin xyz="0 0 0.30" rpy="0 0 0"/>
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="18.0"/>
+      <inertia ixx="0.805" ixy="0" ixz="0" iyy="1.01" iyz="0" izz="0.735"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.56 0.42 0.60"/>
+      </geometry>
+      <material name="light_wood"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.56 0.42 0.60"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- TOP DRAWER -->
+  <link name="drawer_top">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="2.5"/>
+      <inertia ixx="0.035" ixy="0" ixz="0" iyy="0.053" iyz="0" izz="0.078"/>
+    </inertial>
+    <visual name="drawer_box">
+      <origin xyz="0 0 -0.02" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.45 0.36 0.12"/>
+      </geometry>
+      <material name="dark_metal"/>
+    </visual>
+    <visual name="drawer_front">
+      <origin xyz="0.25 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.02 0.40 0.185"/>
+      </geometry>
+      <material name="light_wood"/>
+    </visual>
+    <visual name="handle">
+      <origin xyz="0.265 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.015 0.12 0.02"/>
+      </geometry>
+      <material name="silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.48 0.38 0.16"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_top_drawer" type="prismatic">
+    <parent link="base_link"/>
+    <child link="drawer_top"/>
+    <origin xyz="0.03 0 0.179" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0.0" upper="0.40" effort="30.0" velocity="1.0"/>
+    <dynamics damping="5.0" friction="1.0"/>
+  </joint>
+
+  <!-- MIDDLE DRAWER - the one opened in close-up -->
+  <link name="drawer_middle">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="2.5"/>
+      <inertia ixx="0.035" ixy="0" ixz="0" iyy="0.053" iyz="0" izz="0.078"/>
+    </inertial>
+    <visual name="drawer_box">
+      <origin xyz="0 0 -0.02" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.45 0.36 0.12"/>
+      </geometry>
+      <material name="dark_metal"/>
+    </visual>
+    <visual name="drawer_front">
+      <origin xyz="0.25 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.02 0.40 0.185"/>
+      </geometry>
+      <material name="light_wood"/>
+    </visual>
+    <visual name="handle">
+      <origin xyz="0.265 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.015 0.12 0.02"/>
+      </geometry>
+      <material name="silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.48 0.38 0.16"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_middle_drawer" type="prismatic">
+    <parent link="base_link"/>
+    <child link="drawer_middle"/>
+    <origin xyz="0.03 0 -0.013" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0.0" upper="0.40" effort="30.0" velocity="1.0"/>
+    <dynamics damping="5.0" friction="1.0"/>
+  </joint>
+
+  <!-- BOTTOM DRAWER - the one opened in first clip -->
+  <link name="drawer_bottom">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="2.5"/>
+      <inertia ixx="0.035" ixy="0" ixz="0" iyy="0.053" iyz="0" izz="0.078"/>
+    </inertial>
+    <visual name="drawer_box">
+      <origin xyz="0 0 -0.02" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.45 0.36 0.12"/>
+      </geometry>
+      <material name="dark_metal"/>
+    </visual>
+    <visual name="drawer_front">
+      <origin xyz="0.25 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.02 0.40 0.185"/>
+      </geometry>
+      <material name="light_wood"/>
+    </visual>
+    <visual name="handle">
+      <origin xyz="0.265 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.015 0.12 0.02"/>
+      </geometry>
+      <material name="silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.48 0.38 0.16"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_bottom_drawer" type="prismatic">
+    <parent link="base_link"/>
+    <child link="drawer_bottom"/>
+    <origin xyz="0.03 0 -0.204" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0.0" upper="0.40" effort="30.0" velocity="1.0"/>
+    <dynamics damping="5.0" friction="1.0"/>
+  </joint>
+
+</robot>

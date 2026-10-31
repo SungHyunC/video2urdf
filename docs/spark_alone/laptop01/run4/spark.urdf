@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<robot name="laptop">
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.25 0.30 0.04"/>
+      </geometry>
+      <material name="beige">
+        <color rgba="0.82 0.78 0.70 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.25 0.30 0.04"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="2.0"/>
+      <inertia ixx="0.01527" ixy="0.0" ixz="0.0" iyy="0.01068" iyz="0.0" izz="0.02542"/>
+    </inertial>
+  </link>
+
+  <link name="lid">
+    <visual>
+      <origin xyz="0.125 0 0.0125" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.25 0.30 0.025"/>
+      </geometry>
+      <material name="beige_lid">
+        <color rgba="0.82 0.78 0.70 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.125 0 0.0125" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.25 0.30 0.025"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.125 0 0.0125" rpy="0 0 0"/>
+      <mass value="0.6"/>
+      <inertia ixx="0.00453" ixy="0.0" ixz="0.0" iyy="0.00316" iyz="0.0" izz="0.00762"/>
+    </inertial>
+  </link>
+
+  <joint name="hinge" type="revolute">
+    <parent link="base_link"/>
+    <child link="lid"/>
+    <!-- rear top edge of base. X forward, Y left, Z up -->
+    <origin xyz="-0.125 0 0.02" rpy="0 0 0"/>
+    <axis xyz="0 -1 0"/>
+    <!-- 0 = closed flat on base, ~1.57 = open vertical as in start of video -->
+    <limit lower="0.0" upper="1.92" effort="5.0" velocity="2.0"/>
+    <dynamics damping="0.1" friction="0.2"/>
+  </joint>
+</robot>

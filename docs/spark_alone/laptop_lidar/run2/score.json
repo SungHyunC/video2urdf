@@ -1,0 +1,58 @@
+{
+  "usable": true,
+  "joint": "lid_hinge",
+  "revolute_joints": 1,
+  "findings": [
+    "axis direction is 3.6 deg off the measured hinge",
+    "limits don't cover the motion in the video (needs 118 deg, upper limit is 110)"
+  ],
+  "axis_direction_error_deg": 3.551011557021284,
+  "axis_offset_mm": 9.9187292771653,
+  "shape_mismatch_mm": 6.125468869634649,
+  "q_per_opening": 1.0174338473440265,
+  "opening_seen_deg": [
+    0.9803462165495108,
+    117.00754573243468
+  ],
+  "q_needed_deg": [
+    0.3607142857142694,
+    118.4107142857143
+  ],
+  "urdf_limits_deg": [
+    0.0,
+    110.00789666511805
+  ],
+  "limits_cover_motion": false,
+  "moving_extents_mm": [
+    304.0,
+    212.00029020623063,
+    8.007621573390463
+  ],
+  "registration": [
+    [
+      0.9980800501208762,
+      0.06191540582425749,
+      0.0016419720835113686,
+      -0.019018674355093912
+    ],
+    [
+      -0.061936416592803314,
+      0.9978481847271353,
+      0.021514658640024848,
+      0.11491519502297208
+    ],
+    [
+      -0.0003063500420369394,
+      -0.021575049440769413,
+      0.9997671845941356,
+      0.007686956919878438
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "q_when_closed_deg": -0.6367231371188596
+}

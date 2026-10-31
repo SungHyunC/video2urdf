@@ -1,0 +1,4 @@
+{
+  "usable": false,
+  "why": "doesn't load in MuJoCo (ValueError: Error: inertia must satisfy A + B >= C; use 'balanceinertia' to fix)"
+}

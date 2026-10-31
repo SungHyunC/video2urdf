@@ -1,0 +1,34 @@
+{
+  "case": "laptop01",
+  "model": "muse-spark-1.3-contributor",
+  "base_url": "https://api.meta.ai/v1",
+  "video": "data/rbo/prep/laptop01/laptop01.mp4",
+  "frames": [
+    46,
+    93,
+    139
+  ],
+  "prompt": "I filmed this object being moved. Write a URDF of it that I can load into MuJoCo to simulate it.\n\n- Links: simple box or cylinder geometry, sized in metres to match the real object.\n- Joints: the right type, axis, origin and limits, so the model moves the way the object moves in the video.\n\nMake it as close to the real object as you can tell from the video. Reply with the complete URDF in one ```xml code block.",
+  "answer": "```xml\n<?xml version=\"1.0\"?>\n<robot name=\"dell_laptop\">\n  <material name=\"beige\">\n    <color rgba=\"0.82 0.80 0.74 1.0\"/>\n  </material>\n  <material name=\"beige_dark\">\n    <color rgba=\"0.78 0.76 0.70 1.0\"/>\n  </material>\n  <material name=\"black\">\n    <color rgba=\"0.05 0.05 0.06 1.0\"/>\n  </material>\n  <material name=\"grey_dark\">\n    <color rgba=\"0.2 0.2 0.2 1.0\"/>\n  </material>\n\n  <!-- Base / keyboard body. x forward (depth), y left (width), z up -->\n  <link name=\"base_link\">\n    <inertial>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <mass value=\"2.2\"/>\n      <inertia ixx=\"0.016495\" ixy=\"0\" ixz=\"0\" iyy=\"0.010022\" iyz=\"0\" izz=\"0.02587\"/>\n    </inertial>\n    <visual>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.23 0.297 0.042\"/>\n      </geometry>\n      <material name=\"beige\"/>\n    </visual>\n    <visual>\n      <!-- keyboard inset on top face -->\n      <origin xyz=\"0.02 0 0.0215\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.17 0.26 0.002\"/>\n      </geometry>\n      <material name=\"grey_dark\"/>\n    </visual>\n    <collision>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.23 0.297 0.042\"/>\n      </geometry>\n    </collision>\n  </link>\n\n  <!-- Lid / display. Origin at hinge, geometry offset forward so 0 = closed -->\n  <link name=\"display_link\">\n    <inertial>\n      <origin xyz=\"0.115 0 0.006\" rpy=\"0 0 0\"/>\n      <mass value=\"0.6\"/>\n      <inertia ixx=\"0.004418\" ixy=\"0\" ixz=\"0\" iyy=\"0.002652\" iyz=\"0\" izz=\"0.007055\"/>\n    </inertial>\n    <visual>\n      <origin xyz=\"0.115 0 0.006\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.23 0.297 0.012\"/>\n      </geometry>\n      <material name=\"beige_dark\"/>\n    </visual>\n    <visual>\n      <!-- black LCD on inner face (faces -z when closed, +x when open) -->\n      <origin xyz=\"0.115 0 0.001\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.19 0.26 0.002\"/>\n      </geometry>\n      <material name=\"black\"/>\n    </visual>\n    <collision>\n      <origin xyz=\"0.115 0 0.006\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.23 0.297 0.012\"/>\n      </geometry>\n    </collision>\n  </link>\n\n  <joint name=\"lid_hinge\" type=\"revolute\">\n    <parent link=\"base_link\"/>\n    <child link=\"display_link\"/>\n    <origin xyz=\"-0.115 0 0.021\" rpy=\"0 0 0\"/>\n    <axis xyz=\"0 1 0\"/>\n    <limit lower=\"-1.9\" upper=\"0\" effort=\"10\" velocity=\"2.0\"/>\n    <dynamics damping=\"0.1\" friction=\"0.1\"/>\n  </joint>\n</robot>\n```",
+  "seconds": 31.5,
+  "usage": {
+    "completion_tokens": 4810,
+    "prompt_tokens": 4404,
+    "total_tokens": 9214,
+    "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": 3912,
+      "rejected_prediction_tokens": null,
+      "text_tokens": null
+    },
+    "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 4323,
+      "image_tokens": null,
+      "text_tokens": null
+    }
+  },
+  "urdf_found": true
+}

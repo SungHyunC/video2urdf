@@ -1,0 +1,60 @@
+{
+  "usable": true,
+  "joint": "door_hinge",
+  "revolute_joints": 1,
+  "findings": [
+    "axis direction is 54.6 deg off the measured hinge",
+    "hinge axis sits 248 mm from the measured hinge (joint origin misplaced)",
+    "q changes 0.44 rad per rad of real opening (expected 1): the axis or the child's geometry is wrong",
+    "the moving part's geometry differs from the measured one by 29 mm on average"
+  ],
+  "axis_direction_error_deg": 54.5921896796977,
+  "axis_offset_mm": 248.00115037237407,
+  "shape_mismatch_mm": 28.613377644699778,
+  "q_per_opening": 0.436164628724647,
+  "opening_seen_deg": [
+    -1.7810764011196265,
+    52.457945516629124
+  ],
+  "q_needed_deg": [
+    24.571428571428562,
+    48.228571428571435
+  ],
+  "urdf_limits_deg": [
+    0.0,
+    100.26761414789407
+  ],
+  "limits_cover_motion": true,
+  "moving_extents_mm": [
+    235.0,
+    330.7607005019348,
+    54.456381942551474
+  ],
+  "registration": [
+    [
+      -0.6633808452628441,
+      0.2496235086472426,
+      -0.7054175770910363,
+      0.4115434696146553
+    ],
+    [
+      -0.5807602025567417,
+      -0.7662144757379451,
+      0.2750144801567144,
+      0.17907581353558483
+    ],
+    [
+      -0.47185107954162353,
+      0.5921177932643591,
+      0.6532634060125637,
+      0.12665425076003595
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "q_when_closed_deg": 25.348271098653132
+}

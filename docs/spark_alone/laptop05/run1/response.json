@@ -1,0 +1,34 @@
+{
+  "case": "laptop05",
+  "model": "muse-spark-1.3-contributor",
+  "base_url": "https://api.meta.ai/v1",
+  "video": "data/rbo/prep/laptop05/laptop05.mp4",
+  "frames": [
+    46,
+    92,
+    138
+  ],
+  "prompt": "I filmed this object being moved. Write a URDF of it that I can load into MuJoCo to simulate it.\n\n- Links: simple box or cylinder geometry, sized in metres to match the real object.\n- Joints: the right type, axis, origin and limits, so the model moves the way the object moves in the video.\n\nMake it as close to the real object as you can tell from the video. Reply with the complete URDF in one ```xml code block.",
+  "answer": "```xml\n<?xml version=\"1.0\"?>\n<robot name=\"laptop\">\n  <link name=\"base\">\n    <inertial>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <mass value=\"2.0\"/>\n      <inertia ixx=\"0.00908\" ixy=\"0\" ixz=\"0\" iyy=\"0.01527\" iyz=\"0\" izz=\"0.02382\"/>\n    </inertial>\n    <visual>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.30 0.23 0.04\"/>\n      </geometry>\n      <material name=\"light_grey\">\n        <color rgba=\"0.8 0.8 0.78 1\"/>\n      </material>\n    </visual>\n    <collision>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.30 0.23 0.04\"/>\n      </geometry>\n    </collision>\n  </link>\n\n  <link name=\"display\">\n    <inertial>\n      <origin xyz=\"0 0.11 0.0075\" rpy=\"0 0 0\"/>\n      <mass value=\"0.6\"/>\n      <inertia ixx=\"0.00243\" ixy=\"0\" ixz=\"0\" iyy=\"0.00422\" iyz=\"0\" izz=\"0.00663\"/>\n    </inertial>\n    <visual>\n      <origin xyz=\"0 0.11 0.0075\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.29 0.22 0.015\"/>\n      </geometry>\n      <material name=\"light_grey\">\n        <color rgba=\"0.8 0.8 0.78 1\"/>\n      </material>\n    </visual>\n    <collision>\n      <origin xyz=\"0 0.11 0.0075\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.29 0.22 0.015\"/>\n      </geometry>\n    </collision>\n  </link>\n\n  <joint name=\"lid_hinge\" type=\"revolute\">\n    <parent link=\"base\"/>\n    <child link=\"display\"/>\n    <origin xyz=\"0 -0.115 0.02\" rpy=\"0 0 0\"/>\n    <axis xyz=\"1 0 0\"/>\n    <limit lower=\"0\" upper=\"1.85\" effort=\"5.0\" velocity=\"1.5\"/>\n    <dynamics damping=\"0.1\" friction=\"0.1\"/>\n  </joint>\n</robot>\n```",
+  "seconds": 33.1,
+  "usage": {
+    "completion_tokens": 3970,
+    "prompt_tokens": 4404,
+    "total_tokens": 8374,
+    "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": 3354,
+      "rejected_prediction_tokens": null,
+      "text_tokens": null
+    },
+    "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": null
+    }
+  },
+  "urdf_found": true
+}

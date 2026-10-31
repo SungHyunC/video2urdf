@@ -1,0 +1,34 @@
+{
+  "case": "microwave_lidar",
+  "model": "muse-spark-1.3-contributor",
+  "base_url": "https://api.meta.ai/v1",
+  "video": "data/real/microwave_lidar/microwave_lidar.mp4",
+  "frames": [
+    320,
+    640,
+    960
+  ],
+  "prompt": "I filmed this object being moved. Write a URDF of it that I can load into MuJoCo to simulate it.\n\n- Links: simple box or cylinder geometry, sized in metres to match the real object.\n- Joints: the right type, axis, origin and limits, so the model moves the way the object moves in the video.\n\nMake it as close to the real object as you can tell from the video. Reply with the complete URDF in one ```xml code block.",
+  "answer": "```xml\n<?xml version=\"1.0\"?>\n<robot name=\"samsung_microwave\">\n  <material name=\"black\">\n    <color rgba=\"0.05 0.05 0.05 1.0\"/>\n  </material>\n  <material name=\"glass_black\">\n    <color rgba=\"0.02 0.02 0.03 1.0\"/>\n  </material>\n  <material name=\"silver\">\n    <color rgba=\"0.75 0.77 0.78 1.0\"/>\n  </material>\n\n  <!-- Main chassis: 0.489m wide (y), 0.275m high (z), 0.392m deep (x) -->\n  <link name=\"base_link\">\n    <inertial>\n      <mass value=\"12.0\"/>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <inertia ixx=\"0.3147\" ixy=\"0\" ixz=\"0\" iyy=\"0.2293\" iyz=\"0\" izz=\"0.3927\"/>\n    </inertial>\n    <visual>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.392 0.489 0.275\"/>\n      </geometry>\n      <material name=\"black\"/>\n    </visual>\n    <collision>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.392 0.489 0.275\"/>\n      </geometry>\n    </collision>\n  </link>\n\n  <!-- Door: covers left ~0.369m of front, hinged on left edge -->\n  <link name=\"door\">\n    <inertial>\n      <mass value=\"1.8\"/>\n      <origin xyz=\"0 -0.1845 0\" rpy=\"0 0 0\"/>\n      <inertia ixx=\"0.0302\" ixy=\"0\" ixz=\"0\" iyy=\"0.0099\" iyz=\"0\" izz=\"0.0206\"/>\n    </inertial>\n    <visual>\n      <origin xyz=\"0 -0.1845 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.035 0.369 0.255\"/>\n      </geometry>\n      <material name=\"glass_black\"/>\n    </visual>\n    <collision>\n      <origin xyz=\"0 -0.1845 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.035 0.369 0.255\"/>\n      </geometry>\n    </collision>\n  </link>\n\n  <!-- Vertical pull handle on right edge of door -->\n  <link name=\"handle\">\n    <inertial>\n      <mass value=\"0.3\"/>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <inertia ixx=\"0.00102\" ixy=\"0\" ixz=\"0\" iyy=\"0.00102\" iyz=\"0\" izz=\"0.000045\"/>\n    </inertial>\n    <visual>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.03 0.025 0.20\"/>\n      </geometry>\n      <material name=\"silver\"/>\n    </visual>\n    <collision>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\"/>\n      <geometry>\n        <box size=\"0.03 0.025 0.20\"/>\n      </geometry>\n    </collision>\n  </link>\n\n  <!-- Revolute hinge: left front vertical edge. 0=closed, + opens forward -->\n  <joint name=\"door_hinge\" type=\"revolute\">\n    <parent link=\"base_link\"/>\n    <child link=\"door\"/>\n    <origin xyz=\"0.196 0.2445 0\" rpy=\"0 0 0\"/>\n    <axis xyz=\"0 0 1\"/>\n    <limit lower=\"0\" upper=\"1.9\" effort=\"20\" velocity=\"3.0\"/>\n    <dynamics damping=\"0.2\" friction=\"0.1\"/>\n  </joint>\n\n  <joint name=\"handle_mount\" type=\"fixed\">\n    <parent link=\"door\"/>\n    <child link=\"handle\"/>\n    <origin xyz=\"0.04 -0.335 0\" rpy=\"0 0 0\"/>\n  </joint>\n</robot>\n```",
+  "seconds": 31.6,
+  "usage": {
+    "completion_tokens": 4043,
+    "prompt_tokens": 7839,
+    "total_tokens": 11882,
+    "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": 3037,
+      "rejected_prediction_tokens": null,
+      "text_tokens": null
+    },
+    "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 7779,
+      "image_tokens": null,
+      "text_tokens": null
+    }
+  },
+  "urdf_found": true
+}

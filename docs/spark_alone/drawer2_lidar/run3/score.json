@@ -1,0 +1,40 @@
+{
+  "usable": true,
+  "prismatic_joints": 3,
+  "joint": "joint_bottom",
+  "travel_mm": 380.0,
+  "moving_extents_mm": [
+    501.0,
+    384.04415255298534,
+    175.0958950956833
+  ],
+  "all": [
+    {
+      "joint": "joint_bottom",
+      "travel_mm": 380.0,
+      "moving_extents_mm": [
+        501.0,
+        384.04415255298534,
+        175.0958950956833
+      ]
+    },
+    {
+      "joint": "joint_middle",
+      "travel_mm": 380.0,
+      "moving_extents_mm": [
+        501.0,
+        384.04415255298534,
+        175.0958950956833
+      ]
+    },
+    {
+      "joint": "joint_top",
+      "travel_mm": 380.0,
+      "moving_extents_mm": [
+        501.0,
+        384.04415255298534,
+        175.09589509568335
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1522 @@
+{
+  "laptop_lidar": {
+    "label": "13\" MacBook Pro, iPhone LiDAR",
+    "runs": 5,
+    "usable": 5,
+    "measured": {
+      "moving_extents_mm": [
+        310.485018894874,
+        225.8098229406011,
+        4.859559758603599
+      ],
+      "plate_size_mm": [
+        308.9133609197575,
+        205.1831969858813
+      ],
+      "mask_coverage": null,
+      "limit_span_deg": 116.0271995158852
+    },
+    "spark": [
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "axis direction is 3.3 deg off the measured hinge"
+        ],
+        "axis_direction_error_deg": 3.2815833189048687,
+        "axis_offset_mm": 9.913890708122041,
+        "shape_mismatch_mm": 5.824014745547054,
+        "q_per_opening": 1.001827900692988,
+        "opening_seen_deg": [
+          0.9803462165495108,
+          117.00754573243468
+        ],
+        "q_needed_deg": [
+          1.6232142857142666,
+          117.86249999999998
+        ],
+        "urdf_limits_deg": [
+          0.0,
+          119.74817918234204
+        ],
+        "limits_cover_motion": true,
+        "moving_extents_mm": [
+          304.0,
+          212.00022199723446,
+          7.006663114934333
+        ],
+        "registration": [
+          [
+            0.9983602679445284,
+            0.05599665182588343,
+            0.011880672288137393,
+            -0.020039508839981412
+          ],
+          [
+            -0.05624534323893144,
+            0.9981801026231796,
+            0.021747277786245717,
+            0.11356390562213944
+          ],
+          [
+            -0.010641275941448048,
+            -0.0223798505684952,
+            0.9996929056139532,
+            -0.012544933584579074
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": 0.6410760936361568
+      },
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "axis direction is 3.6 deg off the measured hinge",
+          "limits don't cover the motion in the video (needs 118 deg, upper limit is 110)"
+        ],
+        "axis_direction_error_deg": 3.551011557021284,
+        "axis_offset_mm": 9.9187292771653,
+        "shape_mismatch_mm": 6.125468869634649,
+        "q_per_opening": 1.0174338473440265,
+        "opening_seen_deg": [
+          0.9803462165495108,
+          117.00754573243468
+        ],
+        "q_needed_deg": [
+          0.3607142857142694,
+          118.4107142857143
+        ],
+        "urdf_limits_deg": [
+          0.0,
+          110.00789666511805
+        ],
+        "limits_cover_motion": false,
+        "moving_extents_mm": [
+          304.0,
+          212.00029020623063,
+          8.007621573390463
+        ],
+        "registration": [
+          [
+            0.9980800501208762,
+            0.06191540582425749,
+            0.0016419720835113686,
+            -0.019018674355093912
+          ],
+          [
+            -0.061936416592803314,
+            0.9978481847271353,
+            0.021514658640024848,
+            0.11491519502297208
+          ],
+          [
+            -0.0003063500420369394,
+            -0.021575049440769413,
+            0.9997671845941356,
+            0.007686956919878438
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": -0.6367231371188596
+      },
+      {
+        "usable": true,
+        "joint": "hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "axis direction is 3.3 deg off the measured hinge",
+          "limits don't cover the motion in the video (needs 118 deg, upper limit is 110)"
+        ],
+        "axis_direction_error_deg": 3.2815833189029795,
+        "axis_offset_mm": 9.913890708122066,
+        "shape_mismatch_mm": 5.824014745547058,
+        "q_per_opening": 1.001827900692988,
+        "opening_seen_deg": [
+          0.9803462165495108,
+          117.00754573243468
+        ],
+        "q_needed_deg": [
+          1.6232142857142666,
+          117.86249999999998
+        ],
+        "urdf_limits_deg": [
+          0.0,
+          110.00789666511805
+        ],
+        "limits_cover_motion": false,
+        "moving_extents_mm": [
+          304.0,
+          212.0002219972344,
+          7.006663114934329
+        ],
+        "registration": [
+          [
+            0.9983602679445303,
+            0.055996651825882926,
+            0.011880672288137247,
+            -0.019801895394218703
+          ],
+          [
+            -0.05624534323893152,
+            0.9981801026231798,
+            0.021747277786245387,
+            0.1139988511778644
+          ],
+          [
+            -0.010641275941447969,
+            -0.022379850568496142,
+            0.9996929056139544,
+            0.0074489245276998794
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": 0.6410760936361568
+      },
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "hinge axis sits 10 mm from the measured hinge (joint origin misplaced)",
+          "limits don't cover the motion in the video (needs 119 deg, upper limit is 112)"
+        ],
+        "axis_direction_error_deg": 2.9956787848367257,
+        "axis_offset_mm": 10.053088734153945,
+        "shape_mismatch_mm": 5.59395222020439,
+        "q_per_opening": 1.0062603589134012,
+        "opening_seen_deg": [
+          0.9803462165495108,
+          117.00754573243468
+        ],
+        "q_needed_deg": [
+          1.8874999999999704,
+          118.64107142857138
+        ],
+        "urdf_limits_deg": [
+          0.0,
+          111.72677005051052
+        ],
+        "limits_cover_motion": false,
+        "moving_extents_mm": [
+          304.09999999999997,
+          212.40019547286343,
+          6.006845496732617
+        ],
+        "registration": [
+          [
+            0.05103039927421152,
+            -0.9986334790625304,
+            0.011272659197955557,
+            -0.024360388848110745
+          ],
+          [
+            0.9982978551951341,
+            0.051325879131361295,
+            0.027695603336826045,
+            0.11489209254502739
+          ],
+          [
+            -0.0282363358584753,
+            0.009840153803246423,
+            0.9995528403793446,
+            0.007478885653401496
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": 0.9010164642754649
+      },
+      {
+        "usable": true,
+        "joint": "display_hinge",
+        "revolute_joints": 1,
+        "findings": [],
+        "axis_direction_error_deg": 2.9195954784553213,
+        "axis_offset_mm": 9.65813527131848,
+        "shape_mismatch_mm": 5.542665629253506,
+        "q_per_opening": 0.9990576143052295,
+        "opening_seen_deg": [
+          0.9803462165495108,
+          117.00754573243468
+        ],
+        "q_needed_deg": [
+          2.3053571428571344,
+          118.22321428571428
+        ],
+        "urdf_limits_deg": [
+          0.0,
+          120.32113697747289
+        ],
+        "limits_cover_motion": true,
+        "moving_extents_mm": [
+          304.0,
+          212.00016297800943,
+          6.00570696808888
+        ],
+        "registration": [
+          [
+            0.9987019957057853,
+            0.04970776661849324,
+            0.011111332552167185,
+            -0.02052025949107581
+          ],
+          [
+            -0.05001375028315593,
+            0.9983214475190719,
+            0.029204660690446336,
+            0.11358074601815271
+          ],
+          [
+            -0.009640983139572129,
+            -0.029722472327036113,
+            0.9995116938199758,
+            0.007409221510062606
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": 1.3259347905580223
+      }
+    ]
+  },
+  "drawer2_lidar": {
+    "label": "office drawer, iPhone LiDAR",
+    "runs": 5,
+    "usable": 5,
+    "measured": {
+      "travel_mm": 248.0110420121538,
+      "box_mm": {
+        "base": [
+          260.0,
+          360.0,
+          564.0
+        ],
+        "drawer1": [
+          248.0,
+          327.0,
+          122.0
+        ]
+      }
+    },
+    "spark": [
+      {
+        "usable": true,
+        "prismatic_joints": 3,
+        "joint": "drawer_bottom_joint",
+        "travel_mm": 360.0,
+        "moving_extents_mm": [
+          506.49999999999994,
+          400.00000000000034,
+          165.00000000000009
+        ],
+        "all": [
+          {
+            "joint": "drawer_bottom_joint",
+            "travel_mm": 360.0,
+            "moving_extents_mm": [
+              506.49999999999994,
+              400.00000000000034,
+              165.00000000000009
+            ]
+          },
+          {
+            "joint": "drawer_middle_joint",
+            "travel_mm": 360.0,
+            "moving_extents_mm": [
+              506.49999999999994,
+              400.0000000000002,
+              165.00000000000006
+            ]
+          },
+          {
+            "joint": "drawer_top_joint",
+            "travel_mm": 360.0,
+            "moving_extents_mm": [
+              506.49999999999994,
+              400.5462171232995,
+              166.32860773365508
+            ]
+          }
+        ]
+      },
+      {
+        "usable": true,
+        "prismatic_joints": 3,
+        "joint": "joint_top",
+        "travel_mm": 380.0,
+        "moving_extents_mm": [
+          505.0000000000001,
+          392.14343115469967,
+          182.0196354690602
+        ],
+        "all": [
+          {
+            "joint": "joint_top",
+            "travel_mm": 380.0,
+            "moving_extents_mm": [
+              505.0000000000001,
+              392.14343115469967,
+              182.0196354690602
+            ]
+          },
+          {
+            "joint": "joint_middle",
+            "travel_mm": 380.0,
+            "moving_extents_mm": [
+              505.0000000000001,
+              392.14343115469956,
+              182.01963546905998
+            ]
+          },
+          {
+            "joint": "joint_bottom",
+            "travel_mm": 380.0,
+            "moving_extents_mm": [
+              505.0000000000001,
+              392.14343115469984,
+              182.01963546906012
+            ]
+          }
+        ]
+      },
+      {
+        "usable": true,
+        "prismatic_joints": 3,
+        "joint": "joint_bottom",
+        "travel_mm": 380.0,
+        "moving_extents_mm": [
+          501.0,
+          384.04415255298534,
+          175.0958950956833
+        ],
+        "all": [
+          {
+            "joint": "joint_bottom",
+            "travel_mm": 380.0,
+            "moving_extents_mm": [
+              501.0,
+              384.04415255298534,
+              175.0958950956833
+            ]
+          },
+          {
+            "joint": "joint_middle",
+            "travel_mm": 380.0,
+            "moving_extents_mm": [
+              501.0,
+              384.04415255298534,
+              175.0958950956833
+            ]
+          },
+          {
+            "joint": "joint_top",
+            "travel_mm": 380.0,
+            "moving_extents_mm": [
+              501.0,
+              384.04415255298534,
+              175.09589509568335
+            ]
+          }
+        ]
+      },
+      {
+        "usable": true,
+        "prismatic_joints": 3,
+        "joint": "drawer_top_joint",
+        "travel_mm": 360.0,
+        "moving_extents_mm": [
+          525.0,
+          380.00000000000034,
+          150.00000000000003
+        ],
+        "all": [
+          {
+            "joint": "drawer_top_joint",
+            "travel_mm": 360.0,
+            "moving_extents_mm": [
+              525.0,
+              380.00000000000034,
+              150.00000000000003
+            ]
+          },
+          {
+            "joint": "drawer_middle_joint",
+            "travel_mm": 360.0,
+            "moving_extents_mm": [
+              525.0,
+              380.00000000000034,
+              150.00000000000003
+            ]
+          },
+          {
+            "joint": "drawer_bottom_joint",
+            "travel_mm": 360.0,
+            "moving_extents_mm": [
+              525.0,
+              380.00000000000034,
+              150.00000000000003
+            ]
+          }
+        ]
+      },
+      {
+        "usable": true,
+        "prismatic_joints": 3,
+        "joint": "joint_top_drawer",
+        "travel_mm": 400.0,
+        "moving_extents_mm": [
+          512.5,
+          400.0000000000003,
+          184.99999999999997
+        ],
+        "all": [
+          {
+            "joint": "joint_top_drawer",
+            "travel_mm": 400.0,
+            "moving_extents_mm": [
+              512.5,
+              400.0000000000003,
+              184.99999999999997
+            ]
+          },
+          {
+            "joint": "joint_middle_drawer",
+            "travel_mm": 400.0,
+            "moving_extents_mm": [
+              512.5,
+              400.00000000000034,
+              185.0
+            ]
+          },
+          {
+            "joint": "joint_bottom_drawer",
+            "travel_mm": 400.0,
+            "moving_extents_mm": [
+              512.5,
+              400.00000000000045,
+              185.00000000000006
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "laptop01": {
+    "label": "RBO laptop01 (motion capture)",
+    "runs": 5,
+    "usable": 5,
+    "measured": {
+      "moving_extents_mm": [
+        285.5286192200738,
+        226.97561955811696,
+        1.882930116324726
+      ],
+      "plate_size_mm": [
+        285.5286217862162,
+        219.102919348883
+      ],
+      "mask_coverage": {
+        "lid": 0.9533563072377423,
+        "base": 0.6189016485038366
+      },
+      "limit_span_deg": 132.1008108110294,
+      "mocap": {
+        "axis_direction_error_deg": 1.787286301507969,
+        "axis_position_error_mm": 25.463354329411555,
+        "true_range_deg": 117.16455766357107,
+        "measured_range_deg": [
+          3.4210112094210596,
+          123.88247475065329
+        ]
+      }
+    },
+    "spark": [
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "axis direction is 4.0 deg off the measured hinge",
+          "hinge axis sits 20 mm from the measured hinge (joint origin misplaced)",
+          "limits don't cover the motion in the video (needs -26 deg, lower limit is 0; needs 94 deg, upper limit is 90)",
+          "the moving part's geometry differs from the measured one by 12 mm on average"
+        ],
+        "axis_direction_error_deg": 4.001780450082582,
+        "axis_offset_mm": 19.637310013908838,
+        "shape_mismatch_mm": 12.104832293825392,
+        "q_per_opening": -0.9027196674105766,
+        "opening_seen_deg": [
+          -8.260401075779454,
+          123.84040973524996
+        ],
+        "q_needed_deg": [
+          -25.532142857142844,
+          93.71785714285714
+        ],
+        "urdf_limits_deg": [
+          0.0,
+          90.00021045914971
+        ],
+        "limits_cover_motion": false,
+        "moving_extents_mm": [
+          290.0000000000003,
+          229.99999999999997,
+          20.000000000000007
+        ],
+        "registration": [
+          [
+            0.019580911155305615,
+            0.9975618821155634,
+            -0.06698417177502393,
+            0.013175103180756459
+          ],
+          [
+            -0.9997690343050298,
+            0.020129729670863412,
+            0.007528082635481763,
+            -0.10494082151773391
+          ],
+          [
+            0.008858101552630315,
+            0.06682129401198282,
+            0.9977256379904486,
+            0.015183185783759273
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": 86.26103063105154,
+        "mocap": {
+          "axis_direction_error_deg": 3.8520651286987238,
+          "axis_position_error_mm": 13.307238312294842,
+          "true_range_deg": 117.16455766357107
+        }
+      },
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "axis direction is 4.9 deg off the measured hinge",
+          "hinge axis sits 18 mm from the measured hinge (joint origin misplaced)",
+          "limits don't cover the motion in the video (needs -26 deg, lower limit is -11)",
+          "the moving part's geometry differs from the measured one by 13 mm on average"
+        ],
+        "axis_direction_error_deg": 4.891332644882475,
+        "axis_offset_mm": 18.486193826525763,
+        "shape_mismatch_mm": 12.743540154397804,
+        "q_per_opening": -0.9011786365317983,
+        "opening_seen_deg": [
+          -8.260401075779454,
+          123.84040973524996
+        ],
+        "q_needed_deg": [
+          -25.858928571428535,
+          93.18749999999999
+        ],
+        "urdf_limits_deg": [
+          -11.459155902616466,
+          91.67324722093173
+        ],
+        "limits_cover_motion": false,
+        "moving_extents_mm": [
+          300.0000000000003,
+          219.99999999999997,
+          20.000000000000004
+        ],
+        "registration": [
+          [
+            -0.06988982170422786,
+            0.9963582061405227,
+            0.048844015790999486,
+            0.0039121944357521955
+          ],
+          [
+            -0.9973584104698401,
+            -0.07076358620150261,
+            0.016392557243371284,
+            -0.11350552764619135
+          ],
+          [
+            0.019789236650916087,
+            -0.04756931704725928,
+            0.9986718911576651,
+            0.014675955654748246
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": 85.74340302132327,
+        "mocap": {
+          "axis_direction_error_deg": 6.465024511379691,
+          "axis_position_error_mm": 14.877620151023875,
+          "true_range_deg": 117.16455766357107
+        }
+      },
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "axis direction is 5.9 deg off the measured hinge",
+          "hinge axis sits 13 mm from the measured hinge (joint origin misplaced)",
+          "limits don't cover the motion in the video (needs -29 deg, lower limit is -20; needs 95 deg, upper limit is 90)",
+          "the moving part's geometry differs from the measured one by 13 mm on average"
+        ],
+        "axis_direction_error_deg": 5.93458366071775,
+        "axis_offset_mm": 13.036861342365553,
+        "shape_mismatch_mm": 12.813075570318324,
+        "q_per_opening": -0.9361357054135563,
+        "opening_seen_deg": [
+          -8.260401075779454,
+          123.84040973524996
+        ],
+        "q_needed_deg": [
+          -28.567857142857186,
+          95.09642857142859
+        ],
+        "urdf_limits_deg": [
+          -20.05352282957881,
+          90.00021045914971
+        ],
+        "limits_cover_motion": false,
+        "moving_extents_mm": [
+          300.0000000000003,
+          224.99999999999997,
+          20.000000000000025
+        ],
+        "registration": [
+          [
+            -0.0734807664913266,
+            0.9946405904737915,
+            0.07273701078400369,
+            0.005279396658283272
+          ],
+          [
+            -0.9972944556316864,
+            -0.07343736281753713,
+            -0.0032745241951259675,
+            -0.10936492557458338
+          ],
+          [
+            0.0020846395722450405,
+            -0.07278083212186157,
+            0.9973457799346755,
+            0.016468105495618918
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": 87.36357218335489,
+        "mocap": {
+          "axis_direction_error_deg": 7.330423862082952,
+          "axis_position_error_mm": 15.77801754190622,
+          "true_range_deg": 117.16455766357107
+        }
+      },
+      {
+        "usable": true,
+        "joint": "hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "axis direction is 6.3 deg off the measured hinge",
+          "hinge axis sits 17 mm from the measured hinge (joint origin misplaced)",
+          "limits don't cover the motion in the video (needs -8 deg, lower limit is 0; needs 113 deg, upper limit is 110)",
+          "the moving part's geometry differs from the measured one by 16 mm on average"
+        ],
+        "axis_direction_error_deg": 6.330428051931557,
+        "axis_offset_mm": 16.721733229935353,
+        "shape_mismatch_mm": 15.92602052420955,
+        "q_per_opening": 0.9178866555332886,
+        "opening_seen_deg": [
+          -8.260401075779454,
+          123.84040973524996
+        ],
+        "q_needed_deg": [
+          -7.9839285714285735,
+          113.26964285714293
+        ],
+        "urdf_limits_deg": [
+          0.0,
+          110.00789666511805
+        ],
+        "limits_cover_motion": false,
+        "moving_extents_mm": [
+          300.0000000000003,
+          250.0,
+          24.999999999999996
+        ],
+        "registration": [
+          [
+            -0.04586904932911917,
+            0.9939025387253226,
+            0.10026850866051014,
+            0.0008233840766080373
+          ],
+          [
+            -0.9987873416718913,
+            -0.047427176857375186,
+            0.013210185893526584,
+            -0.11483449162318578
+          ],
+          [
+            0.01788508959007574,
+            -0.0995409785500389,
+            0.9948727140492167,
+            0.015968433514621183
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": -0.40181665461779065,
+        "mocap": {
+          "axis_direction_error_deg": 7.303978826544551,
+          "axis_position_error_mm": 14.565939520373975,
+          "true_range_deg": 117.16455766357107
+        }
+      },
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "limits don't cover the motion in the video (needs -120 deg, lower limit is -109; needs 6 deg, upper limit is 0)"
+        ],
+        "axis_direction_error_deg": 0.5518870944756437,
+        "axis_offset_mm": 7.882961774976217,
+        "shape_mismatch_mm": 6.351360359632472,
+        "q_per_opening": -0.9563313206143861,
+        "opening_seen_deg": [
+          -8.260401075779454,
+          123.84040973524996
+        ],
+        "q_needed_deg": [
+          -120.10892857142865,
+          6.223214285714289
+        ],
+        "urdf_limits_deg": [
+          -108.8619810748564,
+          0.0
+        ],
+        "limits_cover_motion": false,
+        "moving_extents_mm": [
+          297.0,
+          230.0,
+          12.0
+        ],
+        "registration": [
+          [
+            -0.007334700232595132,
+            0.9999536102685216,
+            -0.006243355143692441,
+            0.010779152655578363
+          ],
+          [
+            -0.9999355928221234,
+            -0.007280205747750619,
+            0.008706825583430078,
+            -0.11284842490566632
+          ],
+          [
+            0.008660968766126653,
+            0.00630681498243908,
+            0.9999426042052655,
+            0.01910237274899447
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": -1.6764659838903715,
+        "mocap": {
+          "axis_direction_error_deg": 2.2287046781766926,
+          "axis_position_error_mm": 20.26157862172201,
+          "true_range_deg": 117.16455766357107
+        }
+      }
+    ]
+  },
+  "laptop02": {
+    "label": "RBO laptop02 (motion capture)",
+    "runs": 5,
+    "usable": 4,
+    "measured": {
+      "moving_extents_mm": [
+        284.7704062758714,
+        233.800316412371,
+        1.9096514904037813
+      ],
+      "plate_size_mm": [
+        284.7704004753303,
+        216.79223052290888
+      ],
+      "mask_coverage": {
+        "lid": 0.9423389216430341,
+        "base": 0.738955621850089
+      },
+      "limit_span_deg": 116.24616630260694,
+      "mocap": {
+        "axis_direction_error_deg": 2.1250730577641024,
+        "axis_position_error_mm": 31.615403273880926,
+        "true_range_deg": 99.10715033438308,
+        "measured_range_deg": [
+          4.6252930204140155,
+          108.44058693050546
+        ]
+      }
+    },
+    "spark": [
+      {
+        "usable": true,
+        "joint": "hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "hinge axis sits 29 mm from the measured hinge (joint origin misplaced)",
+          "q changes 1.18 rad per rad of real opening (expected 1): the axis or the child's geometry is wrong",
+          "limits don't cover the motion in the video (needs -13 deg, lower limit is 0; needs 124 deg, upper limit is 106)",
+          "the moving part's geometry differs from the measured one by 28 mm on average"
+        ],
+        "axis_direction_error_deg": 0.05142720963653317,
+        "axis_offset_mm": 29.401000141193162,
+        "shape_mismatch_mm": 27.733184049082972,
+        "q_per_opening": 1.1796702396203456,
+        "opening_seen_deg": [
+          -7.919500767017261,
+          108.32666553558968
+        ],
+        "q_needed_deg": [
+          -13.137500000000026,
+          123.99464285714285
+        ],
+        "urdf_limits_deg": [
+          0.0,
+          105.99719209920231
+        ],
+        "limits_cover_motion": false,
+        "moving_extents_mm": [
+          300.0000000000003,
+          230.1097682343039,
+          26.91879163658564
+        ],
+        "registration": [
+          [
+            -0.9999995971803647,
+            0.00031744771503798796,
+            -0.0008395630121477373,
+            0.004191733310059935
+          ],
+          [
+            -0.00019107462549536978,
+            -0.9892186465178708,
+            -0.14644600667766053,
+            -0.12701476418886132
+          ],
+          [
+            -0.0008770003367396141,
+            -0.14644578726714672,
+            0.9892183086973848,
+            0.03890772838270149
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": -3.7951006324992633,
+        "mocap": {
+          "axis_direction_error_deg": 2.114188004971388,
+          "axis_position_error_mm": 60.43538063851727,
+          "true_range_deg": 99.10715033438308
+        }
+      },
+      {
+        "usable": false,
+        "why": "doesn't load in MuJoCo (ValueError: Error: inertia must satisfy A + B >= C; use 'balanceinertia' to fix)"
+      },
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "axis direction is 3.4 deg off the measured hinge",
+          "hinge axis sits 25 mm from the measured hinge (joint origin misplaced)",
+          "q changes 0.88 rad per rad of real opening (expected 1): the axis or the child's geometry is wrong",
+          "limits don't cover the motion in the video (needs -6 deg, lower limit is 0)",
+          "the moving part's geometry differs from the measured one by 12 mm on average"
+        ],
+        "axis_direction_error_deg": 3.387559989926914,
+        "axis_offset_mm": 24.928245971939397,
+        "shape_mismatch_mm": 12.130988903546408,
+        "q_per_opening": 0.8833471034081872,
+        "opening_seen_deg": [
+          -7.919500767017261,
+          108.32666553558968
+        ],
+        "q_needed_deg": [
+          -5.500000000000011,
+          97.18571428571425
+        ],
+        "urdf_limits_deg": [
+          0.0,
+          110.00789666511805
+        ],
+        "limits_cover_motion": false,
+        "moving_extents_mm": [
+          300.0000000000003,
+          230.00000000000006,
+          20.00000000000001
+        ],
+        "registration": [
+          [
+            -0.9982526809433091,
+            0.05002369428856282,
+            -0.031451788489947397,
+            0.010166205543651465
+          ],
+          [
+            -0.05074114204144409,
+            -0.9984596608130734,
+            0.022441974810023534,
+            -0.10976154578144545
+          ],
+          [
+            -0.030280711580509025,
+            0.02399866118699512,
+            0.9992532925977323,
+            0.013748735135023487
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": 1.4956680629836028,
+        "mocap": {
+          "axis_direction_error_deg": 1.8839551718371927,
+          "axis_position_error_mm": 9.471657415765135,
+          "true_range_deg": 99.10715033438308
+        }
+      },
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "hinge axis sits 32 mm from the measured hinge (joint origin misplaced)",
+          "q changes 0.86 rad per rad of real opening (expected 1): the axis or the child's geometry is wrong",
+          "limits don't cover the motion in the video (needs -10 deg, lower limit is 0)",
+          "the moving part's geometry differs from the measured one by 14 mm on average"
+        ],
+        "axis_direction_error_deg": 0.3607337791054154,
+        "axis_offset_mm": 31.64924920745505,
+        "shape_mismatch_mm": 13.51015829786848,
+        "q_per_opening": 0.8616874029385583,
+        "opening_seen_deg": [
+          -7.919500767017261,
+          108.32666553558968
+        ],
+        "q_needed_deg": [
+          -9.898214285714294,
+          90.26964285714283
+        ],
+        "urdf_limits_deg": [
+          0.0,
+          105.99719209920231
+        ],
+        "limits_cover_motion": false,
+        "moving_extents_mm": [
+          280.0000000000002,
+          219.99999999999997,
+          25.000000000000014
+        ],
+        "registration": [
+          [
+            -0.9999801803067772,
+            0.005208304893465467,
+            -0.003537308829764964,
+            0.006080742756499919
+          ],
+          [
+            -0.005676156543822361,
+            -0.9888807845093588,
+            0.14860207022460523,
+            -0.10965149033812914
+          ],
+          [
+            -0.002724011841099893,
+            0.14861920329582198,
+            0.9888907483494849,
+            0.019346241387448913
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": -3.0740802372132703,
+        "mocap": {
+          "axis_direction_error_deg": 1.8046791790878522,
+          "axis_position_error_mm": 19.330083403589136,
+          "true_range_deg": 99.10715033438308
+        }
+      },
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "hinge axis sits 13 mm from the measured hinge (joint origin misplaced)",
+          "limits don't cover the motion in the video (needs -8 deg, lower limit is 0)"
+        ],
+        "axis_direction_error_deg": 0.20230133360046768,
+        "axis_offset_mm": 13.009837821489944,
+        "shape_mismatch_mm": 9.252269818046198,
+        "q_per_opening": 0.9315514580703828,
+        "opening_seen_deg": [
+          -7.919500767017261,
+          108.32666553558968
+        ],
+        "q_needed_deg": [
+          -7.95892857142858,
+          100.33035714285711
+        ],
+        "urdf_limits_deg": [
+          0.0,
+          100.26761414789407
+        ],
+        "limits_cover_motion": false,
+        "moving_extents_mm": [
+          280.0000000000002,
+          210.0,
+          22.000000000000004
+        ],
+        "registration": [
+          [
+            0.003264124765879735,
+            0.9999937666461717,
+            0.0013461642981092768,
+            0.00178729890804297
+          ],
+          [
+            -0.9987897969165802,
+            0.0031941261494580733,
+            0.04907890721555447,
+            -0.10563795478262136
+          ],
+          [
+            0.0490743014707733,
+            -0.0015047348424495253,
+            0.9987939971326466,
+            0.02266795659844079
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": -0.581506084724137,
+        "mocap": {
+          "axis_direction_error_deg": 1.944983391406786,
+          "axis_position_error_mm": 18.958442402032208,
+          "true_range_deg": 99.10715033438308
+        }
+      }
+    ]
+  },
+  "laptop05": {
+    "label": "RBO laptop05 (motion capture)",
+    "runs": 5,
+    "usable": 5,
+    "measured": {
+      "moving_extents_mm": [
+        290.53174813884635,
+        222.01172780881942,
+        21.072781738445087
+      ],
+      "plate_size_mm": [
+        284.55181181593775,
+        216.65137284810913
+      ],
+      "mask_coverage": {
+        "lid": 0.9482385457446197,
+        "base": 0.755578026377192
+      },
+      "limit_span_deg": 100.37482871617243,
+      "mocap": {
+        "axis_direction_error_deg": 0.9283735441492477,
+        "axis_position_error_mm": 19.894445132990548,
+        "true_range_deg": 96.79154489679252,
+        "measured_range_deg": [
+          0.166038125231268,
+          108.0995765669381
+        ]
+      }
+    },
+    "spark": [
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [],
+        "axis_direction_error_deg": 0.07628982992685474,
+        "axis_offset_mm": 6.890802119981074,
+        "shape_mismatch_mm": 4.794085477882404,
+        "q_per_opening": 0.9582297084572349,
+        "opening_seen_deg": [
+          7.608710816427824,
+          107.98353953260026
+        ],
+        "q_needed_deg": [
+          8.258928571428584,
+          104.44107142857138
+        ],
+        "urdf_limits_deg": [
+          0.0,
+          105.99719209920231
+        ],
+        "limits_cover_motion": true,
+        "moving_extents_mm": [
+          290.0000000000003,
+          219.99999999999997,
+          15.000000000000007
+        ],
+        "registration": [
+          [
+            -0.9999991135423979,
+            0.0011712839137669104,
+            0.000633252247969093,
+            -0.021244627392451563
+          ],
+          [
+            -0.0012141963278248019,
+            -0.9973565523934818,
+            -0.07265282599501259,
+            -0.10811453770423987
+          ],
+          [
+            0.0005464811924522023,
+            -0.07265353048391689,
+            0.9973570904478134,
+            0.012744873916560366
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": 0.9680358240675401,
+        "mocap": {
+          "axis_direction_error_deg": 0.8423171007241218,
+          "axis_position_error_mm": 12.95032621703929,
+          "true_range_deg": 96.79154489679252
+        }
+      },
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "axis direction is 3.7 deg off the measured hinge",
+          "hinge axis sits 14 mm from the measured hinge (joint origin misplaced)"
+        ],
+        "axis_direction_error_deg": 3.6641236978267644,
+        "axis_offset_mm": 13.847920727582279,
+        "shape_mismatch_mm": 7.252520899876579,
+        "q_per_opening": -0.9325047045875468,
+        "opening_seen_deg": [
+          7.608710816427824,
+          107.98353953260026
+        ],
+        "q_needed_deg": [
+          -97.25,
+          -3.6500000000000146
+        ],
+        "urdf_limits_deg": [
+          -110.00789666511805,
+          0.0
+        ],
+        "limits_cover_motion": true,
+        "moving_extents_mm": [
+          300.0000000000003,
+          240.0,
+          20.000000000000004
+        ],
+        "registration": [
+          [
+            0.0575474206038187,
+            0.9979558301643308,
+            0.027793082284424488,
+            -0.02504489854758167
+          ],
+          [
+            -0.9983057292041295,
+            0.05776280496818847,
+            -0.007009236792945189,
+            -0.11291215384726536
+          ],
+          [
+            -0.008600315113983105,
+            -0.027342629778947056,
+            0.9995891231784739,
+            0.01669089574392647
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": 3.4451586321650858,
+        "mocap": {
+          "axis_direction_error_deg": 3.4264518311403602,
+          "axis_position_error_mm": 5.701534990197849,
+          "true_range_deg": 96.79154489679252
+        }
+      },
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "hinge axis sits 14 mm from the measured hinge (joint origin misplaced)"
+        ],
+        "axis_direction_error_deg": 0.6891682007099611,
+        "axis_offset_mm": 14.18990389868824,
+        "shape_mismatch_mm": 5.7411870337934525,
+        "q_per_opening": 0.9205495160671935,
+        "opening_seen_deg": [
+          7.608710816427824,
+          107.98353953260026
+        ],
+        "q_needed_deg": [
+          5.450000000000014,
+          97.84999999999998
+        ],
+        "urdf_limits_deg": [
+          0.0,
+          110.00789666511805
+        ],
+        "limits_cover_motion": true,
+        "moving_extents_mm": [
+          280.0000000000002,
+          230.0,
+          20.000000000000004
+        ],
+        "registration": [
+          [
+            0.009429245498904441,
+            0.9999276614225826,
+            0.007467345665532603,
+            -0.020787529203862908
+          ],
+          [
+            -0.9999469102726384,
+            0.009397869846811213,
+            0.0042257163348573285,
+            -0.10654995777299114
+          ],
+          [
+            0.0041552335098826165,
+            -0.007506794542917191,
+            0.9999631903576082,
+            0.017347733472485735
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": -1.5541950599578402,
+        "mocap": {
+          "axis_direction_error_deg": 1.019544141527191,
+          "axis_position_error_mm": 5.608307502620187,
+          "true_range_deg": 96.79154489679252
+        }
+      },
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "hinge axis sits 33 mm from the measured hinge (joint origin misplaced)",
+          "q changes 0.85 rad per rad of real opening (expected 1): the axis or the child's geometry is wrong",
+          "the moving part's geometry differs from the measured one by 14 mm on average"
+        ],
+        "axis_direction_error_deg": 1.0941887798708239,
+        "axis_offset_mm": 32.68525274288505,
+        "shape_mismatch_mm": 13.618028828532877,
+        "q_per_opening": 0.8457228450603405,
+        "opening_seen_deg": [
+          7.608710816427824,
+          107.98353953260026
+        ],
+        "q_needed_deg": [
+          2.405357142857154,
+          87.29464285714286
+        ],
+        "urdf_limits_deg": [
+          0.0,
+          104.85127650894066
+        ],
+        "limits_cover_motion": true,
+        "moving_extents_mm": [
+          320.0000000000003,
+          280.0000000000002,
+          25.0
+        ],
+        "registration": [
+          [
+            0.017283719970993507,
+            0.9998176540782331,
+            0.008119828659763904,
+            -0.022291929694573158
+          ],
+          [
+            -0.9982308632595677,
+            0.01679308011681059,
+            0.05703627000642113,
+            -0.11296094954906444
+          ],
+          [
+            0.05688951274197524,
+            -0.009091262491536882,
+            0.9983390868268599,
+            0.01921706179757305
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": -4.029503416053571,
+        "mocap": {
+          "axis_direction_error_deg": 1.1494162658152358,
+          "axis_position_error_mm": 15.501154698176009,
+          "true_range_deg": 96.79154489679252
+        }
+      },
+      {
+        "usable": true,
+        "joint": "lid_hinge",
+        "revolute_joints": 1,
+        "findings": [
+          "hinge axis sits 12 mm from the measured hinge (joint origin misplaced)"
+        ],
+        "axis_direction_error_deg": 0.5485405940503337,
+        "axis_offset_mm": 12.47604824962749,
+        "shape_mismatch_mm": 5.581146606521348,
+        "q_per_opening": -0.926847338591308,
+        "opening_seen_deg": [
+          7.608710816427824,
+          107.98353953260026
+        ],
+        "q_needed_deg": [
+          -98.20892857142856,
+          -5.176785714285735
+        ],
+        "urdf_limits_deg": [
+          -105.99719209920231,
+          0.0
+        ],
+        "limits_cover_motion": true,
+        "moving_extents_mm": [
+          280.0000000000002,
+          220.0,
+          25.999999999999996
+        ],
+        "registration": [
+          [
+            0.008779674639545758,
+            0.9999541711491728,
+            0.0038174487023885668,
+            -0.02005714261176332
+          ],
+          [
+            -0.9999545609260889,
+            0.00876537121442774,
+            0.0037475792966192574,
+            -0.1038693433679701
+          ],
+          [
+            0.003713946194397931,
+            -0.0038501777679650928,
+            0.9999856912650396,
+            0.0002959917036415039
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "q_when_closed_deg": 1.8753276560312917,
+        "mocap": {
+          "axis_direction_error_deg": 0.817020390030536,
+          "axis_position_error_mm": 8.08938164041463,
+          "true_range_deg": 96.79154489679252
+        }
+      }
+    ]
+  }
+}

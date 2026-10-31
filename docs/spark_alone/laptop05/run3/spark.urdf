@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<robot name="old_laptop">
+  <!-- base / keyboard chassis, ~28cm wide (y) x 23cm deep (x) x 3.5cm thick (z) -->
+  <link name="base">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="2.0"/>
+      <inertia ixx="0.01327" ixy="0" ixz="0" iyy="0.00902" iyz="0" izz="0.02188"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.23 0.28 0.035"/>
+      </geometry>
+      <material name="beige">
+        <color rgba="0.8 0.78 0.72 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.23 0.28 0.035"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- lid / screen, same footprint, ~2cm thick -->
+  <!-- link frame is at the hinge, 0 = closed flat on base -->
+  <link name="lid">
+    <inertial>
+      <origin xyz="0.115 0 0.01" rpy="0 0 0"/>
+      <mass value="0.8"/>
+      <inertia ixx="0.00525" ixy="0" ixz="0" iyy="0.00355" iyz="0" izz="0.00875"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.115 0 0.01" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.23 0.28 0.02"/>
+      </geometry>
+      <material name="beige_dark">
+        <color rgba="0.78 0.76 0.70 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.115 0 0.01" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.23 0.28 0.02"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- rear hinge, lateral axis, 0=closed, ~110deg=fully open -->
+  <joint name="lid_hinge" type="revolute">
+    <parent link="base"/>
+    <child link="lid"/>
+    <origin xyz="-0.115 0 0.0175" rpy="0 0 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="0" upper="1.92" effort="10" velocity="2.0"/>
+    <dynamics damping="0.15" friction="0.2"/>
+  </joint>
+</robot>

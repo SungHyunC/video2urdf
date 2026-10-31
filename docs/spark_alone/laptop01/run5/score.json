@@ -1,0 +1,62 @@
+{
+  "usable": true,
+  "joint": "lid_hinge",
+  "revolute_joints": 1,
+  "findings": [
+    "limits don't cover the motion in the video (needs -120 deg, lower limit is -109; needs 6 deg, upper limit is 0)"
+  ],
+  "axis_direction_error_deg": 0.5518870944756437,
+  "axis_offset_mm": 7.882961774976217,
+  "shape_mismatch_mm": 6.351360359632472,
+  "q_per_opening": -0.9563313206143861,
+  "opening_seen_deg": [
+    -8.260401075779454,
+    123.84040973524996
+  ],
+  "q_needed_deg": [
+    -120.10892857142865,
+    6.223214285714289
+  ],
+  "urdf_limits_deg": [
+    -108.8619810748564,
+    0.0
+  ],
+  "limits_cover_motion": false,
+  "moving_extents_mm": [
+    297.0,
+    230.0,
+    12.0
+  ],
+  "registration": [
+    [
+      -0.007334700232595132,
+      0.9999536102685216,
+      -0.006243355143692441,
+      0.010779152655578363
+    ],
+    [
+      -0.9999355928221234,
+      -0.007280205747750619,
+      0.008706825583430078,
+      -0.11284842490566632
+    ],
+    [
+      0.008660968766126653,
+      0.00630681498243908,
+      0.9999426042052655,
+      0.01910237274899447
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "q_when_closed_deg": -1.6764659838903715,
+  "mocap": {
+    "axis_direction_error_deg": 2.2287046781766926,
+    "axis_position_error_mm": 20.26157862172201,
+    "true_range_deg": 117.16455766357107
+  }
+}
