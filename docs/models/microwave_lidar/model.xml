@@ -12,8 +12,19 @@
   <worldbody>
     <camera name="video" pos="0 0 1" />
     <body name="base" pos="0.00000 0.00000 0.13786">
-      <inertial pos="0.430275 0.0961751 -0.0741825" quat="0.65565 0 0 0.755065" mass="0.05" diaginertia="8.34954e-05 6.76301e-05 1.5952e-05" />
+      <inertial pos="0.430275 0.0961751 -0.0741825" quat="0.65565 0 0 0.755065" mass="10.2" diaginertia="0.0170331 0.0137965 0.00325421" />
       <geom type="mesh" mesh="base_0" rgba="1 1 1 1" material="video_tex" friction="0.5 0.005 0.0001" />
+      <geom name="completed_side_high_u" type="box" pos="0.397838 0.270853 -0.00361144" size="0.0440244 0.1825 0.134252" quat="0.996037 0 0 0.0889415" rgba="0.0823529 0.0823529 0.0823529 1" friction="0.5 0.005 0.0001" />
+      <geom name="completed_cavity_top_wall" type="box" pos="0.159951 0.245485 0.114764" size="0.194594 0.165319 0.0158759" quat="0.996037 0 0 0.0889415" rgba="0.0823529 0.0823529 0.0823529 1" friction="0.5 0.005 0.0001" />
+      <geom name="completed_cavity_bottom_wall" type="box" pos="0.159951 0.245485 -0.121987" size="0.194594 0.165319 0.0158759" quat="0.996037 0 0 0.0889415" rgba="0.0823529 0.0823529 0.0823529 1" friction="0.5 0.005 0.0001" />
+      <geom name="completed_cavity_wall_low_u" type="box" pos="-0.0170015 0.213629 -0.00361144" size="0.014797 0.165319 0.1025" quat="0.996037 0 0 0.0889415" rgba="0.0823529 0.0823529 0.0823529 1" friction="0.5 0.005 0.0001" />
+      <geom name="completed_cavity_wall_high_u" type="box" pos="0.336903 0.277341 -0.00361144" size="0.014797 0.165319 0.1025" quat="0.996037 0 0 0.0889415" rgba="0.0823529 0.0823529 0.0823529 1" friction="0.5 0.005 0.0001" />
+      <geom name="completed_cavity_back_wall" type="box" pos="0.133821 0.390628 -0.00361144" size="0.165 0.0178417 0.1025" quat="0.996037 0 0 0.0889415" rgba="0.0823529 0.0823529 0.0823529 1" friction="0.5 0.005 0.0001" />
+      <geom name="completed_liner_top" type="box" pos="0.163112 0.227925 0.0981386" size="0.165 0.147477 0.00075" quat="0.996037 0 0 0.0889415" rgba="0.286275 0.164706 0.101961 1" contype="0" conaffinity="0" mass="0" />
+      <geom name="completed_liner_bottom" type="box" pos="0.163112 0.227925 -0.105361" size="0.165 0.147477 0.00075" quat="0.996037 0 0 0.0889415" rgba="0.286275 0.164706 0.101961 1" contype="0" conaffinity="0" mass="0" />
+      <geom name="completed_liner_low_u" type="box" pos="0.0014607 0.198824 -0.00361144" size="0.00075 0.147477 0.1025" quat="0.996037 0 0 0.0889415" rgba="0.286275 0.164706 0.101961 1" contype="0" conaffinity="0" mass="0" />
+      <geom name="completed_liner_high_u" type="box" pos="0.324763 0.257027 -0.00361144" size="0.00075 0.147477 0.1025" quat="0.996037 0 0 0.0889415" rgba="0.286275 0.164706 0.101961 1" contype="0" conaffinity="0" mass="0" />
+      <geom name="completed_liner_back" type="box" pos="0.137115 0.372331 -0.00361144" size="0.165 0.00075 0.1025" quat="0.996037 0 0 0.0889415" rgba="0.286275 0.164706 0.101961 1" contype="0" conaffinity="0" mass="0" />
       <body name="lid" pos="0.00000 0.00000 0.00000">
         <joint name="lid_joint" type="hinge" axis="0.06898 -0.07864 0.99451" range="-0.7336 0.2131" limited="true" frictionloss="0.394419" solreffriction="0.005 1" solimpfriction="0.99 0.999 0.001" damping="0.02" />
         <inertial pos="0.193492 0.0065435 0.002285" quat="0.458512 0.532388 0.500444 0.505851" mass="1.8" diaginertia="0.0330592 0.0224047 0.0107745" />
