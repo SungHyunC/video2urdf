@@ -275,6 +275,40 @@ def fit_rod_joint(lines: dict[int, RodLine], ref: int, n: int, near: np.ndarray)
     return joint
 
 
+def consensus_line(lines: list[RodLine]) -> RodLine:
+    """One line standing for many of the same rod in the same pose: the median direction, the
+    median position across it and the median of its ends along it."""
+    d = np.median([l.direction for l in lines], axis=0)
+    d /= np.linalg.norm(d)
+    c = np.array([l.center for l in lines])
+    s = c @ d
+    p = np.median(c - np.outer(s, d), axis=0) + np.median(s) * d
+    lo = float(np.median([(l.center + l.lo * l.direction - p) @ d for l in lines]))
+    hi = float(np.median([(l.center + l.hi * l.direction - p) @ d for l in lines]))
+    return RodLine(p, d, lo, hi)
+
+
+def line_offset(a: RodLine, b: RodLine) -> tuple[float, float]:
+    """How far line a's centre sits from line b, across it (m), and the angle between them (deg)."""
+    v = a.center - b.center
+    return (float(np.linalg.norm(v - (v @ b.direction) * b.direction)),
+            float(np.rad2deg(np.arccos(np.clip(abs(a.direction @ b.direction), -1, 1)))))
+
+
+def static_reference_line(lines: dict[int, RodLine], ref: int, max_off: float = 0.02,
+                          max_deg: float = 5.0) -> tuple[RodLine, tuple[float, float] | None]:
+    """The line that places a rod that doesn't move: the reference frame's own line, unless it sits
+    more than ``max_off`` m or ``max_deg`` off the consensus of all its frames' lines (one frame's
+    thin-rod depth can be centimetres off). Returns the line and, when the consensus replaced it,
+    how far off the reference frame's line was."""
+    own = lines[min(lines, key=lambda t: abs(t - ref))]
+    if len(lines) < 10:
+        return own, None
+    mid = consensus_line(list(lines.values()))
+    off, deg = line_offset(own, mid)
+    return (mid, (off, deg)) if off > max_off or deg > max_deg else (own, None)
+
+
 def _unturn(line: RodLine, joint: ChainJoint, t: int) -> RodLine | None:
     """A child's line moved back by its parent's rotation on frame t (into the parent's reference pose)."""
     if joint.fixed:
@@ -381,6 +415,7 @@ def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=prin
     # The first rod starts at its end nearer the base; anchored, at its lower end.
     near = np.median(base_cloud, axis=0) if anchor is None else -BELOW_M * up / np.linalg.norm(up)
     joints, lines_by, estimated, placed = [], {}, {}, set()  # estimated: {part: why}; placed: no line at all
+    ref_lines = {}  # the line placing each rod in its reference pose
     parent_joint = None
     for k, part in enumerate(chain):
         lines = rod_lines(c, raw, part, near, log)
@@ -414,9 +449,16 @@ def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=prin
             j.point = first.center + first.lo * first.direction
         else:
             j.q = _smooth(j.q)
+        ref_line, outlier = lines[min(lines, key=lambda t: abs(t - ref))], None
+        if anchor is not None and j.fixed:  # the pole an anchored chain stands on: placed by all its frames
+            ref_line, outlier = static_reference_line(lines, ref)
+        if outlier is not None:
+            log(f"{part}: its line on the reference frame sits {1000 * outlier[0]:.0f} mm / {outlier[1]:.1f} deg off the "
+                f"consensus of its {len(lines)} lines (that frame's depth on the rod is off): the consensus places it")
+            j.point = ref_line.center + ref_line.lo * ref_line.direction
+        ref_lines[part] = ref_line
         joints.append(j)
         lines_by[part] = lines
-        ref_line = lines[min(lines, key=lambda t: abs(t - ref))]
         near = ref_line.center + ref_line.hi * ref_line.direction  # the next rod starts at this one's free end
         parent_joint = j
         span = np.rad2deg([np.nanmin(j.q), np.nanmax(j.q)])
@@ -433,9 +475,10 @@ def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=prin
             d = (top - first.point) / max(length, 1e-6)
             line = RodLine((first.point + top) / 2, d, -length / 2, length / 2)
             lines_by[first.child] = {t: line for t in c.by[first.child] if t < c.n}
+            ref_lines[first.child] = line
         elif first.fixed:  # a pole: from its lowest seen point (any frame: it doesn't move) down to the floor
             lines = lines_by[first.child]
-            r = lines[min(lines, key=lambda t: abs(t - ref))]
+            r = ref_lines[first.child]
             low = r.center + np.percentile([(l.center + l.lo * l.direction - r.center) @ r.direction
                                             for l in lines.values()], 5) * r.direction
             foot = stand_on_floor(low, r.direction, plane[0], plane[1]) if plane is not None else None
@@ -459,8 +502,7 @@ def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=prin
         origin = np.array([*np.median(base_m[:, :2], axis=0), z_floor])
     else:  # x along the first moving hinge; the origin on the floor under the chain's foot
         moving = [j for j in joints if not j.fixed] or joints
-        lines = lines_by[moving[0].child]
-        rot = model_rotation(up, moving[0].axis, lines[min(lines, key=lambda t: abs(t - ref))].direction)
+        rot = model_rotation(up, moving[0].axis, ref_lines[moving[0].child].direction)
         foot_m = joints[0].point @ rot.T
         origin = np.array([foot_m[0], foot_m[1],
                            float(((plane[0] * plane[1]) @ rot.T)[2]) if plane is not None else foot_m[2]])
@@ -494,7 +536,7 @@ def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=prin
     summary_joints = []
     for j in joints:
         lines = lines_by[j.child]
-        ref_line = lines[min(lines, key=lambda t: abs(t - ref))]
+        ref_line = ref_lines[j.child]
         pivot = to_model(j.point)
         # The rod runs from its hinge to where its far end is seen on the reference frame (the
         # hinge is a median over frames, so the reference line's own direction could miss the end).

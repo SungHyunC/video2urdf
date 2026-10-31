@@ -4,8 +4,9 @@ import unittest
 
 import numpy as np
 
-from video2urdf.chain3d import (BELOW_M, MIN_BASE_POINTS, RodLine, base_points, chain_reference, drop_to_floor,
-                                floor_plane, model_rotation, stand_on_floor, toward_free_end)
+from video2urdf.chain3d import (BELOW_M, MIN_BASE_POINTS, RodLine, base_points, chain_reference, consensus_line,
+                                drop_to_floor, floor_plane, line_offset, model_rotation, stand_on_floor,
+                                static_reference_line, toward_free_end)
 
 
 class Det:
@@ -125,6 +126,64 @@ class AnchorGeometryTest(unittest.TestCase):
         # both vertical: still a right-handed frame
         rot = model_rotation(np.array([0, 0, 1.0]), np.array([0, 0, 1.0]), np.array([0, 0, -1.0]))
         self.assertAlmostEqual(np.linalg.det(rot), 1.0)
+
+
+class StaticReferenceLineTest(unittest.TestCase):
+    """One frame's line on a thin rod can sit centimetres off in depth; when the reference frame's
+    does, the consensus of all its frames places a rod that doesn't move."""
+
+    def static_lines(self, n=60, seed=0):
+        rng = np.random.default_rng(seed)
+        d = np.array([0.0, -1.0, 0.1]) / np.linalg.norm([0.0, -1.0, 0.1])
+        out = {}
+        for t in range(n):
+            jitter = rng.normal(0, 0.004, 3)
+            out[t] = RodLine(np.array([0.1, 0.0, 0.8]) + jitter, d, -0.3 + rng.normal(0, 0.01), 0.3)
+        return out, d
+
+    def test_consensus_of_a_static_rod(self):
+        lines, d = self.static_lines()
+        lines[7] = RodLine(np.array([0.1, 0.0, 0.85]), d, -0.3, 0.3)  # one depth outlier
+        mid = consensus_line(list(lines.values()))
+        off, deg = line_offset(mid, RodLine(np.array([0.1, 0.0, 0.8]), d, -0.3, 0.3))
+        self.assertLess(off, 0.003)
+        self.assertLess(deg, 0.5)
+        self.assertAlmostEqual(mid.hi - mid.lo, 0.6, delta=0.01)
+
+    def test_reference_frame_line_kept_unless_off(self):
+        lines, d = self.static_lines()
+        own, why = static_reference_line(lines, ref=20)
+        self.assertIs(own, lines[20])
+        self.assertIsNone(why)
+        lines[20] = RodLine(np.array([0.1, 0.0, 0.84]), d, -0.3, 0.3)  # 40 mm deeper on the reference frame
+        line, why = static_reference_line(lines, ref=20)
+        self.assertIsNot(line, lines[20])
+        self.assertAlmostEqual(why[0], 0.04, delta=0.006)
+        self.assertLess(abs(line.center[2] - 0.8), 0.004)
+
+
+class LevellingGuardTest(unittest.TestCase):
+    class Cap:
+        def __init__(self, used, seen):
+            self.world = np.tile(np.eye(4), (5, 1, 1))
+            self.used, self.seen = used, seen
+
+        def level_with(self, floor):
+            self.world[:, :3, 3] += 0.03  # what a bad reference plane does to every pose
+            return {"frames_used": self.used, "floor_frames": self.seen, "tilt_deg_max": 1.0,
+                    "shift_mm_max": 30.0, "shift_mm_median": 10.0}
+
+    def test_disagreeing_floor_leaves_the_poses(self):
+        from video2urdf.agent import level_unless_disagreeing
+        c = self.Cap(53, 1567)
+        self.assertIn("not applied", level_unless_disagreeing(c, "floor"))
+        np.testing.assert_array_equal(c.world, np.tile(np.eye(4), (5, 1, 1)))
+
+    def test_agreeing_floor_levels(self):
+        from video2urdf.agent import level_unless_disagreeing
+        c = self.Cap(900, 1000)
+        self.assertIn("adjusted", level_unless_disagreeing(c, "floor"))
+        self.assertAlmostEqual(c.world[0, 0, 3], 0.03)
 
 
 class ChainReferenceTest(unittest.TestCase):

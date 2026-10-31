@@ -34,6 +34,7 @@ VIDEO = os.environ.get("AGENT_VIDEO", "1") != "0"  # send Spark whole videos (Mu
 VIDEO_WIDTH, VIDEO_FPS = 480, 10  # videos shown to Spark are downscaled; timestamps are kept
 MAX_STEPS = 22  # model turns; the last one must call finish
 CHAIN_COVER_MIN = 0.25
+LEVEL_AGREE_MIN = 0.3  # fit_chain levels the poses on the floor only if this share of its frames agree
 PLANAR_IOU_MIN = 0.2  # a planar fit's link whose replay overlaps its mask less than this gets a warning  # a rod-chain link whose replay covers less of its mask gets a warning
 WHO = "Spark" if "spark" in MODEL.lower() else MODEL  # log headings
 ASSUMED_VIEW_M = 0.6  # frame's long side in metres when no card sets the scale
@@ -300,6 +301,21 @@ def cap_images(messages: list[dict]) -> None:
                 seen[kind] += 1
                 if seen[kind] > cap[kind]:
                     m["content"][i] = {"type": "text", "text": f"(older {kind.split('_')[0]} dropped)"}
+
+
+def level_unless_disagreeing(c, floor: str) -> str:
+    """Level the capture's poses on the floor (Capture.level_with), unless fewer than
+    LEVEL_AGREE_MIN of its floor frames agree with the plane it levels to: that plane (from the
+    floor frame nearest the reference) is then another surface or a bad fit, and the few agreeing
+    frames' corrections, held over the whole video, would move every pose by centimetres (the
+    phone stand: 53 of 1567, up to 39 mm). Returns the line for the tool's output."""
+    unlevelled = c.world.copy()
+    fix = c.level_with(floor)
+    if fix.get("floor_frames") and fix["frames_used"] < LEVEL_AGREE_MIN * fix["floor_frames"]:
+        c.world = unlevelled
+        return (f"floor levelling not applied: only {fix['frames_used']} of the {fix['floor_frames']} floor frames agree "
+                "with the floor's plane near the reference frame, so ARKit's poses are used as they are")
+    return levelling_line(fix)
 
 
 def capture_depth_note(capture: Path | None) -> str:
@@ -816,8 +832,7 @@ class Agent:
         c.set_ref(ref)
         lines = []
         if c.moving_camera and floor:
-            fix = c.level_with(floor)
-            lines.append(levelling_line(fix))
+            lines.append(level_unless_disagreeing(c, floor))
         try:
             fixed = json.loads(fixed) if isinstance(fixed, str) else (fixed or [])
             summary = fit_chain(c, base, chain, floor, log=lines.append, fixed=tuple(slug(p) for p in fixed))
