@@ -1,5 +1,19 @@
 <?xml version='1.0' encoding='utf-8'?>
+<!-- Video2URDF model "drawer", measured from a video (https://github.com/SungHyunC/video2urdf).
+     Mesh and texture paths are relative to this file (meshes/...): this file alone won't load;
+     unzip model.zip (the viewer's "Download model + meshes") and load it from there.
+     Units: metres, kilograms, radians. Fix the root link "base", its origin 0.5501 m above the floor.
+     Collisions are the measured geometry; visuals may be the design, video texture or SAM 3D mesh.
+     PyBullet: loadURDF(path, useFixedBase=True, flags=URDF_USE_INERTIA_FROM_FILE).
+       PyBullet doesn't apply <dynamics friction>: set VELOCITY_CONTROL, targetVelocity=0,
+       force=friction on each joint. MuJoCo 3.2.5+: simulate model.xml, which excludes contacts
+       between parts joined by a joint (they overlap there); MuJoCo's URDF import can't.
+     The <mujoco> element only keeps mesh paths for MuJoCo's URDF import; other parsers ignore it.
+     ROS: mesh paths must become package://<your_package>/meshes/... for RViz and Gazebo. -->
 <robot name="drawer2_lidar">
+  <mujoco>
+    <compiler strippath="false" />
+  </mujoco>
   <link name="base">
     <visual name="design_base_0">
       <origin xyz="-0.12100 0.00045 0.00360" rpy="0.00000 0.00000 0.00000" />
@@ -71,22 +85,22 @@
     </inertial>
     <collision>
       <geometry>
-        <mesh filename="meshes/base_0.stl" />
+        <mesh filename="meshes/base_0.obj" />
       </geometry>
     </collision>
     <collision>
       <geometry>
-        <mesh filename="meshes/base_1.stl" />
+        <mesh filename="meshes/base_1.obj" />
       </geometry>
     </collision>
     <collision>
       <geometry>
-        <mesh filename="meshes/base_2.stl" />
+        <mesh filename="meshes/base_2.obj" />
       </geometry>
     </collision>
     <collision>
       <geometry>
-        <mesh filename="meshes/base_3.stl" />
+        <mesh filename="meshes/base_3.obj" />
       </geometry>
     </collision>
   </link>
@@ -152,27 +166,27 @@
     </inertial>
     <collision>
       <geometry>
-        <mesh filename="meshes/drawer1_0.stl" />
+        <mesh filename="meshes/drawer1_0.obj" />
       </geometry>
     </collision>
     <collision>
       <geometry>
-        <mesh filename="meshes/drawer1_1.stl" />
+        <mesh filename="meshes/drawer1_1.obj" />
       </geometry>
     </collision>
     <collision>
       <geometry>
-        <mesh filename="meshes/drawer1_2.stl" />
+        <mesh filename="meshes/drawer1_2.obj" />
       </geometry>
     </collision>
     <collision>
       <geometry>
-        <mesh filename="meshes/drawer1_3.stl" />
+        <mesh filename="meshes/drawer1_3.obj" />
       </geometry>
     </collision>
     <collision>
       <geometry>
-        <mesh filename="meshes/drawer1_4.stl" />
+        <mesh filename="meshes/drawer1_4.obj" />
       </geometry>
     </collision>
   </link>
