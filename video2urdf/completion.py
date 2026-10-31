@@ -1459,7 +1459,7 @@ def _jsonable(o):
 def not_measured_lines(name: str, dims: dict, front: dict, bounds: dict) -> list[str]:
     """Plain lines for the viewer's "Not measured" note: what was estimated, by what, within what."""
     d = dims["outer_depth"]
-    lines = [f"the {name}'s body behind its front was never seen (only the front is measured: "
+    lines = [f"the {name}'s body behind its front was not seen from outside (only its front is measured: "
              f"{_mm(front['width_m'])} x {_mm(front['height_m'])} mm), so it is completed from estimates."]
     clamp = d.get("clamped")
     src = "Muse Spark's estimate" if d["source"] == "Muse Spark" else f"a typical size ({d['source']})"
@@ -1664,8 +1664,9 @@ def complete_body(run_dir: Path, video: Path, capture: Path, log=print, spark: b
     measured_dims = {}
     if inside["depth_m"] is not None and inside["depth_m"] - pocket_geom["v"] >= MIN_CAVITY_M:
         measured_dims["cavity_depth"] = (inside["depth_m"] - pocket_geom["v"],
-                                         f"its back wall, seen through the open door on {inside['back_wall_frames']} frames, "
-                                         f"is {_mm(inside['depth_m'])} mm behind the front (less the door's pocket)")
+                                         f"seen through the open door on {inside['back_wall_frames']} frames: its back wall "
+                                         f"is {_mm(inside['depth_m'])} mm behind the front, "
+                                         f"{_mm(inside['depth_m'] - pocket_geom['v'])} mm behind the door's pocket")
     dims = resolve_dims(geometry, bounds, answer, est.get("model"), category, defaults, measured=measured_dims)
 
     # 4. build
