@@ -94,7 +94,8 @@ def joint_tracks(run: Path) -> dict[str, list]:
     if (run / "slide.json").exists():
         return {"drawer_joint": json.loads((run / "slide.json").read_text())["q"]}
     if (run / "hinge.json").exists() and (run / "model3d.json").exists():
-        return {"lid_joint": json.loads((run / "hinge.json").read_text())["q"]}
+        from video2urdf.physics import hinge_q  # in the model's sense: a door's model can negate it
+        return {"lid_joint": [None if v != v else float(v) for v in hinge_q(run)]}
     joints = json.loads((run / "joints.json").read_text())["joints"]
     return {f"{j['child']}_joint": j["q"] for j in joints if j["type"] != "fixed"}
 
