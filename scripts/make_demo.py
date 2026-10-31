@@ -415,8 +415,8 @@ def scenes(baseline: bool = True, door_clip: Path | None = DOOR_ROBOT) -> list[S
             Part("Spark checks its own work. On a microwave it had never seen, its first model was wrong: a door "
                  "twice too big and no body.",
                  before_after(*fits, 0), ["first fit, never-seen microwave: door 795 x 506 mm, the body not covered"]),
-            Part("It watched the replay, re-tracked the floor and the body, and fitted again: now the door swings on "
-                 "a vertical hinge, where the real one is.",
+            Part("It watched the replay, tracked the floor and the body a second time, and refit: now the door "
+                 "swings on a vertical hinge, where the real one is.",
                  before_after(*fits, 1),
                  ["after Spark re-tracked floor and body: hinge 1.3 deg off vertical, door 361 x 255 mm"]),
         ]),
@@ -461,8 +461,8 @@ def scenes(baseline: bool = True, door_clip: Path | None = DOOR_ROBOT) -> list[S
               stills([ASSETS / "rbo_laptop04.jpg"],
                      ["laptop04: red = measured, green = motion capture"])),
         Scene("URDF Doctor",
-              "URDF Doctor checks the models you already have against a video. Three injected bugs and a sign flip "
-              "in a joint log: all found.",
+              "URDF Doctor checks the models you already have against a video. Three injected bugs and a joint "
+              "log with its sign flipped: all found.",
               ["URDF Doctor: an existing URDF vs. the motion in the video"],
               card([("URDF Doctor", 64, True, white),
                     ("laptop_buggy.urdf (hinge +25 mm, axis tilted 6 deg, limit 90 deg)", 40, True, grey),
