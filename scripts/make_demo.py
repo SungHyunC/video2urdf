@@ -250,6 +250,28 @@ def sequence(paths: list[Path], labels: list[str]):
     return draw
 
 
+def before_after(top: Path, bottom: Path, labels: tuple[str, str], active: int):
+    """Two wide stills stacked, the one not being talked about dimmed (a first fit above, the
+    fit after the agent's correction below)."""
+    imgs = []
+
+    def draw(p):
+        if not imgs:
+            for q in (top, bottom):
+                img = cv2.imread(str(q))
+                if img is None:
+                    raise SystemExit(f"missing demo input: {q}")
+                imgs.append(img)
+        c = blank()
+        items = []
+        for i, (img, label, y) in enumerate(zip(imgs, labels, (100, 520))):
+            shown = img if i == active else (img * 0.35).astype(np.uint8)
+            place(c, shown, (60, y + 44, W - 120, 340))
+            items.append(((70, y), label, 30, i == active, (240, 240, 240) if i == active else (120, 120, 125), "la"))
+        return text_layer(c, items)
+    return draw
+
+
 def clips_grid(clips: list[tuple[Path, str]]):
     """Robot clips played together: two side by side; three as one large and two stacked (so a
     third clip, e.g. the microwave door, slots in without changing the scene)."""
@@ -299,6 +321,8 @@ def scenes(baseline: bool = False, door_clip: Path | None = None) -> list[Scene]
         robot_line = robot_line.replace("The Panda also carries the mouse.",
                                         "The Panda also opens the microwave door and carries the mouse.")
     robots.append((MOUSE / "robot_demo.mp4", "the measured mouse, carried and turned"))
+    fits = (ASSETS / "mw_first_fit.jpg", ASSETS / "mw_refit.jpg",
+            ("Spark's first fit, drawn over the video", "after Spark re-tracked and fitted again"))
     sc = [
         Scene("Video2URDF",
               "Robots need simulation models of the objects they handle, and people build them by hand. "
@@ -343,14 +367,15 @@ def scenes(baseline: bool = False, door_clip: Path | None = None) -> list[Scene]
                   "nothing in an answer says which numbers are right; with tools it measures them"]),
         ]))
     sc += [
-        Scene("It checks itself",
-              "Spark checks its own work. On a microwave it had never seen, its first model was wrong: a door "
-              "twice too big and no body. It watched the replay, re-tracked the floor and the body, and fitted "
-              "again: now the door swings on a vertical hinge, where the real one is.",
-              ["first fit, never-seen microwave: door 795 x 506 mm, the body not covered",
-               "after Spark re-tracked floor and body: hinge 1.3 deg off vertical, door 361 x 255 mm"],
-              stills([ASSETS / "mw_first_fit.jpg", ASSETS / "mw_refit.jpg"],
-                     ["Spark's first fit, drawn over the video", "after Spark re-tracked and fitted again"])),
+        in_parts("It checks itself", [
+            Part("Spark checks its own work. On a microwave it had never seen, its first model was wrong: a door "
+                 "twice too big and no body.",
+                 before_after(*fits, 0), ["first fit, never-seen microwave: door 795 x 506 mm, the body not covered"]),
+            Part("It watched the replay, re-tracked the floor and the body, and fitted again: now the door swings on "
+                 "a vertical hinge, where the real one is.",
+                 before_after(*fits, 1),
+                 ["after Spark re-tracked floor and body: hinge 1.3 deg off vertical, door 361 x 255 mm"]),
+        ]),
         in_parts("It builds what it never saw", [
             Part("This microwave sits in a shelf; its back was never filmed.",
                  captions=["a microwave in a shelf: its back was never filmed"]),
