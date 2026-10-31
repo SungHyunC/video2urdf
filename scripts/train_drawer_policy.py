@@ -58,7 +58,9 @@ def evaluate(policy, run: str, episodes: int, seed0: int = 10_000, norm=None) ->
                     "held_steps": s["held_steps"],
                     "finger_open_held_min_mm": None if s["finger_open_held_min_m"] is None else 1000 * s["finger_open_held_min_m"],
                     "finger_open_min_mm": 1000 * s["finger_open_min_m"], "deepest_other_mm": 1000 * s["deepest_other_m"],
-                    "deepest_other_what": s["deepest_other_what"], "push_force_max_n": s["push_force_max_n"],
+                    "deepest_other_what": s["deepest_other_what"],
+                    "normal_sum_not_handle_max_n": s["normal_sum_not_handle_max_n"],
+                    "net_force_drawer_max_n": s["net_force_drawer_max_n"], "net_force_cabinet_max_n": s["net_force_cabinet_max_n"],
                     "drawer_min_mm": 1000 * s["q_min_m"], "drawer_peak_mm": 1000 * s["q_peak_m"]})
     return summarize(eps)
 
@@ -69,7 +71,9 @@ def summarize(eps: list[dict]) -> dict:
     held = sum(e["held_travel_mm"] for e in eps)
     grips = [e["finger_open_held_min_mm"] for e in eps if e["finger_open_held_min_mm"] is not None]
     deep = [e["deepest_other_mm"] for e in eps]
-    push = [e["push_force_max_n"] for e in eps]
+    net_d = [e["net_force_drawer_max_n"] for e in eps]
+    net_c = [e["net_force_cabinet_max_n"] for e in eps]
+    normal = [e["normal_sum_not_handle_max_n"] for e in eps]
     worst = max(eps, key=lambda e: e["deepest_other_mm"])
     return {
         "episodes": len(eps), "success_rate": len(ok) / len(eps),
@@ -86,7 +90,10 @@ def summarize(eps: list[dict]) -> dict:
             "finger_open_min_any_mm": min(e["finger_open_min_mm"] for e in eps),
             "deepest_contact_not_handle_mm_max": max(deep), "deepest_contact_not_handle_mm_median": float(np.median(deep)),
             "deepest_contact_not_handle_what": worst["deepest_other_what"], "deepest_contact_seed": worst["seed"],
-            "push_force_not_handle_n_max": max(push), "push_force_not_handle_n_median": float(np.median(push)),
+            "net_force_on_drawer_n_max": max(net_d), "net_force_on_drawer_n_median": float(np.median(net_d)),
+            "net_force_on_cabinet_n_max": max(net_c), "net_force_on_cabinet_n_median": float(np.median(net_c)),
+            "contact_normal_sum_not_handle_n_max": max(normal),  # counts cancelling solver pairs; the nets above do not
+            "contact_normal_sum_not_handle_n_median": float(np.median(normal)),
             "drawer_min_mm": min(e["drawer_min_mm"] for e in eps), "drawer_peak_mm": max(e["drawer_peak_mm"] for e in eps),
         },
         "per_episode": eps,
@@ -106,14 +113,31 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--test", type=int, default=100, help="held-out test episodes")
     ap.add_argument("--out", type=Path, default=ROOT / "data" / "policies" / "drawer_ppo_honest")
+    ap.add_argument("--eval-only", action="store_true",
+                    help="test the policy already in --out again (the env's bookkeeping may have grown); keeps its curve")
     args = ap.parse_args()
     import torch
     from stable_baselines3 import PPO
     from stable_baselines3.common.callbacks import BaseCallback
     from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
+    from video2urdf.rl_drawer import ACTION_COST, EPISODE, MOUNT_LAG_RANGE
 
     torch.set_num_threads(min(8, torch.get_num_threads()))
     args.out.mkdir(parents=True, exist_ok=True)
+    if args.eval_only:
+        import pickle
+        model = PPO.load(args.out / "policy.zip", device="cpu")
+        norm = pickle.loads((args.out / "vecnormalize.pkl").read_bytes())
+        path = args.out / "result.json"
+        result = json.loads(path.read_text()) if path.exists() else {"run": str(args.run)}
+        t1 = time.time()
+        result["test_policy"] = evaluate(model, str(args.run), args.test, norm=norm)
+        result["test_random"] = evaluate(None, str(args.run), args.test)
+        result["test_minutes"] = round((time.time() - t1) / 60, 1)
+        path.write_text(json.dumps(result, indent=2))
+        for name in ("test_policy", "test_random"):
+            print(name, json.dumps({k: v for k, v in result[name].items() if k != "per_episode"}, indent=2))
+        return
     # observations span metres and millimetres (the hand's position, the handle 18 mm tall): normalise them
     venv = VecNormalize(SubprocVecEnv([make(str(args.run), seed=args.seed * 1000 + i) for i in range(args.envs)]),
                         norm_obs=True, norm_reward=True, clip_obs=10.0)
@@ -164,10 +188,12 @@ def main():
               "curve": curve, "test_policy": test_policy, "test_random": test_random,
               "test_seeds": f"{10_000}..{10_000 + args.test - 1} (training envs draw from seeds {args.seed * 1000}.."
                             f"{args.seed * 1000 + args.envs - 1})",
-              "randomized": "cabinet +-3 cm, +-10 deg; drawer friction x0.5-1.5; hand start within 10 x 20 x 15 cm",
+              "randomized": "cabinet +-3 cm, +-10 deg; drawer friction x0.5-1.5; hand start within 10 x 20 x 15 cm; "
+                            f"mount lag {MOUNT_LAG_RANGE[0]}-{MOUNT_LAG_RANGE[1]} s",
               "success": "drawer pulled out at least 150 mm (of 248 mm measured) while the fingers pinch the handle",
               "env": "measured drawer + cabinet collision on; Panda hand on a force-limited Cartesian mount "
-                     "(3000 N/m, <= 60 N per axis); stiff end stops and hand contacts"}
+                     "(3000 N/m, <= 60 N per axis); stiff end stops and hand contacts; "
+                     f"{EPISODE}-step episodes, action-change cost {ACTION_COST}"}
     venv.close()
     (args.out / "result.json").write_text(json.dumps(result, indent=2))
     brief = {k: v for k, v in result.items() if k not in ("curve", "test_policy", "test_random")}

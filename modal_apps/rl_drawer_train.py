@@ -7,7 +7,9 @@ trainer, the measured drawer (model.xml, design.json, meshes/) and Menagerie's P
 data/policies/<name>/ on this machine.
 
 Run (ephemeral app, nothing deployed):
-    .venv/bin/modal run modal_apps/rl_drawer_train.py --steps 3000000 --envs 32 --name drawer_ppo_honest
+    .venv/bin/modal run modal_apps/rl_drawer_train.py --steps 5000000 --envs 32 --name drawer_ppo_honest
+Then the trained policy on the full Panda arm from 20 unseen start poses, in parallel (no video):
+    .venv/bin/modal run modal_apps/rl_drawer_train.py::arm --name drawer_ppo_honest --seeds 20
 """
 
 import json
@@ -35,6 +37,7 @@ def _image() -> modal.Image:
         .add_local_file(ROOT / "scripts" / "robot_tasks.py", f"{REMOTE}/scripts/robot_tasks.py")
         .add_local_file(ROOT / "scripts" / "robot_demo.py", f"{REMOTE}/scripts/robot_demo.py")
         .add_local_file(ROOT / "scripts" / "train_drawer_policy.py", f"{REMOTE}/scripts/train_drawer_policy.py")
+        .add_local_file(ROOT / "scripts" / "run_drawer_policy.py", f"{REMOTE}/scripts/run_drawer_policy.py")
         .add_local_file(run / "model.xml", f"{REMOTE}/{RUN}/model.xml")
         .add_local_file(run / "design.json", f"{REMOTE}/{RUN}/design.json")
         .add_local_dir(run / "meshes", f"{REMOTE}/{RUN}/meshes")
@@ -76,3 +79,78 @@ def main(steps: int = 3_000_000, envs: int = 32, name: str = "drawer_ppo_honest"
         r = json.loads(res["files"]["result.json"])
         for k in ("test_policy", "test_random"):
             print(k, json.dumps({kk: vv for kk, vv in r[k].items() if kk != "per_episode"}, indent=1))
+
+
+@app.function(cpu=2, memory=4096, timeout=3600)
+def retest(files: dict, test: int) -> dict:
+    """The held-out test again on a saved policy (train_drawer_policy.py --eval-only)."""
+    import subprocess
+    import sys
+
+    out = Path("/tmp/policy")
+    out.mkdir(parents=True, exist_ok=True)
+    for name, blob in files.items():
+        (out / name).write_bytes(blob)
+    cmd = [sys.executable, f"{REMOTE}/scripts/train_drawer_policy.py", f"{REMOTE}/{RUN}", "--out", str(out),
+           "--eval-only", "--test", str(test)]
+    proc = subprocess.run(cmd, cwd=REMOTE, capture_output=True, text=True)
+    return {"returncode": proc.returncode, "stderr": proc.stderr[-3000:], "result": (out / "result.json").read_bytes()}
+
+
+@app.local_entrypoint()
+def reeval(name: str = "drawer_ppo_honest", test: int = 100):
+    """Re-test data/policies/<name>/ on the held-out seeds with the current env bookkeeping."""
+    src = ROOT / "data" / "policies" / name
+    files = {n: (src / n).read_bytes() for n in ("policy.zip", "vecnormalize.pkl", "result.json") if (src / n).exists()}
+    res = retest.remote(files, test)
+    if res["returncode"] != 0:
+        print(res["stderr"])
+        return
+    (src / "result.json").write_bytes(res["result"])
+    r = json.loads(res["result"])
+    for k in ("test_policy", "test_random"):
+        print(k, json.dumps({kk: vv for kk, vv in r[k].items() if kk != "per_episode"}, indent=1))
+
+
+@app.function(cpu=2, memory=4096, timeout=3600)
+def arm_episode(policy_zip: bytes, vecnorm: bytes, seed: int) -> dict:
+    """One episode of the policy on the full Panda arm (scripts/run_drawer_policy.py, no video)."""
+    import subprocess
+    import sys
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp())
+    (tmp / "policy.zip").write_bytes(policy_zip)
+    (tmp / "vecnormalize.pkl").write_bytes(vecnorm)
+    cmd = [sys.executable, f"{REMOTE}/scripts/run_drawer_policy.py", f"{REMOTE}/{RUN}", "--policy", str(tmp / "policy.zip"),
+           "--seed", str(seed), "--no-video", "--result", str(tmp / "arm.json")]
+    proc = subprocess.run(cmd, cwd=REMOTE, capture_output=True, text=True)
+    if proc.returncode != 0:
+        return {"seed": seed, "error": proc.stderr[-2000:]}
+    return json.loads((tmp / "arm.json").read_text())
+
+
+@app.local_entrypoint()
+def arm(name: str = "drawer_ppo_honest", seeds: int = 20, seed0: int = 20_000):
+    """The policy on the full arm from `seeds` start poses it never saw, in parallel; writes
+    data/policies/<name>/arm_eval.json."""
+    src = ROOT / "data" / "policies" / name
+    blob, norm = (src / "policy.zip").read_bytes(), (src / "vecnormalize.pkl").read_bytes()
+    runs = list(arm_episode.map([blob] * seeds, [norm] * seeds, range(seed0, seed0 + seeds)))
+    ok = [r for r in runs if "error" not in r]
+    travel = sum(r["travel_mm"] for r in ok)
+    summary = {"episodes": len(runs), "errors": len(runs) - len(ok),
+               "success_rate": sum(r["success"] for r in ok) / max(len(ok), 1),
+               "drawer_mm_held_median": sorted(r["drawer_mm_held"] for r in ok)[len(ok) // 2] if ok else None,
+               "held_share_of_travel": sum(r["travel_mm"] * (r["held_share_of_travel"] or 0) for r in ok) / travel
+               if travel else None,
+               "finger_open_on_hold_min_mm": min((r["finger_open_on_hold_min_mm"] for r in ok
+                                                  if r["finger_open_on_hold_min_mm"] is not None), default=None),
+               "deepest_contact_not_handle_mm_max": max((r["deepest_contact_not_handle_mm"] for r in ok), default=None),
+               "net_force_on_drawer_max_n": max((r["net_force_on_drawer_max_n"] for r in ok), default=None),
+               "net_force_on_cabinet_max_n": max((r["net_force_on_cabinet_max_n"] for r in ok), default=None),
+               "ik_error_max_mm": max((r["ik_error_max_mm"] for r in ok), default=None),
+               "ik_tilt_max_deg": max((r["ik_tilt_max_deg"] for r in ok), default=None),
+               "seeds": f"{seed0}..{seed0 + seeds - 1} (hand start poses, drawn like the env's)"}
+    (src / "arm_eval.json").write_text(json.dumps({"summary": summary, "episodes": runs}, indent=1))
+    print(json.dumps(summary, indent=1))

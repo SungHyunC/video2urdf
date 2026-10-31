@@ -22,8 +22,10 @@ success: both fingers press on the handle from opposite sides along their closin
 each finger open to within PINCH_SLACK of the handle's half height (the pads on its faces, not
 round its edge). Pushing, hooking or wedging the drawer out earns nothing.
 
-Each episode moves and turns the cabinet a little and scales the drawer's friction, so the
-policy can't memorise one placement or one friction value.
+Each episode moves and turns the cabinet a little, scales the drawer's friction and sets how
+quickly the mount follows its setpoint (a lag around the full Panda's ~0.1 s), so the policy
+can't memorise one placement, one friction value or one timing. A policy trained on a mount
+twice as quick as the arm closed the gripper 2 cm early on the arm, timed for its own speed.
 """
 
 import re
@@ -43,14 +45,17 @@ GRASP = rt.GRASP
 HANDLE_AT = np.array([0.72, 0.0, 0.40])  # where the handle sits: as robot_tasks.py places a drawer, in the Panda arm's reach while pulled
 STEP_M = 0.012  # largest setpoint move per action (0.3 m/s)
 SUBSTEPS = 20  # 0.04 s per action
-EPISODE = 200  # actions (8 s)
+EPISODE = 250  # actions (10 s): at the arm's ~86 mm/s, reaching the handle and pulling it out takes ~6 s
 SUCCESS_M = 0.15  # drawer pulled this far while held
 PINCH_SLACK = 0.002  # on a hold each finger is open at least the handle's half height less this: an 18 mm
 # handle squarely between the pads holds each finger ~9 mm open; pads slipping round its edge close further
 PINCH_COS = 0.7  # a pinching contact pushes along the fingers' closing direction (within ~45 deg)
 GRIP_FORCE = 3000.0  # gripper servo stiffness (N/m on the finger tendon): ~30 N squeeze, as robot_tasks.py
 MOUNT = ("mount_x", "mount_y", "mount_z")
-MOUNT_KP, MOUNT_KV, MOUNT_FMAX = 3000.0, 100.0, 60.0  # the mount's servos: N/m, N s/m, N per axis
+MOUNT_KP, MOUNT_FMAX = 3000.0, 60.0  # the mount's servos: N/m, N per axis
+MOUNT_LAG = 0.10  # s (damping / stiffness): the full Panda's joint servos lag ~0.1 s (86 mm/s at full action)
+MOUNT_LAG_RANGE = (0.05, 0.15)  # randomized per episode: a policy timed to one lag closed the gripper early on the arm
+ACTION_COST = 0.05  # per unit squared change of the move action between steps: against bang-bang wiggles
 MOUNT_AT = HANDLE_AT + np.array([-0.2, 0, 0.05])  # the mount's zero: the grasp point 20 cm in front of the handle
 STIFF_REF, STIFF_IMP = [0.002, 1.0], [0.99, 0.999, 0.0005, 0.5, 2.0]  # robot_tasks.py's stiff contact
 
@@ -182,7 +187,7 @@ def scene(run: Path) -> tuple[str, dict]:
     {pedestal_geom(info)}
     {obj}""", 1)
     hand = re.sub(r"<asset>", "<asset>" + meshes, hand, count=1)
-    servos = "".join(f'<position name="{n}" joint="{n}" kp="{MOUNT_KP}" kv="{MOUNT_KV}" forcelimited="true" '
+    servos = "".join(f'<position name="{n}" joint="{n}" kp="{MOUNT_KP}" kv="{MOUNT_KP * MOUNT_LAG}" forcelimited="true" '
                      f'forcerange="{-MOUNT_FMAX} {MOUNT_FMAX}"/>' for n in MOUNT)
     hand = hand.replace("<actuator>", "<actuator>" + servos, 1)
     hand = hand.replace("</mujoco>", f"<contact>{excludes}</contact>\n"
@@ -238,6 +243,7 @@ class Contacts:
         self.finger_qadr = m.joint("finger_joint1").qposadr[0]
         self.finger2_qadr = m.joint("finger_joint2").qposadr[0]
         self.hand = m.body("hand").id
+        self.drawer, self.cabinet = drawer, m.body_parentid[drawer]
         self._f = np.zeros(6)
 
     def finger_open(self, d) -> float:
@@ -269,36 +275,53 @@ class Contacts:
                 sides.add("right")
         return len(sides) == 2
 
-    def other_contacts(self, d) -> tuple[float, str, float]:
-        """The hand's contacts with anything but the handle: the deepest (m), what it touched, and
-        the total normal force (N)."""
-        deep, what, force = 0.0, "", 0.0
+    def other_contacts(self, d) -> tuple[float, str, float, np.ndarray, np.ndarray]:
+        """The robot's contacts: the deepest with anything but the handle (m) and what it touched;
+        the sum of those contacts' normal forces (N); and the net contact force (N, world) the
+        robot puts on the drawer (handle included) and on the cabinet. The net is what pushes:
+        a finger wedged between the handle and the drawer's front got two contact forces of
+        ~13 kN that MuJoCo's solver set against each other on the same body (net ~25 N, the
+        mount's push); the normal-force sum counts such pairs, the net doesn't."""
+        deep, what, normal = 0.0, "", 0.0
+        net_drawer, net_cabinet = np.zeros(3), np.zeros(3)
         for i, c in enumerate(d.contact[:d.ncon]):
             b1, b2 = self.m.geom_bodyid[c.geom1], self.m.geom_bodyid[c.geom2]
-            if (b1 in self.hand_bodies) == (b2 in self.hand_bodies) or self.handle in (c.geom1, c.geom2):
+            if (b1 in self.hand_bodies) == (b2 in self.hand_bodies):
                 continue
+            obj_is_2 = b1 in self.hand_bodies
             if c.efc_address >= 0:
                 mujoco.mj_contactForce(self.m, d, i, self._f)
-                force += float(self._f[0])
-            if -c.dist > deep:
-                other = c.geom2 if b1 in self.hand_bodies else c.geom1
+                fw = np.asarray(c.frame).reshape(3, 3).T @ self._f[:3]  # on geom2, world frame
+                on_obj = fw if obj_is_2 else -fw
+                ob = b2 if obj_is_2 else b1
+                if ob == self.drawer:
+                    net_drawer += on_obj
+                elif ob == self.cabinet:
+                    net_cabinet += on_obj
+                if self.handle not in (c.geom1, c.geom2):
+                    normal += float(self._f[0])
+            if self.handle not in (c.geom1, c.geom2) and -c.dist > deep:
+                other = c.geom2 if obj_is_2 else c.geom1
                 deep = -float(c.dist)
                 what = self.m.geom(other).name or self.m.body(self.m.geom_bodyid[other]).name
-        return deep, what, force
+        return deep, what, normal, net_drawer, net_cabinet
 
 
 def new_stats() -> dict:
     return {"travel_m": 0.0, "held_travel_m": 0.0, "held_steps": 0, "finger_open_held_min_m": None,
-            "finger_open_min_m": 1.0, "deepest_other_m": 0.0, "deepest_other_what": "", "push_force_max_n": 0.0,
+            "finger_open_min_m": 1.0, "deepest_other_m": 0.0, "deepest_other_what": "",
+            "normal_sum_not_handle_max_n": 0.0, "net_force_drawer_max_n": 0.0, "net_force_cabinet_max_n": 0.0,
             "q_min_m": 0.0, "q_peak_m": 0.0}
 
 
 def track_substep(stats: dict, contacts: Contacts, d, q: float) -> None:
     """Honesty bookkeeping after every physics step (the same on the mount and on the arm)."""
-    deep, what, force = contacts.other_contacts(d)
+    deep, what, normal, net_drawer, net_cabinet = contacts.other_contacts(d)
     if deep > stats["deepest_other_m"]:
         stats["deepest_other_m"], stats["deepest_other_what"] = deep, what
-    stats["push_force_max_n"] = max(stats["push_force_max_n"], force)
+    stats["normal_sum_not_handle_max_n"] = max(stats["normal_sum_not_handle_max_n"], normal)
+    stats["net_force_drawer_max_n"] = max(stats["net_force_drawer_max_n"], float(np.linalg.norm(net_drawer)))
+    stats["net_force_cabinet_max_n"] = max(stats["net_force_cabinet_max_n"], float(np.linalg.norm(net_cabinet)))
     stats["finger_open_min_m"] = min(stats["finger_open_min_m"], contacts.finger_open(d))
     stats["q_min_m"] = min(stats["q_min_m"], q)
     stats["q_peak_m"] = max(stats["q_peak_m"], q)
@@ -374,6 +397,8 @@ class DrawerEnv(gym.Env):
             mujoco.mju_mulQuat(q, qz, self.root_quat0)
             m.body_quat[self.root] = q
             m.dof_frictionloss[self.dadr] = self.friction0 * self.rng.uniform(0.5, 1.5)
+        lag = self.rng.uniform(*MOUNT_LAG_RANGE) if self.randomize else MOUNT_LAG  # how quickly the arm follows
+        m.actuator_biasprm[self.mount_u, 2] = -MOUNT_KP * lag
         mujoco.mj_resetData(m, d)
         start = HANDLE_AT + np.array([-0.22, 0, 0.0]) + (self.rng.uniform([-0.05, -0.1, -0.05], [0.05, 0.1, 0.1])
                                                          if self.randomize else 0)
@@ -383,6 +408,7 @@ class DrawerEnv(gym.Env):
         d.qpos[self.contacts.finger_qadr] = d.qpos[self.contacts.finger2_qadr] = 0.04
         mujoco.mj_forward(m, d)
         self.t, self.best, self.q_prev, self.held_travel = 0, 0.0, 0.0, 0.0
+        self.prev_move = np.zeros(3)
         self._held = False
         self.stats = new_stats()
         return self._obs(), {}
@@ -417,7 +443,9 @@ class DrawerEnv(gym.Env):
         self.q_prev = q
         # hooked out first and grabbed at the end: not counted; pulled past the measured range: not counted
         self.best = max(self.best, min(self.held_travel, q, self.q_max))
-        reward = (1 - np.tanh(8 * dist)) + 1.0 * held + 10.0 * self.best / self.q_max
+        reward = (1 - np.tanh(8 * dist)) + 1.0 * held + 10.0 * self.best / self.q_max \
+            - ACTION_COST * float(np.sum((a[:3] - self.prev_move) ** 2))
+        self.prev_move = a[:3].copy()
         truncated = self.t >= EPISODE
         success = self.best >= SUCCESS_M
         info = {"success": success, "drawer_m": self.best, "drawer_now_m": q, "held": held}

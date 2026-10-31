@@ -137,6 +137,7 @@ def main():
     ap.add_argument("--seed", type=int, default=12345, help="the hand's start pose (one the policy hasn't seen)")
     ap.add_argument("--no-video", action="store_true")
     ap.add_argument("--scripted", action="store_true", help="a hand-written pinch-and-pull instead of the policy")
+    ap.add_argument("--result", type=Path, help="also write the result JSON here")
     args = ap.parse_args()
     if args.scripted:
         policy, norm = Scripted(), None
@@ -168,7 +169,7 @@ def main():
     drawer = m.body(info["drawer"]).id
     grip = m.actuator("actuator8").id
     hand = ik.hand
-    arm_q = rt.HOME.copy()
+    arm_q = ready.copy()  # the arm starts at the start pose, as the env starts its hand there
     d.qpos[ik.qadr] = arm_q
     d.ctrl[:7], d.ctrl[grip] = arm_q, 255
     for j in ("finger_joint1", "finger_joint2"):
@@ -235,12 +236,9 @@ def main():
                     (40, 120, 40) if held else (60, 60, 160), 2)
         writer.write(img)
 
-    q_home = arm_q.copy()
-    for k in range(50):  # a joint move to the ready posture, then the hand to its start pose, fingers open
-        step_to(None, 255, "Moving to a start pose", joints=q_home + rt.smooth((k + 1) / 50) * (ready - q_home))
     for _ in range(10):
-        step_to(start, 255, "Moving to a start pose")
-    approach = dict(st)  # the move from HOME, before the policy acts
+        step_to(start, 255, "Start pose (fingers open)")
+    approach = dict(st)  # settling at the start, before the policy acts
     ik_err.clear()
     rot_err.clear()
     st = rl.new_stats()  # the policy's episode starts here
@@ -281,10 +279,14 @@ def main():
               "finger_open_min_any_mm": round(1000 * st["finger_open_min_m"], 2),
               "deepest_contact_not_handle_mm": round(1000 * st["deepest_other_m"], 2),
               "deepest_contact_not_handle_what": st["deepest_other_what"],
-              "push_force_not_handle_max_n": round(st["push_force_max_n"], 1),
+              "net_force_on_drawer_max_n": round(st["net_force_drawer_max_n"], 1),
+              "net_force_on_cabinet_max_n": round(st["net_force_cabinet_max_n"], 1),
+              "contact_normal_sum_not_handle_max_n": round(st["normal_sum_not_handle_max_n"], 1),
               "drawer_min_mm": round(1000 * st["q_min_m"], 2), "drawer_peak_mm": round(1000 * st["q_peak_m"], 2),
               "video": None if args.no_video else str(out)}
     print(json.dumps(result, indent=1))
+    if args.result:
+        args.result.write_text(json.dumps(result, indent=1))
     return result
 
 
