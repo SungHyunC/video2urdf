@@ -61,6 +61,8 @@ def evaluate(policy, run: str, episodes: int, seed0: int = 10_000, norm=None) ->
                     "deepest_other_what": s["deepest_other_what"],
                     "normal_sum_not_handle_max_n": s["normal_sum_not_handle_max_n"],
                     "net_force_drawer_max_n": s["net_force_drawer_max_n"], "net_force_cabinet_max_n": s["net_force_cabinet_max_n"],
+                    "net_force_drawer_step_max_n": s["net_force_drawer_step_max_n"],
+                    "net_force_drawer_steps_over_60n": s["net_force_drawer_steps_over_60n"],
                     "drawer_min_mm": 1000 * s["q_min_m"], "drawer_peak_mm": 1000 * s["q_peak_m"]})
     return summarize(eps)
 
@@ -74,6 +76,7 @@ def summarize(eps: list[dict]) -> dict:
     net_d = [e["net_force_drawer_max_n"] for e in eps]
     net_c = [e["net_force_cabinet_max_n"] for e in eps]
     normal = [e["normal_sum_not_handle_max_n"] for e in eps]
+    step_f = [e["net_force_drawer_step_max_n"] for e in eps]
     worst = max(eps, key=lambda e: e["deepest_other_mm"])
     return {
         "episodes": len(eps), "success_rate": len(ok) / len(eps),
@@ -92,6 +95,9 @@ def summarize(eps: list[dict]) -> dict:
             "deepest_contact_not_handle_what": worst["deepest_other_what"], "deepest_contact_seed": worst["seed"],
             "net_force_on_drawer_n_max": max(net_d), "net_force_on_drawer_n_median": float(np.median(net_d)),
             "net_force_on_cabinet_n_max": max(net_c), "net_force_on_cabinet_n_median": float(np.median(net_c)),
+            # averaged over each 0.04 s step: a sustained push, not the knock of fingers snapping shut
+            "net_force_on_drawer_step_avg_n_max": max(step_f), "net_force_on_drawer_step_avg_n_median": float(np.median(step_f)),
+            "steps_with_step_avg_force_over_60n_total": int(sum(e["net_force_drawer_steps_over_60n"] for e in eps)),
             "contact_normal_sum_not_handle_n_max": max(normal),  # counts cancelling solver pairs; the nets above do not
             "contact_normal_sum_not_handle_n_median": float(np.median(normal)),
             "drawer_min_mm": min(e["drawer_min_mm"] for e in eps), "drawer_peak_mm": max(e["drawer_peak_mm"] for e in eps),

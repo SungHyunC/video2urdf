@@ -311,7 +311,8 @@ def new_stats() -> dict:
     return {"travel_m": 0.0, "held_travel_m": 0.0, "held_steps": 0, "finger_open_held_min_m": None,
             "finger_open_min_m": 1.0, "deepest_other_m": 0.0, "deepest_other_what": "",
             "normal_sum_not_handle_max_n": 0.0, "net_force_drawer_max_n": 0.0, "net_force_cabinet_max_n": 0.0,
-            "q_min_m": 0.0, "q_peak_m": 0.0}
+            "net_force_drawer_step_max_n": 0.0, "net_force_drawer_steps_over_60n": 0,
+            "q_min_m": 0.0, "q_peak_m": 0.0, "_impulse": np.zeros(3), "_n": 0}
 
 
 def track_substep(stats: dict, contacts: Contacts, d, q: float) -> None:
@@ -321,6 +322,8 @@ def track_substep(stats: dict, contacts: Contacts, d, q: float) -> None:
         stats["deepest_other_m"], stats["deepest_other_what"] = deep, what
     stats["normal_sum_not_handle_max_n"] = max(stats["normal_sum_not_handle_max_n"], normal)
     stats["net_force_drawer_max_n"] = max(stats["net_force_drawer_max_n"], float(np.linalg.norm(net_drawer)))
+    stats["_impulse"] = stats["_impulse"] + net_drawer  # averaged over each action step in track_step
+    stats["_n"] += 1
     stats["net_force_cabinet_max_n"] = max(stats["net_force_cabinet_max_n"], float(np.linalg.norm(net_cabinet)))
     stats["finger_open_min_m"] = min(stats["finger_open_min_m"], contacts.finger_open(d))
     stats["q_min_m"] = min(stats["q_min_m"], q)
@@ -328,7 +331,14 @@ def track_substep(stats: dict, contacts: Contacts, d, q: float) -> None:
 
 
 def track_step(stats: dict, contacts: Contacts, d, dq: float, held: bool) -> None:
-    """Honesty bookkeeping after every action: drawer travel, and how much of it was held."""
+    """Honesty bookkeeping after every action: drawer travel, and how much of it was held; the net
+    force on the drawer averaged over the step (impulse / 0.04 s), which separates a sustained push
+    from the one-substep knock of fingers snapping shut on the handle."""
+    if stats["_n"]:
+        f = float(np.linalg.norm(stats["_impulse"] / stats["_n"]))
+        stats["net_force_drawer_step_max_n"] = max(stats["net_force_drawer_step_max_n"], f)
+        stats["net_force_drawer_steps_over_60n"] += int(f > 60.0)
+    stats["_impulse"], stats["_n"] = np.zeros(3), 0
     if dq > 0:
         stats["travel_m"] += dq
         if held:
@@ -450,7 +460,7 @@ class DrawerEnv(gym.Env):
         success = self.best >= SUCCESS_M
         info = {"success": success, "drawer_m": self.best, "drawer_now_m": q, "held": held}
         if truncated:
-            info["stats"] = dict(self.stats)
+            info["stats"] = {k: v for k, v in self.stats.items() if not k.startswith("_")}
         return self._obs(), float(reward), False, truncated, info
 
     def render(self, renderer=None, camera=None):

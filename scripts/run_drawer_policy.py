@@ -75,6 +75,48 @@ class LsqIk:
         return q
 
 
+class CartesianImpedance:
+    """Torque control of the arm as the mount it was trained on: at the grasp point a spring
+    (MOUNT_KP) and damper (MOUNT_KP x MOUNT_LAG) towards the setpoint, the force clipped to
+    MOUNT_FMAX per axis; the hand held level by a stiff rotational spring; a weak pull towards
+    the start posture in the null space; gravity compensated; joint torques within the Panda's
+    limits. (Joint position servos, as robot_tasks.py uses, pressed the handle with ~300 N
+    averaged over a step, ten times what the policy ever did on the mount.) Real Pandas are run
+    this way (Franka's Cartesian impedance controller)."""
+
+    K_ROT, D_ROT = 300.0, 12.0  # N m / rad, N m s / rad: the hand level within a few degrees under ~60 N
+    K_NULL, D_NULL = 20.0, 3.0  # posture in the null space
+    TAU_MAX = np.array([87, 87, 87, 87, 12, 12, 12.0])  # the Panda's joint torque limits (N m)
+
+    def __init__(self, m, d, ik: LsqIk, rot, rest, lag: float = rl.MOUNT_LAG):
+        self.m, self.d, self.ik, self.rot, self.rest = m, d, ik, rot, np.asarray(rest, float)
+        self.kp, self.kd = rl.MOUNT_KP, rl.MOUNT_KP * lag
+        self.setpoint = None
+        for i in range(7):  # the joint position servos off: torques come from here
+            m.actuator_gainprm[i, 0] = 0.0
+            m.actuator_biasprm[i, :3] = 0.0
+        self.jp, self.jr = np.zeros((3, m.nv)), np.zeros((3, m.nv))
+
+    def grasp_point(self):
+        d = self.d
+        return d.xpos[self.ik.hand] + d.xmat[self.ik.hand].reshape(3, 3) @ rt.GRASP
+
+    def torques(self, x_d):
+        m, d, ik = self.m, self.d, self.ik
+        r = d.xmat[ik.hand].reshape(3, 3)
+        x = d.xpos[ik.hand] + r @ rt.GRASP
+        mujoco.mj_jac(m, d, self.jp, self.jr, x, ik.hand)
+        jp, jr = self.jp[:, ik.dadr], self.jr[:, ik.dadr]
+        qd = d.qvel[ik.dadr]
+        f = np.clip(self.kp * (x_d - x) - self.kd * (jp @ qd), -rl.MOUNT_FMAX, rl.MOUNT_FMAX)
+        e_r = 0.5 * sum(np.cross(r[:, k], self.rot[:, k]) for k in range(3))
+        torque = self.K_ROT * e_r - self.D_ROT * (jr @ qd)
+        j = np.vstack([jp, jr])
+        null = np.eye(7) - np.linalg.pinv(j) @ j
+        tau = jp.T @ f + jr.T @ torque + null @ (self.K_NULL * (self.rest - d.qpos[ik.qadr]) - self.D_NULL * qd)
+        return np.clip(tau, -self.TAU_MAX, self.TAU_MAX)
+
+
 def ready_branch(ik: LsqIk, rot, path, seeds: int = 40) -> tuple[np.ndarray, dict]:
     """The arm posture to start from: of many postures that put the level hand on the path's
     first point, the one that follows the whole path (small steps, each solved from the last)
@@ -138,6 +180,10 @@ def main():
     ap.add_argument("--no-video", action="store_true")
     ap.add_argument("--scripted", action="store_true", help="a hand-written pinch-and-pull instead of the policy")
     ap.add_argument("--result", type=Path, help="also write the result JSON here")
+    ap.add_argument("--control", choices=("cartesian", "joint"), default="cartesian",
+                    help="cartesian: torque control as the training mount (default); joint: IK and joint position servos")
+    ap.add_argument("--arm-gain", type=float, default=1.0,
+                    help="joint control only: scale the joint servos' stiffness and damping (same lag)")
     args = ap.parse_args()
     if args.scripted:
         policy, norm = Scripted(), None
@@ -150,6 +196,9 @@ def main():
     xml, info = rl.arm_scene(args.run)
     m = mujoco.MjModel.from_xml_string(xml)
     rl.harden(m, info["joint"])
+    for i in range(7):  # the arm's joint servos: kp and kv scaled together, so the lag (kv / kp) stays ~0.1 s
+        m.actuator_gainprm[i, 0] *= args.arm_gain
+        m.actuator_biasprm[i, 1:3] *= args.arm_gain
     d = mujoco.MjData(m)
     rot = rl.hand_rot()
     rng = np.random.default_rng(args.seed)  # a start the policy hasn't seen, drawn like the env's
@@ -161,6 +210,7 @@ def main():
     ik = LsqIk(m)
     ready, ready_info = ready_branch(ik, rot, path)
     print(f"ready posture {np.round(ready, 3)}: along the path {ready_info}")
+    cart = CartesianImpedance(m, d, ik, rot, ready) if args.control == "cartesian" else None
     jid = m.joint(info["joint"]).id
     qadr, dadr = m.jnt_qposadr[jid], m.jnt_dofadr[jid]
     q_max = float(m.jnt_range[jid][1])
@@ -201,6 +251,20 @@ def main():
         slide there over the step."""
         nonlocal arm_q
         mujoco.mj_kinematics(m, d)
+        if cart is not None:  # the setpoint slides from the last one to the target, as on the mount
+            d.ctrl[grip] = grip_ctrl
+            x_from = cart.setpoint if cart.setpoint is not None else grasp_point().copy()
+            for k in range(rl.SUBSTEPS):
+                d.qfrc_applied[ik.dadr] = d.qfrc_bias[ik.dadr] + cart.torques(x_from + (target - x_from) * (k + 1) / rl.SUBSTEPS)
+                mujoco.mj_step(m, d)
+                rl.track_substep(st, contacts, d, float(d.qpos[qadr]))
+            cart.setpoint = np.array(target, float)
+            r = d.xmat[hand].reshape(3, 3)
+            ik_err.append(0.0)
+            rot_err.append(float(np.degrees(np.arccos(np.clip((np.trace(r.T @ rot) - 1) / 2, -1, 1)))))
+            if writer is not None:
+                frame(title)
+            return
         if joints is None:
             goal = arm_q + np.clip(ik.solve(arm_q, target, rot) - arm_q, -rt.MAX_JOINT_STEP, rt.MAX_JOINT_STEP)
             ik_err.append(ik.error)
@@ -247,8 +311,8 @@ def main():
         o = rl.observation(m, d, hand, contacts, qadr, dadr, q_max, grasp_target(), jid, held)
         a, _ = policy.predict(norm.normalize_obs(o) if norm is not None else o, deterministic=True)
         a = np.clip(a, -1, 1)
-        # from where the hand is, as in training: the arm lags the mount it was trained on, and an
-        # accumulating target would run away from it
+        # from where the hand is, as in training: a target that kept accumulating would run away
+        # from the lagging hand
         step_to(grasp_point() + a[:3] * rl.STEP_M, 0 if a[3] > 0 else 255,
                 "Hand-written pinch and pull (check)" if args.scripted else "PPO policy, trained in sim on the drawer measured from video")
         held = contacts.pinched(d)
@@ -265,11 +329,13 @@ def main():
         writer.release()
         renderer.close()
         close.close()
-    result = {"policy": "scripted" if args.scripted else str(args.policy), "seed": args.seed, "success": best >= rl.SUCCESS_M,
+    result = {"policy": "scripted" if args.scripted else str(args.policy), "seed": args.seed, "control": args.control,
+              "arm_gain": args.arm_gain if args.control == "joint" else None,
+              "success": best >= rl.SUCCESS_M,
               "drawer_mm_held": round(1000 * best, 1), "drawer_end_mm": round(1000 * float(d.qpos[qadr]), 1),
               "success_at_step": success_at, "ready_branch": ready_info,
-              "ik_error_max_mm": round(1000 * max(ik_err), 2), "ik_error_median_mm": round(1000 * float(np.median(ik_err)), 2),
-              "ik_tilt_max_deg": round(max(rot_err), 2), "ik_tilt_median_deg": round(float(np.median(rot_err)), 2),
+              "ik_error_max_mm": round(1000 * max(ik_err), 2) if cart is None else None,
+              "hand_tilt_max_deg": round(max(rot_err), 2), "hand_tilt_median_deg": round(float(np.median(rot_err)), 2),
               "approach_deepest_contact_mm": round(1000 * approach["deepest_other_m"], 2),
               "approach_deepest_contact_what": approach["deepest_other_what"],
               "held_share_of_travel": round(st["held_travel_m"] / st["travel_m"], 4) if st["travel_m"] > 0 else None,
@@ -281,6 +347,8 @@ def main():
               "deepest_contact_not_handle_what": st["deepest_other_what"],
               "net_force_on_drawer_max_n": round(st["net_force_drawer_max_n"], 1),
               "net_force_on_cabinet_max_n": round(st["net_force_cabinet_max_n"], 1),
+              "net_force_on_drawer_step_avg_max_n": round(st["net_force_drawer_step_max_n"], 1),
+              "steps_with_step_avg_force_over_60n": st["net_force_drawer_steps_over_60n"],
               "contact_normal_sum_not_handle_max_n": round(st["normal_sum_not_handle_max_n"], 1),
               "drawer_min_mm": round(1000 * st["q_min_m"], 2), "drawer_peak_mm": round(1000 * st["q_peak_m"], 2),
               "video": None if args.no_video else str(out)}

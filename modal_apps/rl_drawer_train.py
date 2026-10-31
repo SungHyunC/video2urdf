@@ -7,7 +7,7 @@ trainer, the measured drawer (model.xml, design.json, meshes/) and Menagerie's P
 data/policies/<name>/ on this machine.
 
 Run (ephemeral app, nothing deployed):
-    .venv/bin/modal run modal_apps/rl_drawer_train.py --steps 5000000 --envs 32 --name drawer_ppo_honest
+    .venv/bin/modal run modal_apps/rl_drawer_train.py::main --steps 5000000 --envs 32 --name drawer_ppo_honest
 Then the trained policy on the full Panda arm from 20 unseen start poses, in parallel (no video):
     .venv/bin/modal run modal_apps/rl_drawer_train.py::arm --name drawer_ppo_honest --seeds 20
 """
@@ -113,7 +113,7 @@ def reeval(name: str = "drawer_ppo_honest", test: int = 100):
 
 
 @app.function(cpu=2, memory=4096, timeout=3600)
-def arm_episode(policy_zip: bytes, vecnorm: bytes, seed: int) -> dict:
+def arm_episode(policy_zip: bytes, vecnorm: bytes, seed: int, gain: float = 1.0) -> dict:
     """One episode of the policy on the full Panda arm (scripts/run_drawer_policy.py, no video)."""
     import subprocess
     import sys
@@ -123,7 +123,7 @@ def arm_episode(policy_zip: bytes, vecnorm: bytes, seed: int) -> dict:
     (tmp / "policy.zip").write_bytes(policy_zip)
     (tmp / "vecnormalize.pkl").write_bytes(vecnorm)
     cmd = [sys.executable, f"{REMOTE}/scripts/run_drawer_policy.py", f"{REMOTE}/{RUN}", "--policy", str(tmp / "policy.zip"),
-           "--seed", str(seed), "--no-video", "--result", str(tmp / "arm.json")]
+           "--seed", str(seed), "--no-video", "--result", str(tmp / "arm.json"), "--arm-gain", str(gain)]
     proc = subprocess.run(cmd, cwd=REMOTE, capture_output=True, text=True)
     if proc.returncode != 0:
         return {"seed": seed, "error": proc.stderr[-2000:]}
@@ -131,12 +131,12 @@ def arm_episode(policy_zip: bytes, vecnorm: bytes, seed: int) -> dict:
 
 
 @app.local_entrypoint()
-def arm(name: str = "drawer_ppo_honest", seeds: int = 20, seed0: int = 20_000):
+def arm(name: str = "drawer_ppo_honest", seeds: int = 20, seed0: int = 20_000, gain: float = 1.0, tag: str = ""):
     """The policy on the full arm from `seeds` start poses it never saw, in parallel; writes
     data/policies/<name>/arm_eval.json."""
     src = ROOT / "data" / "policies" / name
     blob, norm = (src / "policy.zip").read_bytes(), (src / "vecnormalize.pkl").read_bytes()
-    runs = list(arm_episode.map([blob] * seeds, [norm] * seeds, range(seed0, seed0 + seeds)))
+    runs = list(arm_episode.map([blob] * seeds, [norm] * seeds, range(seed0, seed0 + seeds), [gain] * seeds))
     ok = [r for r in runs if "error" not in r]
     travel = sum(r["travel_mm"] for r in ok)
     summary = {"episodes": len(runs), "errors": len(runs) - len(ok),
@@ -149,8 +149,12 @@ def arm(name: str = "drawer_ppo_honest", seeds: int = 20, seed0: int = 20_000):
                "deepest_contact_not_handle_mm_max": max((r["deepest_contact_not_handle_mm"] for r in ok), default=None),
                "net_force_on_drawer_max_n": max((r["net_force_on_drawer_max_n"] for r in ok), default=None),
                "net_force_on_cabinet_max_n": max((r["net_force_on_cabinet_max_n"] for r in ok), default=None),
-               "ik_error_max_mm": max((r["ik_error_max_mm"] for r in ok), default=None),
-               "ik_tilt_max_deg": max((r["ik_tilt_max_deg"] for r in ok), default=None),
-               "seeds": f"{seed0}..{seed0 + seeds - 1} (hand start poses, drawn like the env's)"}
-    (src / "arm_eval.json").write_text(json.dumps({"summary": summary, "episodes": runs}, indent=1))
+               "net_force_on_drawer_step_avg_max_n": max((r["net_force_on_drawer_step_avg_max_n"] for r in ok), default=None),
+               "net_force_on_drawer_step_avg_median_n": sorted(r["net_force_on_drawer_step_avg_max_n"] for r in ok)[len(ok) // 2]
+               if ok else None,
+               "steps_with_step_avg_force_over_60n_total": sum(r["steps_with_step_avg_force_over_60n"] for r in ok),
+               "ik_error_max_mm": max((r["ik_error_max_mm"] or 0 for r in ok), default=None),
+               "hand_tilt_max_deg": max((r["hand_tilt_max_deg"] for r in ok), default=None),
+               "seeds": f"{seed0}..{seed0 + seeds - 1} (hand start poses, drawn like the env's)", "arm_gain": gain}
+    (src / f"arm_eval{tag}.json").write_text(json.dumps({"summary": summary, "episodes": runs}, indent=1))
     print(json.dumps(summary, indent=1))
