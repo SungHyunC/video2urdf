@@ -111,9 +111,9 @@
   </section>
   <section class="controls" id="joints"></section>
   <div class="row" style="margin-top:16px">
-    <a class="btn" id="dlUrdf" download>Download URDF</a>
-    <a class="btn ghost" id="dlMjcf" download>Download MJCF</a>
-    <a class="btn ghost" id="dlBundle" download hidden>Download model + meshes</a>
+    <a class="btn" id="dlBundle" download hidden>Download model: URDF + MJCF + meshes (.zip)</a>
+    <a class="btn ghost" id="dlUrdf" download>URDF file only</a>
+    <a class="btn ghost" id="dlMjcf" download>MJCF file only</a>
   </div>
   <p class="facts" id="facts"></p>
   <p class="facts" id="unmeasured" hidden></p>
@@ -353,7 +353,10 @@ async function load(entry) {
   $("dlUrdf").download = `${spec.name}.urdf`;
   $("dlMjcf").href = base + "model.xml";
   $("dlMjcf").download = `${spec.name}.xml`;
-  $("dlBundle").hidden = !spec.bundle;
+  $("dlBundle").hidden = !spec.bundle;  // the zip loads anywhere; a lone URDF/MJCF still needs its meshes
+  $("dlUrdf").classList.toggle("ghost", !!spec.bundle);
+  $("dlUrdf").textContent = spec.bundle ? "URDF file only" : "Download URDF";
+  $("dlMjcf").textContent = spec.bundle ? "MJCF file only" : "Download MJCF";
   $("dlBundle").href = base + "model.zip";
   $("dlBundle").download = `${spec.name}.zip`;
   $("facts").textContent = facts(spec);

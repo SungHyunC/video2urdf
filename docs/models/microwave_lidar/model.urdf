@@ -1,10 +1,24 @@
 <?xml version='1.0' encoding='utf-8'?>
+<!-- Video2URDF model "microwave_lidar", measured from a video (https://github.com/SungHyunC/video2urdf).
+     Mesh and texture paths are relative to this file (meshes/...): this file alone won't load;
+     unzip model.zip (the viewer's "Download model + meshes") and load it from there.
+     Units: metres, kilograms, radians. Fix the root link "base", its origin 0.1379 m above the floor.
+     Collisions are the measured geometry; visuals may be the design, video texture or SAM 3D mesh.
+     PyBullet: loadURDF(path, useFixedBase=True, flags=URDF_USE_INERTIA_FROM_FILE).
+       PyBullet doesn't apply <dynamics friction>: set VELOCITY_CONTROL, targetVelocity=0,
+       force=friction on each joint. MuJoCo 3.2.5+: simulate model.xml, which excludes contacts
+       between parts joined by a joint (they overlap there); MuJoCo's URDF import can't.
+     The <mujoco> element only keeps mesh paths for MuJoCo's URDF import; other parsers ignore it.
+     ROS: mesh paths must become package://<your_package>/meshes/... for RViz and Gazebo. -->
 <robot name="microwave_lidar">
+  <mujoco>
+    <compiler strippath="false" />
+  </mujoco>
   <link name="base">
     <inertial>
-      <origin xyz="0.430275 0.0961751 -0.0741825" rpy="0 -0 1.71151" />
+      <origin xyz="0.245817 0.269804 -0.00368882" rpy="-1.73617 -1.56566 -1.39725" />
       <mass value="10.2" />
-      <inertia ixx="0.0170331" ixy="0" ixz="0" iyy="0.0137965" iyz="0" izz="0.00325421" />
+      <inertia ixx="0.364663" ixy="0" ixz="0" iyy="0.337362" iyz="0" izz="0.193732" />
     </inertial>
     <visual name="base_0">
       <geometry>
@@ -13,7 +27,7 @@
     </visual>
     <collision>
       <geometry>
-        <mesh filename="meshes/base.stl" />
+        <mesh filename="meshes/base.obj" />
       </geometry>
     </collision>
     <visual name="completed_side_high_u">
@@ -165,7 +179,7 @@
     </visual>
     <collision>
       <geometry>
-        <mesh filename="meshes/lid.stl" />
+        <mesh filename="meshes/lid.obj" />
       </geometry>
     </collision>
   </link>
