@@ -47,6 +47,8 @@ DOOR_START_STEP_DEG = 2.5
 DOOR_PUSH_INSET = 0.07  # m: the fingertips push the door's outer face this far in from its free edge
 DOOR_PUSH_DEPTH = 0.003  # m: the push target sits this far inside the face, so the face is pressed
 DOOR_PUSH_TILT_DEG = 30  # the pushing hand points this far down from square on to the door's face
+DOOR_SHUT_MARGIN_DEG = 1.0  # the push target stops this far short of the shut end; the press does the rest
+PRESS_BIAS = 0.005  # m: the servo-error correction allowed while the hand presses on the object
 DOOR_BACK = 0.10  # m: the hand backs off this far from the door between letting go and pushing
 DOOR_REACH_X = 0.58  # where the middle of the door's working arc is placed in front of the robot
 DESIGN_NAMES: dict[str, str] = {}
@@ -641,6 +643,7 @@ def main():
     hand0 = data.xpos[ik.hand] + data.xmat[ik.hand].reshape(3, 3) @ GRASP
     rot_home = data.xmat[ik.hand].reshape(3, 3).copy()
     segments = []
+    pressing = set()  # segments that press on the object: their servo-error correction is kept small
     reach = [(2.0, lambda u: (hand0 + smooth(u) * (p0 + back - hand0), rot0), OPEN),
              (1.0, lambda u: (p0 + back * (1 - smooth(u)), rot0), OPEN),
              (0.8, lambda u: (p0, rot0), CLOSED)]
@@ -671,7 +674,10 @@ def main():
         away = -rot_o[:, 2] * DOOR_BACK  # straight off the free edge, away from the hinge
         t_o, rot_p = push_pose(q_open)
         stand = -rot_p[:, 2] * DOOR_BACK  # in front of the outer face
-        t_s, rot_s = push_pose(shut)
+        # The push ends just short of the shut end: the press closes the rest, and pressing a door into
+        # its (soft) joint limit makes it spring back open when the hand lets go.
+        q_close = shut + np.deg2rad(DOOR_SHUT_MARGIN_DEG) * np.sign(open_end - shut)
+        t_s, rot_s = push_pose(q_close)
         segments = [(t1, *s) for s in reach] + [
             (t1, 4.0, lambda u: grasp_pose(q_start + smooth(u) * (q_open - q_start)), CLOSED),
             (t1, 0.8, lambda u: (p_o, rot_o), OPEN),  # let go
@@ -679,8 +685,9 @@ def main():
             (t2, 2.0, lambda u: (p_o + away + smooth(u) * (t_o + stand - p_o - away), slerp_rot(rot_o, rot_p, smooth(u))),
              CLOSED),
             (t2, 1.0, lambda u: (t_o + stand * (1 - smooth(u)), rot_p), CLOSED),
-            (t2, 4.0, lambda u: push_pose(q_open + smooth(u) * (shut - q_open)), CLOSED),
+            (t2, 4.0, lambda u: push_pose(q_open + smooth(u) * (q_close - q_open)), CLOSED),
             (t2, 1.5, lambda u: (t_s + smooth(u) * -rot_s[:, 2] * DOOR_BACK, rot_s), CLOSED)]
+        pressing = {len(segments) - 2}
     else:
         if kind == "drawer":
             ends = [("Pull the drawer out", q_start + 0.8 * (hi - q_start)), ("Push it back in", q_start + 0.02 * (hi - lo))]
@@ -738,15 +745,17 @@ def main():
     hand_bodies = {model.body(n).id for n in ("hand", "left_finger", "right_finger")}
     held_geoms = {g for g in range(model.ngeom) if "handle" in DESIGN_NAMES.get(model.geom(g).name[4:], "").lower()}
     deepest = {}  # object body -> the hand's deepest contact with it (a handle being held aside)
-    for title, dur, target, grip in segments:
+    for k_seg, (title, dur, target, grip) in enumerate(segments):
         seg0, seg_pairs = len(ik_err), {}
+        limit = PRESS_BIAS if k_seg in pressing else 0.03
         for f in range(int(dur * FPS)):
             u = (f + 1) / (dur * FPS)
             pos_t, rot_t = target(u)
             # the servos leave the hand a few millimetres off its target: correct by integrating the error
+            # (pressing on something, the error is the contact and correcting it would press harder)
             mujoco.mj_kinematics(model, data)
             actual = data.xpos[ik.hand] + data.xmat[ik.hand].reshape(3, 3) @ GRASP
-            bias = np.clip(bias + 0.3 * (pos_t - actual), -0.03, 0.03)
+            bias = np.clip(bias + 0.3 * (pos_t - actual), -limit, limit)
             arm_q = arm_q + np.clip(ik.solve(arm_q, pos_t + bias, rot_t) - arm_q, -MAX_JOINT_STEP, MAX_JOINT_STEP)
             ik_err.append(ik.error)
             data.ctrl[:7] = arm_q
@@ -770,7 +779,7 @@ def main():
             cv2.putText(img, f"{k}/{len(titles)}  {title}", (40, 70), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (30, 30, 30), 4)
             if kind == "door":
                 val = data.joint(joint).qpos[0]
-                txt = (f"door open {opening_deg(val, shut, open_end):.0f} deg (0 = shut; measured range "
+                txt = (f"door open {round(opening_deg(val, shut, open_end))} deg (0 = shut; measured range "
                        f"0-{opening_deg(open_end, shut, open_end):.0f})")
             elif joint:
                 val = data.joint(joint).qpos[0]
