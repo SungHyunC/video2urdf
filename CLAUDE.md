@@ -160,11 +160,13 @@ Keys live in `.env` (template: `.env.example`). All four credits arrived on 10/2
   - Full open-weights run (Spark Open + SAM on Modal), LiDAR laptop, 18 turns (`data/tracks_open_full`): lid 305 x 209 mm, 3..122 deg, lid replay 91%; base segmented in fragments, so base thickness wrong (-73 mm), flagged by Spark.
 - Agent tool errors now log the full traceback in `agent/log.md`.
 - Known gaps: Replay IoU is harsh on thin parts and understated when thickness is overridden. Spark tends to accept low worst-frame IoU as "thin part" without checking. fit_lidar handles one hinged plate only. Floor levelling can't see drift along the floor. Box lids and book covers track poorly on RBO (see above).
-- Next, in order:
-  2. Box lids: SAM loses them at 640x480 (tried: tiny-mask handling, re-anchoring, top-band closed planes; a top-plane-orientation closed test hurt laptops and was reverted).
-  3. Multi-joint 3D: RBO pliers/foldingrule are too small for SAM at 640x480 ("black plastic part" fragments, "yellow ruler" as one piece); needs our own LiDAR capture (e.g. a desk lamp). Real drawer LiDAR capture too.
-  4. README with exact commands, credits (RBO CC BY, Menagerie Apache-2.0, sam3 and meta-sam-parser SAM License, three.js MIT, mapbox-earcut ISC) and the benchmark table; publish the viewer on GitHub Pages (ask first).
-  5. URDF Doctor on SO-101 / LeRobot data (needs camera calibration; not started).
+- Next (updated 10/31 night; the plan with priorities is `data/review/ROADMAP.md`, git-ignored):
+  - Box lids: SAM loses them at 640x480 (tried: tiny-mask handling, re-anchoring, top-band closed planes; a top-plane-orientation closed test hurt laptops and was reverted).
+  - LiDAR holes on glass/black surfaces (an open black-glass door has depth on 1-30% of its mask): fill from MapAnything depth scaled to the LiDAR on the same frame.
+  - Robot tasks on fresh planar (side-view) lid models: the lid starts at its limit and the hand never reaches it.
+  - Swivel + hinge shoulders and parallelogram arms (the phone stand).
+  - URDF Doctor on SO-101 / LeRobot data (needs camera calibration; not started).
+  - Done since the old list: real drawer LiDAR capture, multi-joint 3D (rod chains), README credits and commands, Pages.
 - **URDF Doctor** (10/29, `video2urdf/doctor.py`, `scripts/urdf_doctor.py`, `examples/doctor/`): registers a foreign URDF's base to the measured base (PCA x4 + ICP, then refined on base + child at 7 openings), finds the URDF q per opening by 1-D search, reports axis direction/offset, sign, zero, limits vs the video, shape mismatch, and joint-log sign flip/offset. Laptop: spec URDF passes (2.3 deg / 8 mm); injected bugs found (tilt 6 -> 7.6 deg, hinge 25 -> 18 mm, limit 90 vs needed 127; log flip -1.00x; log offset 12 -> 11.3 deg). In-plane axis turn isn't resolvable (measured base outline is rough): a 6 deg in-plane turn read as 0.1 deg, so the example tilts out of plane. Mesh geoms are sampled over their triangles (vertices only outline flat parts).
 - Repo public, GitHub Pages live (10/29): https://sunghyunc.github.io/video2urdf/ (master /docs, .nojekyll). Pushing needs `git -c http.postBuffer=524288000 push` (videos).
 - SAM free path: SAM_BACKEND=open (Modal credits) instead of the Meta API sam-3.1 (billing to credits vs card unconfirmed).
