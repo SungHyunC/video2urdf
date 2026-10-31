@@ -333,17 +333,26 @@ function initDemo() {
 
 /* ---------- reveal on scroll ---------- */
 function initReveal() {
-  if (reduced || !("IntersectionObserver" in window)) return;
+  if (reduced) return;
   const groups = [".steps-grid > .step", "#showcase .sec-head-row", ".cards > .obj", "#how .sec-head", ".pipeline > li", ".term-wrap",
     ".scan-card", ".measured-copy", "#results .sec-head", ".bento > .rc", "#models .sec-head", ".mgrid > .mc", ".ow-copy", ".code-card", ".cta",
     ".viewer-sec .sec-head-row"];
   const els = [];
   for (const sel of groups) $$(sel).forEach((el, i) => { el.classList.add("reveal"); el.style.transitionDelay = `${Math.min(i, 6) * 60}ms`; els.push(el); });
   document.documentElement.classList.add("reveal-on");
-  const io = new IntersectionObserver((es) => {
-    for (const e of es) if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
-  }, { threshold: 0.08, rootMargin: "0px 0px -6% 0px" });
-  els.forEach((el) => io.observe(el));
+  // Reveal whatever has reached the screen or gone past it: a jump (a nav link, a model link) or a fast
+  // scroll can skip an element entirely, and it must not stay hidden above the viewport.
+  let left = els, queued = false;
+  function check() {
+    queued = false;
+    const line = innerHeight * 0.94;
+    left = left.filter((el) => { if (el.getBoundingClientRect().top < line) { el.classList.add("in"); return false; } return true; });
+    if (!left.length) { removeEventListener("scroll", onScroll); removeEventListener("resize", onScroll); }
+  }
+  function onScroll() { if (!queued) { queued = true; requestAnimationFrame(check); } }
+  addEventListener("scroll", onScroll, { passive: true });
+  addEventListener("resize", onScroll, { passive: true });
+  check();
 }
 
 /* ---------- WebGL extras, loaded when they matter ---------- */
