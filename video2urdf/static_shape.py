@@ -265,11 +265,14 @@ def transform_reference_up(direction, reference_to_frame):
     return up / np.linalg.norm(up)
 
 
-def build_static_model(c, part, floor=None, *, shape='box', log=print, up_override=None):
+def build_static_model(c, part, floor=None, *, shape='box', log=print, up_override=None, allow_motion=False):
     """Build and replay one simple rigid object from existing RGB-D tracks.
 
     The object's outline and colour use one observed frame, so this is an approximate
     static envelope. It is not suitable for representing an articulated object.
+    ``allow_motion``: a part whose position or depth changes is not refused but modelled as a
+    snapshot of its reference frame (the pipeline's last-resort rigid model of an object whose
+    joints couldn't be fitted), with a warning.
     """
     import json
     from . import emit3d
@@ -305,7 +308,14 @@ def build_static_model(c, part, floor=None, *, shape='box', log=print, up_overri
         raise ValueError('A floor track or measured gravity is required.')
     object_points = c.cloud(part, ref)
     hull_points = None
-    if c.moving_camera and floor and shape == 'box':
+    snapshot = None
+    if allow_motion:  # a moving part's masks disagree between views: no hull, the reference frame only
+        shift, shift_frames = observed_track_shift(c, part, ref)
+        if shift > .05:
+            snapshot = (f'WARNING: the tracked object changes position or visible depth ({shift * 1000:.0f} mm over '
+                        f'{shift_frames} sampled frames): this rigid model is a snapshot of frame {ref}, not a '
+                        'measurement of something stationary.')
+    if c.moving_camera and floor and shape == 'box' and snapshot is None:
         fp = c.cloud(floor, ref)
         if len(fp) >= 50:
             n_f, d_f, _ = fit_plane(fp, np.random.default_rng(0))
@@ -338,7 +348,7 @@ def build_static_model(c, part, floor=None, *, shape='box', log=print, up_overri
         size = size.copy()
         size[:2] = max(size[:2])
     shift, shift_frames = observed_track_shift(c, part, ref)
-    if shift > max(.05, .25 * float(max(size))):
+    if shift > max(.05, .25 * float(max(size))) and not allow_motion:
         raise ValueError(f'The tracked object changes position or visible depth substantially '
                          f'({shift * 1000:.0f} mm over {shift_frames} sampled frames). '
                          'Inspect whether it moves, the mask changes, or camera tracking drifts; '
@@ -377,6 +387,8 @@ def build_static_model(c, part, floor=None, *, shape='box', log=print, up_overri
                 [f'WARNING: The static {shape} approximation uses visible depth points; hidden surfaces and complete dimensions are not measured.'])
     if up_override is not None:
         warnings.append('WARNING: Upright direction was supplied as a visual hypothesis, not measured gravity.')
+    if snapshot:
+        warnings.append(snapshot)
     if shape == 'cylinder' and circle is None:
         warnings.append('WARNING: Visible depth did not establish a circular cross-section; the cylinder is a shape assumption. Inspect the video and consider a box or another shape.')
     summary = {'reference_frame': ref, 'observed_box_size_mm': (observed_size * 1000).tolist(),
