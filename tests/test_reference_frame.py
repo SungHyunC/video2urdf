@@ -379,6 +379,34 @@ def door_clouds(hinge=np.array([0.1, 0.0, 0.6]), width=0.36, closed=range(0, 40)
     return clouds, hinge
 
 
+class LevellingTest(unittest.TestCase):
+    def stub(self, clouds, ref):
+        class Stub:
+            n, world = len(clouds), np.tile(np.eye(4), (len(clouds), 1, 1))
+            by = {"floor": {t: None for t in range(len(clouds))}}
+            def has(self, part, t): return t in self.by.get(part, {})
+            def cloud(self, part, t): return clouds[t]
+        s = Stub()
+        s.ref = ref
+        return s
+
+    def floor(self, y, rng):
+        return np.column_stack([rng.uniform(-0.2, 0.2, 800), np.full(800, y) + rng.normal(0, 0.001, 800),
+                                rng.uniform(0.4, 0.8, 800)])
+
+    def test_floor_plane_comes_from_a_frame_with_depth_and_other_surfaces_are_ignored(self):
+        rng = np.random.default_rng(0)
+        clouds = [self.floor(0.3, rng) for _ in range(12)]
+        clouds[11] = np.zeros((0, 3))  # the reference frame's floor mask has no depth
+        clouds[5] = self.floor(-0.35, rng)  # the track slid onto a shelf above: 65 cm off, still level
+        c = self.stub(clouds, ref=11)
+        fix = Capture.level_with(c, "floor")
+        self.assertLess(fix["shift_mm_max"], 5)
+        self.assertTrue(np.allclose(c.world[5], np.eye(4), atol=1e-3))
+        c = self.stub([np.zeros((0, 3))] * 4, ref=0)
+        self.assertTrue(Capture.level_with(c, "floor")["no_floor_depth"])
+
+
 class TrackCandidatesTest(unittest.TestCase):
     def test_candidate_and_candidates_are_both_anchors(self):
         from types import SimpleNamespace

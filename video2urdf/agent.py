@@ -278,6 +278,14 @@ and open, and a part in base must not follow the moving drawer (if one does, dro
 base and fit again)."""
 
 
+def levelling_line(fix: dict) -> str:
+    """What the floor levelling did, for the fit tools' output."""
+    if fix.get("no_floor_depth"):
+        return ("floor levelling skipped: the floor track has no depth near the reference frame (its mask may be "
+                "on a dark, shiny or distant surface), so the camera poses are ARKit's, unlevelled")
+    return f"floor levelling adjusted the estimated camera pose by up to {fix['shift_mm_max']:.0f} mm"
+
+
 def cap_images(messages: list[dict]) -> None:
     """Keep only the newest MAX_IMAGES images and MAX_VIDEOS videos in the conversation; older
     ones become a note."""
@@ -704,7 +712,7 @@ class Agent:
             lines.append(f"reference frame {c.ref}: where the plate is seen largest")
         if c.moving_camera:
             fix = c.level_with(roles.floor)
-            lines.append(f"floor levelling adjusted the estimated camera pose by up to {fix['shift_mm_max']:.0f} mm")
+            lines.append(levelling_line(fix))
         else:  # a fixed camera: the object itself may be pushed around, so measure from its base
             moved = c.follow(roles.base, exclude=(roles.plate,))
             if moved["frames"]:
@@ -827,7 +835,7 @@ class Agent:
         lines = []
         if c.moving_camera and floor:
             fix = c.level_with(floor)
-            lines.append(f"floor levelling adjusted the camera pose by up to {fix['shift_mm_max']:.0f} mm")
+            lines.append(levelling_line(fix))
         try:
             fixed = json.loads(fixed) if isinstance(fixed, str) else (fixed or [])
             summary = fit_chain(c, base, chain, floor, log=lines.append, fixed=tuple(slug(p) for p in fixed))
@@ -904,7 +912,7 @@ class Agent:
         lines = drawer_prompt_warnings(self.track_dir, base, [part for part, _ in spec])
         if c.moving_camera and floor:
             fix = c.level_with(slug(floor))
-            lines.append(f"floor levelling adjusted the estimated camera pose by up to {fix['shift_mm_max']:.0f} mm")
+            lines.append(levelling_line(fix))
         b = c.merge("cabinet", base) if len(base) > 1 else base[0]
         (self.track_dir / "drawers.json").write_text(json.dumps({"floor": floor and slug(floor), "base": base,
                                                                   "drawers": [[d, list(w)] for d, w in spec]}))
