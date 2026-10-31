@@ -203,6 +203,10 @@ class PortableTest(unittest.TestCase):
             with zipfile.ZipFile(d / "model.zip") as z:
                 self.assertEqual(len(z.namelist()), len(names))
             self.assertEqual(len((d / "model.zip").read_bytes()), len(first))
+            write_stl(d / "meshes/lid.stl", *box([-0.15, -0.01, 0], [0.15, 0, 0.25]))  # a refit lid
+            self.assertEqual(P.repack(d)["files"], ["meshes/base.obj", "meshes/lid.obj"])  # twins follow their STL
+            with zipfile.ZipFile(d / "model.zip") as z:
+                self.assertIn("0.25", z.read("meshes/lid.obj").decode())
 
     def test_fix_inertial_frames_leaves_other_inertials_alone(self):
         urdf_el = ET.fromstring('<robot name="r"><link name="a"><inertial><origin xyz="0 0 0" rpy="0 0 0"/>'

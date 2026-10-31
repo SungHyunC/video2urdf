@@ -182,11 +182,17 @@ def twin_name(stl_rel: str, taken) -> str:
 
 
 def is_twin(path: Path) -> bool:
+    return twin_source(path) is not None
+
+
+def twin_source(path: Path) -> str | None:
+    """The STL file name an OBJ twin was written from (None for any other file)."""
     try:
         with open(path) as f:
-            return f.readline().startswith("# OBJ twin of ")
-    except OSError:
-        return False
+            m = re.match(r"# OBJ twin of (.+?), written by", f.readline())
+    except (OSError, UnicodeDecodeError):
+        return None
+    return m.group(1) if m else None
 
 
 # ------------------------------------------------------------------ the downloadable files
@@ -210,12 +216,13 @@ def header(name: str, robot: ET.Element, root_height: float | None, kind: str) -
                   "PyBullet: loadURDF(path, useFixedBase=True, flags=URDF_USE_INERTIA_FROM_FILE)."]
         if moving:
             lines += ["  PyBullet doesn't apply <dynamics friction>: set VELOCITY_CONTROL, targetVelocity=0,",
-                      "  force=friction on each joint. MuJoCo: simulate model.xml, which excludes contacts between",
-                      "  parts joined by a joint (they overlap there); MuJoCo's URDF import can't exclude them."]
+                      "  force=friction on each joint. MuJoCo 3.2.5+: simulate model.xml, which excludes contacts",
+                      "  between parts joined by a joint (they overlap there); MuJoCo's URDF import can't."]
         lines += ["The <mujoco> element only keeps mesh paths for MuJoCo's URDF import; other parsers ignore it.",
                   "ROS: mesh paths must become package://<your_package>/meshes/... for RViz and Gazebo."]
     else:
-        lines += ["Measured geoms are group 3 (they collide); visible design geoms group 0; superseded visuals 4."]
+        lines += ["Needs MuJoCo 3.2.5 or later (mesh inertia attribute). Measured geoms are group 3 (they",
+                  "collide), the visible design group 0, superseded visuals group 4."]
     body = "\n     ".join(lines)
     return f"<!-- {body} -->\n"
 
@@ -279,12 +286,19 @@ def make_portable(folder: Path, name: str) -> dict:
         rel = twin_name(stl, lambda n: (folder / n).exists() and not is_twin(folder / n))
         stl_to_obj(folder / stl, folder / rel)
         twins[stl] = rel
+    rewritten = []
+    for el in ET.fromstring(_strip_header(text)).iter("mesh"):  # twins of an earlier pass: from their STL again
+        f = el.get("filename") or ""
+        src = twin_source(folder / f) if f.lower().endswith(".obj") else None
+        if src and (folder / f).parent.joinpath(src).is_file() and f not in rewritten:
+            stl_to_obj((folder / f).parent / src, folder / f)
+            rewritten.append(f)
     mjcf_text = mjcf.read_text() if mjcf.exists() else None
     new, fixed = portable_urdf(text, name, twins, mjcf_text)
     urdf.write_text(new)
     if mjcf_text is not None:
         mjcf.write_text(portable_mjcf(mjcf_text, name))
-    return {"twins": twins, "files": sorted(set(twins.values())), "inertial_fixed": fixed}
+    return {"twins": twins, "files": sorted(set(twins.values()) | set(rewritten)), "inertial_fixed": fixed}
 
 
 def repack(folder: Path, name: str | None = None) -> dict:

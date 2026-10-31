@@ -379,7 +379,7 @@ def main():
     if args.repack:
         for folder in args.repack:
             done = repack(folder)
-            print(f"{folder}: {len(done['twins'])} OBJ twins, inertial frames fixed: {done['inertial_fixed'] or 'none'}")
+            print(f"{folder}: {len(done['files'])} OBJ twins written, inertial frames fixed: {done['inertial_fixed'] or 'none'}")
         return
     if not args.runs:
         ap.error("give name:run_dir:video, or --repack VIEWER_DIR")
