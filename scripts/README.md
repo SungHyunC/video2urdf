@@ -46,6 +46,7 @@ usage. Run them with the project's environment: `.venv/bin/python scripts/<name>
 | `export_viewer.py` | Exports runs to the web viewer in `docs/` (GitHub Pages); `--repack` only makes a published model's downloads portable |
 | `make_demo.py` | Cuts the demo video from the project's outputs (`docs/demo.mp4`, `docs/demo_script.md`) |
 | `make_hero.py` | The README's hero GIF (`docs/media/hero.gif`) from one viewer model's published videos |
+| `make_site_media.py` | The landing page's before/after pairs and showcase loops (`docs/assets/`), cut from the published viewer videos |
 | `make_reel.py`, `make_viewer.py` | A single run's reel; a local review page |
 
 ## Lower-level steps (used by the agent; handy for debugging)
