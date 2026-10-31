@@ -2,6 +2,10 @@
 
 What the robot does depends on what was measured:
 - a hinged plate (a laptop lid): pinch its free edge, close it, open it again;
+- a door (a plate on a vertical hinge: a microwave's): the robot stands in front of it; pinch the free
+  edge at mid-height (fingers closing across the door), pull it open along its arc to most of its
+  measured range, let go, then push it shut with the fingertips on its outer face. A model without a
+  handle starts ajar, just far enough that the open fingers fit behind the free edge;
 - a hinged rod (a lamp's arm): pinch it near its tip, fold it, raise it;
 - a drawer: grip the handle Shape design drew on its front (its collision is switched on here), pull
   the drawer out, push it back in;
@@ -36,6 +40,15 @@ TIP_CLEARANCE = 0.002  # fingertips this far off a drawer's front while they hol
 OPEN, CLOSED = 255, 0  # gripper actuator
 REACH_X, GRASP_Z = 0.52, 0.32  # where the grasp point is placed in front of the robot
 MAX_JOINT_STEP = 0.05
+DOOR_AXIS_DEG = 30  # a plate hinged this close to vertical is a door
+DOOR_OPEN_SHARE = 0.85  # a door is pulled open to this share of its measured range, counted from shut
+DOOR_START_MAX_DEG = 35  # a handle-less door starts ajar, at most this far, so a finger fits behind its edge
+DOOR_START_STEP_DEG = 2.5
+DOOR_PUSH_INSET = 0.07  # m: the fingertips push the door's outer face this far in from its free edge
+DOOR_PUSH_DEPTH = 0.003  # m: the push target sits this far inside the face, so the face is pressed
+DOOR_PUSH_TILT_DEG = 30  # the pushing hand points this far down from square on to the door's face
+DOOR_BACK = 0.10  # m: the hand backs off this far from the door between letting go and pushing
+DOOR_REACH_X = 0.58  # where the middle of the door's working arc is placed in front of the robot
 DESIGN_NAMES: dict[str, str] = {}
 DEBUG = False  # filled from the run's design.json
 
@@ -295,7 +308,7 @@ def plan_grasp(model, data, kind: str, joint: str | None) -> Grasp:
     c = pts.mean(axis=0)
     cov_axes = np.linalg.svd(pts - c, full_matrices=False)[2]
     size = [np.ptp((pts - c) @ a) for a in cov_axes]
-    if kind == "plate":
+    if kind in ("plate", "door"):  # a door: its free edge at mid-height, the fingers across the door
         edge = pts[dist > 0.97 * dist.max()]
         p_edge = edge.mean(axis=0)
         r_dir = (p_edge - anchor) - ((p_edge - anchor) @ axis) * axis
@@ -326,8 +339,108 @@ def folded_onto_parent(model, data, jid: int) -> bool:
     return len(a) > 0 and float(np.median(cKDTree(b).query(a)[0])) < 0.02
 
 
+def is_door_axis(axis) -> bool:
+    """A hinge this close to vertical carries a door: it swings beside its body, not down onto it."""
+    axis = np.asarray(axis, float)
+    return bool(abs(axis[2]) > np.cos(np.deg2rad(DOOR_AXIS_DEG)) * np.linalg.norm(axis))
+
+
+def door_yaw(normal_xy) -> float:
+    """The yaw that turns a shut door's outward normal towards the robot (-x): the robot stands in front of
+    the door, which swings towards it as it opens."""
+    return float(np.angle(np.exp(1j * (np.pi - np.arctan2(normal_xy[1], normal_xy[0])))))
+
+
+def opening_deg(q: float, shut: float, open_end: float) -> float:
+    """How far a door stands open from shut (deg), counted towards the open end of its range."""
+    return float(np.rad2deg((q - shut) * np.sign(open_end - shut)))
+
+
+def door_open_target(shut: float, open_end: float) -> float:
+    """The joint value a door is pulled open to: DOOR_OPEN_SHARE of its measured range from shut."""
+    return float(shut + DOOR_OPEN_SHARE * (open_end - shut))
+
+
+def door_start_candidates(ref_deg: float, open_deg: float, max_deg: float = DOOR_START_MAX_DEG,
+                          step_deg: float = DOOR_START_STEP_DEG, keep_deg: float = 10.0) -> list[float]:
+    """Openings (deg from shut) to try starting a door at, in order: the reference pose's own (the video's
+    reference frame), then wider ones in steps up to ``max_deg``, always leaving ``keep_deg`` to pull."""
+    wider = np.arange(step_deg, max_deg + 1e-6, step_deg)
+    return [float(o) for o in [ref_deg, *wider[wider > ref_deg + 0.5 * step_deg]] if 0 <= o <= open_deg - keep_deg]
+
+
+def free_edge(model, data, jid: int) -> np.ndarray:
+    """The collision points of a hinged body's free edge: those farthest from its hinge."""
+    pts = collision_points(model, data, model.jnt_bodyid[jid])
+    rel = pts - data.xanchor[jid]
+    dist = np.linalg.norm(rel - np.outer(rel @ data.xaxis[jid], data.xaxis[jid]), axis=1)
+    return pts[dist > 0.97 * dist.max()]
+
+
+def door_ends(model, joint: str) -> tuple[float, float, np.ndarray]:
+    """A door's shut end of its range (where its free edge comes nearest the body it hangs on), its open
+    end, and its outward face normal when shut (door_normal), world frame."""
+    from scipy.spatial import cKDTree
+    data = mujoco.MjData(model)
+    jid = model.joint(joint).id
+    door = model.jnt_bodyid[jid]
+    lo, hi = (float(v) for v in model.jnt_range[jid])
+    mujoco.mj_kinematics(model, data)
+    body = [collision_points(model, data, b) for b in range(model.nbody)
+            if model.body(b).name.startswith("obj_") and b != door]
+    body = [p for p in body if len(p)]
+    if not body:
+        raise ValueError("the door's body has no collision geometry to shut against")
+    tree = cKDTree(np.vstack(body))
+
+    def edge(q):
+        data.joint(joint).qpos[0] = q
+        mujoco.mj_kinematics(model, data)
+        return free_edge(model, data, jid)
+
+    near = {q: float(tree.query(edge(q))[0].min()) for q in (lo, hi)}
+    shut = lo if near[lo] < near[hi] else hi
+    open_end = hi if shut == lo else lo
+    return shut, open_end, door_normal(model, data, joint, shut, open_end)
+
+
+def door_normal(model, data, joint: str, shut: float, open_end: float) -> np.ndarray:
+    """A shut door's outward face normal (world frame): its thin direction, signed the way its free edge
+    heads as it opens. Leaves the door shut in ``data``."""
+    jid = model.joint(joint).id
+    data.joint(joint).qpos[0] = shut + 0.05 * np.sign(open_end - shut)
+    mujoco.mj_kinematics(model, data)
+    ahead = free_edge(model, data, jid).mean(axis=0)
+    data.joint(joint).qpos[0] = shut
+    mujoco.mj_kinematics(model, data)
+    pts = collision_points(model, data, model.jnt_bodyid[jid])
+    n = np.linalg.svd(pts - pts.mean(axis=0), full_matrices=False)[2][2]
+    return n if n @ (ahead - free_edge(model, data, jid).mean(axis=0)) > 0 else -n
+
+
+def door_push_point(model, data, jid: int, out: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Where the fingertips push a door shut, in the door's body frame: on its outer face (``out``, world),
+    mid-height, DOOR_PUSH_INSET in from its free edge; and that face's outward normal (body frame)."""
+    body = model.jnt_bodyid[jid]
+    pts = collision_points(model, data, body)
+    c = free_edge(model, data, jid).mean(axis=0)  # the free edge's middle
+    axis = data.xaxis[jid]
+    along = (c - data.xanchor[jid]) - ((c - data.xanchor[jid]) @ axis) * axis
+    along -= (along @ out) * out  # in the door's plane, away from the hinge
+    along /= np.linalg.norm(along)
+    p = c - DOOR_PUSH_INSET * along + float(np.max((pts - c) @ out)) * out
+    return to_body(data, body, p), to_body(data, body, None, out)
+
+
+def slerp_rot(a: np.ndarray, b: np.ndarray, u: float) -> np.ndarray:
+    """Rotation matrix a turned towards b by the share u (0..1) of the turn between them."""
+    from scipy.spatial.transform import Rotation, Slerp
+    return Slerp([0.0, 1.0], Rotation.from_matrix(np.stack([a, b])))(float(np.clip(u, 0, 1))).as_matrix()
+
+
 def kind_of(model) -> tuple[str, str | None]:
-    """What the object is to the robot: plate / rod hinge, drawer, or static; and the joint to work."""
+    """What the object is to the robot: plate / rod hinge, door (a plate on a vertical hinge), drawer, or
+    static; and the joint to work."""
     joints = [j for j in range(model.njnt) if model.joint(j).name.startswith("obj_")
               and model.jnt_type[j] in (int(mujoco.mjtJoint.mjJNT_HINGE), int(mujoco.mjtJoint.mjJNT_SLIDE))]
     if not joints:
@@ -339,7 +452,9 @@ def kind_of(model) -> tuple[str, str | None]:
     mujoco.mj_kinematics(model, data)
     pts = collision_points(model, data, model.jnt_bodyid[j])
     sv = np.linalg.svd(pts - pts.mean(axis=0), full_matrices=False)[1]
-    return ("rod" if sv[1] < 0.25 * sv[0] else "plate"), model.joint(j).name
+    if sv[1] < 0.25 * sv[0]:
+        return "rod", model.joint(j).name
+    return ("door" if is_door_axis(data.xaxis[j]) else "plate"), model.joint(j).name
 
 
 def main():
@@ -388,6 +503,11 @@ def main():
     f_w = r @ grasp.fingers
     head = a_w[:2] if np.linalg.norm(a_w[:2]) > 0.3 else np.cross([0, 0, 1.0], f_w)[:2]
     yaw = -np.arctan2(head[1], head[0])
+    shut = open_end = q_open = None
+    if kind == "door":  # the robot stands in front of the door: its outer face, shut, looks at the robot
+        shut, open_end, out = door_ends(model, joint)
+        q_open = door_open_target(shut, open_end)
+        yaw = door_yaw(out[:2])
     model = build((0, 0, 0), yaw, free)
     data = mujoco.MjData(model)
     if joint:
@@ -400,6 +520,21 @@ def main():
     lift = max(0.0, (0.40 if kind == "drawer" else GRASP_Z) - (p_w[2] - pts[:, 2].min()))
     reach_x = REACH_X + (0.8 * (hi - q_start) if kind == "drawer" else 0.0)  # room to pull it towards the robot
     pos = np.array([reach_x - p_w[0], -p_w[1], lift - pts[:, 2].min() + 0.001])
+    if kind == "door":
+        # The middle of the free edge's arc, shut to pulled open, at DOOR_REACH_X ahead; the door's lowest
+        # point over its whole swing (a hinge off vertical dips its free corner) clears the pedestal.
+        arc, low = [], pts[:, 2].min()
+        for q in np.linspace(*model.jnt_range[model.joint(joint).id], 25):
+            data.joint(joint).qpos[0] = q
+            mujoco.mj_kinematics(model, data)
+            low = min(low, collision_points(model, data, b)[:, 2].min())
+            if (q - shut) * (q - q_open) <= 0:
+                arc.append(data.xmat[b].reshape(3, 3) @ grasp.pos + data.xpos[b])
+        data.joint(joint).qpos[0] = q_start
+        mujoco.mj_kinematics(model, data)
+        mid = (np.min(arc, axis=0) + np.max(arc, axis=0)) / 2
+        lift = max(0.0, GRASP_Z - (p_w[2] - low))
+        pos = np.array([DOOR_REACH_X - mid[0], -mid[1], lift - low + 0.002])
     foot = pts[:, :2] + pos[:2]
     pedestal = ((foot[:, 0].min() + foot[:, 0].max()) / 2, (foot[:, 1].min() + foot[:, 1].max()) / 2,
                 np.ptp(foot[:, 0]) / 2 + 0.05, np.ptp(foot[:, 1]) / 2 + (0.25 if free else 0.05), lift)
@@ -436,11 +571,72 @@ def main():
         rr, xx = plan.xmat[b].reshape(3, 3), plan.xpos[b]
         return rr @ grasp.pos + xx + shift, hand_rot(rr @ grasp.approach, rr @ grasp.fingers)
 
+    robot_bodies = {i for i in range(model.nbody) if model.body(i).name not in ("world", "object")
+                    and not model.body(i).name.startswith("obj_")}
+    start_note = ""
+    if kind == "door":
+        jid = model.joint(joint).id
+        plan.qpos[:] = data.qpos
+        push_point, push_normal = door_push_point(model, plan, jid, door_normal(model, plan, joint, shut, open_end))
+
+        def push_pose(q, depth=DOOR_PUSH_DEPTH):
+            """Grasp-point target and hand rotation that put the closed fingertips ``depth`` inside the door's
+            outer face at joint value q: the hand comes at the face from the front and DOOR_PUSH_TILT_DEG
+            above (a Panda reaches a low, far face poorly square on), the fingers side by side along it."""
+            plan.qpos[:] = data.qpos
+            plan.joint(joint).qpos[0] = q
+            mujoco.mj_kinematics(model, plan)
+            rr, xx = plan.xmat[b].reshape(3, 3), plan.xpos[b]
+            n = rr @ push_normal
+            tilt = np.deg2rad(DOOR_PUSH_TILT_DEG)
+            a = -n * np.cos(tilt) - np.array([0, 0, 1.0]) * np.sin(tilt)
+            a /= np.linalg.norm(a)
+            tip = rr @ push_point + xx - n * depth
+            return tip - a * (FINGER_TIP - GRASP[2]), hand_rot(a, np.cross([0, 0, 1.0], n))
+
+        def clearance(q) -> tuple[float, float]:
+            """The open hand at the free edge with the door at q: its deepest contact with the object's
+            other parts and the IK error."""
+            p, rot = grasp_pose(q)
+            chk = mujoco.MjData(model)
+            chk.qpos[:] = data.qpos
+            chk.joint(joint).qpos[0] = q
+            chk.qpos[ik.qadr] = ik.solve(HOME.copy(), p, rot)
+            for f in ("finger_joint1", "finger_joint2"):
+                chk.joint(f).qpos[0] = 0.04
+            mujoco.mj_forward(model, chk)
+            deep = 0.0
+            for c in chk.contact[:chk.ncon]:
+                b1, b2 = model.geom_bodyid[c.geom1], model.geom_bodyid[c.geom2]
+                other = b2 if b1 in robot_bodies else b1 if b2 in robot_bodies else None
+                if other is not None and other != b and model.body(other).name.startswith("obj_"):
+                    deep = max(deep, -c.dist)
+            return deep, ik.error
+
+        # Without a handle the fingers go behind the free edge: start the door ajar, as little as lets them in.
+        sense = np.sign(open_end - shut)
+        tried = []
+        for o in door_start_candidates(opening_deg(q_start, shut, open_end), opening_deg(q_open, shut, open_end)):
+            q = shut + sense * np.deg2rad(o)
+            deep, err = clearance(q)
+            tried.append((o, deep, err))
+            if deep < 0.001 and err < 0.005:
+                q_start = float(q)
+                break
+        start_note = (f"door: shut at {np.rad2deg(shut):+.1f} deg, open end {np.rad2deg(open_end):+.1f} deg "
+                      f"(measured range {opening_deg(open_end, shut, open_end):.0f} deg), pulled open to "
+                      f"{opening_deg(q_open, shut, open_end):.0f} deg; starts {opening_deg(q_start, shut, open_end):.1f} "
+                      "deg open (open hand at the free edge, deepest contact with the rest of the object: "
+                      + ", ".join(f"{o:.1f} deg -> {1000 * d:.1f} mm" for o, d, _ in tried) + ")")
+        data.joint(joint).qpos[0] = q_start
+        mujoco.mj_forward(model, data)
+
     pts_now = np.vstack([geom_points(model, data, g) for g in range(model.ngeom)
                          if model.body(model.geom_bodyid[g]).name.startswith("obj_") and model.geom_contype[g] != 0])
     # 3. The tasks: segments of (title, seconds, target function of u in 0..1, gripper).
     p0, rot0 = grasp_pose(q_start)
-    back = -rot0[:, 2] * 0.12  # pre-grasp: back off along the approach
+    # pre-grasp: back off along the approach (a door's open hand, 20 cm across it, stays clear of its edge)
+    back = -rot0[:, 2] * (0.22 if kind == "door" else 0.12)
     mujoco.mj_kinematics(model, data)
     hand0 = data.xpos[ik.hand] + data.xmat[ik.hand].reshape(3, 3) @ GRASP
     rot_home = data.xmat[ik.hand].reshape(3, 3).copy()
@@ -469,6 +665,22 @@ def main():
             (t2, 1.5, lambda u: (p0 + up * (1 - smooth(u)), turned(1)), CLOSED),
             (t2, 0.8, lambda u: (p0, turned(1)), OPEN),
             (t2, 1.5, lambda u: (p0 + smooth(u) * (back + up), turned(1)), OPEN)]
+    elif kind == "door":
+        t1, t2 = "Pull the door open", "Push it shut"
+        p_o, rot_o = grasp_pose(q_open)
+        away = -rot_o[:, 2] * DOOR_BACK  # straight off the free edge, away from the hinge
+        t_o, rot_p = push_pose(q_open)
+        stand = -rot_p[:, 2] * DOOR_BACK  # in front of the outer face
+        t_s, rot_s = push_pose(shut)
+        segments = [(t1, *s) for s in reach] + [
+            (t1, 4.0, lambda u: grasp_pose(q_start + smooth(u) * (q_open - q_start)), CLOSED),
+            (t1, 0.8, lambda u: (p_o, rot_o), OPEN),  # let go
+            (t2, 1.2, lambda u: (p_o + smooth(u) * away, rot_o), OPEN),
+            (t2, 2.0, lambda u: (p_o + away + smooth(u) * (t_o + stand - p_o - away), slerp_rot(rot_o, rot_p, smooth(u))),
+             CLOSED),
+            (t2, 1.0, lambda u: (t_o + stand * (1 - smooth(u)), rot_p), CLOSED),
+            (t2, 4.0, lambda u: push_pose(q_open + smooth(u) * (shut - q_open)), CLOSED),
+            (t2, 1.5, lambda u: (t_s + smooth(u) * -rot_s[:, 2] * DOOR_BACK, rot_s), CLOSED)]
     else:
         if kind == "drawer":
             ends = [("Pull the drawer out", q_start + 0.8 * (hi - q_start)), ("Push it back in", q_start + 0.02 * (hi - lo))]
@@ -512,6 +724,10 @@ def main():
     cam.lookat[:] = 0.65 * p0 + 0.35 * np.array([0.2, 0, 0.45])
     cam.distance = float(np.clip(0.75 + 1.3 * extent, 0.95, 1.7))  # small objects close up
     cam.azimuth, cam.elevation = 115, -16  # from the robot's right: robot left, object right
+    if kind == "door":  # from the front, on the hinge side, above: the door's face and its swing, the robot right
+        hinge_at = data.xanchor[model.joint(joint).id]
+        cam.lookat[:] = [0.4 * (DOOR_REACH_X + hinge_at[0]), 0.5 * hinge_at[1], GRASP_Z + 0.06]
+        cam.azimuth, cam.elevation, cam.distance = -60, -28, 1.3
     out = args.out or (args.run / "robot_tasks.mp4")
     writer = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"avc1"), FPS, (W, H))
     steps = round(1 / FPS / model.opt.timestep)
@@ -523,6 +739,7 @@ def main():
     held_geoms = {g for g in range(model.ngeom) if "handle" in DESIGN_NAMES.get(model.geom(g).name[4:], "").lower()}
     deepest = {}  # object body -> the hand's deepest contact with it (a handle being held aside)
     for title, dur, target, grip in segments:
+        seg0, seg_pairs = len(ik_err), {}
         for f in range(int(dur * FPS)):
             u = (f + 1) / (dur * FPS)
             pos_t, rot_t = target(u)
@@ -543,11 +760,19 @@ def main():
                         and model.body(b2 if b1 in hand_bodies else b1).name.startswith("obj_"):
                     other = model.body(b2 if b1 in hand_bodies else b1).name[4:]
                     deepest[other] = max(deepest.get(other, 0.0), -c.dist)
+                if DEBUG and (b1 in robot_bodies) != (b2 in robot_bodies):
+                    pair = (model.body(b1).name, model.body(b2).name)
+                    if any(n.startswith("obj_") for n in pair):
+                        seg_pairs[pair] = max(seg_pairs.get(pair, 0.0), -c.dist)
             renderer.update_scene(data, camera=cam)
             img = cv2.cvtColor(renderer.render(), cv2.COLOR_RGB2BGR)
             k = titles.index(title) + 1
             cv2.putText(img, f"{k}/{len(titles)}  {title}", (40, 70), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (30, 30, 30), 4)
-            if joint:
+            if kind == "door":
+                val = data.joint(joint).qpos[0]
+                txt = (f"door open {opening_deg(val, shut, open_end):.0f} deg (0 = shut; measured range "
+                       f"0-{opening_deg(open_end, shut, open_end):.0f})")
+            elif joint:
                 val = data.joint(joint).qpos[0]
                 txt = (f"{joint[4:]}: {np.rad2deg(val - q_start):+.0f} deg" if int(model.jnt_type[model.joint(joint).id])
                        == int(mujoco.mjtJoint.mjJNT_HINGE) else f"{joint[4:]}: {1000 * (val - q_start):+.0f} mm")
@@ -571,18 +796,24 @@ def main():
                     pairs.add((n1, n2))
             rr = data.xmat[ik.hand].reshape(3, 3)
             print("   contacts:", sorted(pairs)[:12], "finger q", round(float(data.joint("finger_joint1").qpos[0]), 4),
-                  "target", np.round(pos_t, 3), "hand", np.round(data.xpos[ik.hand] + rr @ GRASP, 3), "ik", round(ik.error, 3))
+                  "target", np.round(pos_t, 3), "hand", np.round(data.xpos[ik.hand] + rr @ GRASP, 3), "ik", round(ik.error, 3),
+                  "segment ik max", round(max(ik_err[seg0:]), 3), "robot-object contacts (mm)",
+                  {f"{p[0]}/{p[1]}": round(1000 * v, 1) for p, v in seg_pairs.items()},
+                  "joint", round(float(np.rad2deg(data.joint(joint).qpos[0])), 1) if joint else "")
     writer.release()
     renderer.close()
     scene.unlink(missing_ok=True)
     print(f"{kind} ({joint or 'free body'}); IK error max {1000 * max(ik_err):.0f} mm; video -> {out}")
+    if start_note:
+        print("  " + start_note)
     print("  deepest hand contact per part (a handle being held aside; the held part includes the squeeze): "
           + (", ".join(f"{k} {1000 * v:.1f} mm" for k, v in sorted(deepest.items())) or "none"))
     for title, v in log:
         hinge = joint and int(model.jnt_type[model.joint(joint).id]) == int(mujoco.mjtJoint.mjJNT_HINGE)
         print(f"  after '{title}': " + (f"{np.rad2deg(v - q_start):+.1f} deg" if hinge else
                                         f"{1000 * (v - q_start):+.0f} mm" if joint else
-                                        f"object moved {100 * np.linalg.norm(v - obj_start):.1f} cm"))
+                                        f"object moved {100 * np.linalg.norm(v - obj_start):.1f} cm")
+              + (f" (door open {opening_deg(v, shut, open_end):.1f} deg)" if kind == "door" else ""))
 
 
 if __name__ == "__main__":
