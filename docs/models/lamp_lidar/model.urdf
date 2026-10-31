@@ -1,10 +1,24 @@
 <?xml version='1.0' encoding='utf-8'?>
+<!-- Video2URDF model "lamp_lidar", measured from a video (https://github.com/SungHyunC/video2urdf).
+     Mesh and texture paths are relative to this file (meshes/...): this file alone won't load;
+     unzip model.zip (the viewer's "Download model + meshes") and load it from there.
+     Units: metres, kilograms, radians. Fix the root link "lamp_base".
+     Collisions are the measured geometry; visuals may be the design, video texture or SAM 3D mesh.
+     PyBullet: loadURDF(path, useFixedBase=True, flags=URDF_USE_INERTIA_FROM_FILE).
+       PyBullet doesn't apply <dynamics friction>: set VELOCITY_CONTROL, targetVelocity=0,
+       force=friction on each joint. MuJoCo 3.2.5+: simulate model.xml, which excludes contacts
+       between parts joined by a joint (they overlap there); MuJoCo's URDF import can't.
+     The <mujoco> element only keeps mesh paths for MuJoCo's URDF import; other parsers ignore it.
+     ROS: mesh paths must become package://<your_package>/meshes/... for RViz and Gazebo. -->
 <robot name="stand_lidar">
+  <mujoco>
+    <compiler strippath="false" />
+  </mujoco>
   <link name="lamp_base">
     <visual name="design_lamp_base_0">
       <origin xyz="0.00000 0.00000 0.00000" rpy="0.00000 0.00000 0.00000" />
       <geometry>
-        <mesh filename="meshes/design_lamp_base_0.stl" />
+        <mesh filename="meshes/design_lamp_base_0.obj" />
       </geometry>
       <material name="design_lamp_base_0_color">
         <color rgba="0.96000 0.96000 0.96000 1" />
@@ -56,13 +70,13 @@
       </material>
     </visual>
     <inertial>
-      <origin xyz="0.00209377 0.00488872 0.00866059" rpy="0 -1.5708 0" />
+      <origin xyz="0.00209377 0.00488872 0.00866059" rpy="-2.65635841 -1.57079633 0" />
       <mass value="0.3" />
       <inertia ixx="0.000644488" ixy="0" ixz="0" iyy="0.000448166" iyz="0" izz="0.000211322" />
     </inertial>
     <collision>
       <geometry>
-        <mesh filename="meshes/base.stl" />
+        <mesh filename="meshes/base.obj" />
       </geometry>
     </collision>
   </link>
@@ -92,7 +106,7 @@
     </inertial>
     <collision>
       <geometry>
-        <mesh filename="meshes/rod1.stl" />
+        <mesh filename="meshes/rod1.obj" />
       </geometry>
     </collision>
   </link>
@@ -131,7 +145,7 @@
     </inertial>
     <collision>
       <geometry>
-        <mesh filename="meshes/rod2.stl" />
+        <mesh filename="meshes/rod2.obj" />
       </geometry>
     </collision>
   </link>

@@ -1,10 +1,24 @@
 <?xml version='1.0' encoding='utf-8'?>
+<!-- Video2URDF model "stand", measured from a video (https://github.com/SungHyunC/video2urdf).
+     Mesh and texture paths are relative to this file (meshes/...): this file alone won't load;
+     unzip model.zip (the viewer's "Download model + meshes") and load it from there.
+     Units: metres, kilograms, radians. Fix the root link "base".
+     Collisions are the measured geometry; visuals may be the design, video texture or SAM 3D mesh.
+     PyBullet: loadURDF(path, useFixedBase=True, flags=URDF_USE_INERTIA_FROM_FILE).
+       PyBullet doesn't apply <dynamics friction>: set VELOCITY_CONTROL, targetVelocity=0,
+       force=friction on each joint. MuJoCo 3.2.5+: simulate model.xml, which excludes contacts
+       between parts joined by a joint (they overlap there); MuJoCo's URDF import can't.
+     The <mujoco> element only keeps mesh paths for MuJoCo's URDF import; other parsers ignore it.
+     ROS: mesh paths must become package://<your_package>/meshes/... for RViz and Gazebo. -->
 <robot name="stand_2">
+  <mujoco>
+    <compiler strippath="false" />
+  </mujoco>
   <link name="base">
     <visual name="design_base_0">
       <origin xyz="0.00000 0.00000 0.00000" rpy="0.00000 0.00000 0.00000" />
       <geometry>
-        <mesh filename="meshes/design_base_0.stl" />
+        <mesh filename="meshes/design_base_0.obj" />
       </geometry>
       <material name="design_base_0_color">
         <color rgba="0.92000 0.92000 0.93000 1" />
@@ -36,7 +50,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="meshes/base.stl" />
+        <mesh filename="meshes/base.obj" />
       </geometry>
     </collision>
   </link>
@@ -85,7 +99,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="meshes/lower_arm.stl" />
+        <mesh filename="meshes/lower_arm.obj" />
       </geometry>
     </collision>
   </link>
@@ -134,7 +148,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="meshes/upper_arm.stl" />
+        <mesh filename="meshes/upper_arm.obj" />
       </geometry>
     </collision>
   </link>

@@ -1,5 +1,16 @@
 <?xml version='1.0' encoding='utf-8'?>
+<!-- Video2URDF model "mouse_lidar", measured from a video (https://github.com/SungHyunC/video2urdf).
+     Mesh and texture paths are relative to this file (meshes/...): this file alone won't load;
+     unzip model.zip (the viewer's "Download model + meshes") and load it from there.
+     Units: metres, kilograms, radians. Fix the root link "base", its origin 0.02736 m above the floor.
+     Collisions are the measured geometry; visuals may be the design, video texture or SAM 3D mesh.
+     PyBullet: loadURDF(path, useFixedBase=True, flags=URDF_USE_INERTIA_FROM_FILE).
+     The <mujoco> element only keeps mesh paths for MuJoCo's URDF import; other parsers ignore it.
+     ROS: mesh paths must become package://<your_package>/meshes/... for RViz and Gazebo. -->
 <robot name="mouse_lidar">
+  <mujoco>
+    <compiler strippath="false" />
+  </mujoco>
   <link name="base">
     <inertial>
       <origin xyz="-0.00293648 0.000603799 -0.00377617" rpy="-1.58433 -1.32202 -1.52496" />
@@ -17,7 +28,7 @@
     </visual>
     <collision>
       <geometry>
-        <mesh filename="meshes/static_object.stl" />
+        <mesh filename="meshes/static_object.obj" />
       </geometry>
     </collision>
   </link>
