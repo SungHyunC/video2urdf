@@ -130,7 +130,8 @@ def policy_note(policy_dir: Path = POLICY_DIR) -> str | None:
 def front(model_xml: Path) -> list[float] | None:
     """Where to look from, in the model's frame (horizontal): a hinged part's inner face looks
     toward its parent (a screen toward the keyboard), so from the child's centre toward the
-    root's; a slide pulls out toward the viewer."""
+    root's; a slide pulls out toward the viewer; a door on a vertical hinge is seen face-on from
+    the side the phone filmed it from (replay3d.npz)."""
     import mujoco
     import numpy as np
     model = mujoco.MjModel.from_xml_path(str(model_xml))
@@ -149,8 +150,24 @@ def front(model_xml: Path) -> list[float] | None:
                     return direction
         return None
     j = 0
+    replay = model_xml.parent / "replay3d.npz"
     if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_SLIDE:
         v = data.xaxis[j].copy()
+    elif abs(data.xaxis[j][2]) > 0.9 and replay.exists():  # a door: its thin direction, toward the phone
+        body = model.jnt_bodyid[j]
+        pts = []
+        for g in range(model.ngeom):
+            if model.geom_bodyid[g] == body and model.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH:
+                m = model.geom_dataid[g]
+                vert = model.mesh_vert[model.mesh_vertadr[m]: model.mesh_vertadr[m] + model.mesh_vertnum[m]]
+                pts.append(data.geom_xpos[g] + vert @ data.geom_xmat[g].reshape(3, 3).T)
+        if not pts:
+            return None
+        pts = np.vstack(pts)
+        c = pts.mean(axis=0)
+        v = np.linalg.svd(pts - c, full_matrices=False)[2][2]
+        phone = np.load(replay)["cam_to_world"][:, :3, 3].mean(axis=0)  # cameras in the model's frame
+        v = v if v @ (phone - c) > 0 else -v
     else:
         v = data.subtree_com[1] - data.subtree_com[model.jnt_bodyid[j]]
     v[2] = 0
@@ -271,6 +288,8 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
             "measured": meta, "agent_report": report.read_text() if report.exists() else None,
             # how the model shown relates to the agent's run, when a person refit it or a log was replaced
             "provenance": (run / "provenance.txt").read_text().strip() if (run / "provenance.txt").exists() else None,
+            # what the capture didn't measure, in plain words (written by hand per run)
+            "unmeasured": (run / "unmeasured.txt").read_text().strip() if (run / "unmeasured.txt").exists() else None,
             "traces": traces,
             "three_d": (run / "model3d.json").exists(), "physics": phys,
             "appearance": read_optional("appearance.json"), "shape_inference": read_optional("shape_inference.json"),

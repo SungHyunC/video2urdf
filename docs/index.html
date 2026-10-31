@@ -103,6 +103,7 @@
     <a class="btn ghost" id="dlBundle" download hidden>Download model + meshes</a>
   </div>
   <p class="facts" id="facts"></p>
+  <p class="facts" id="unmeasured" hidden></p>
   <p class="facts" id="appearance" hidden></p>
   <p class="facts" id="quality" hidden></p>
   <p class="facts" id="physics" hidden></p>
@@ -235,7 +236,7 @@ function applyLook() {
 }
 for (const b of document.querySelectorAll("#looks button")) b.onclick = () => { look = b.dataset.look; applyLook(); };
 
-const traceNames = { agent: "Agent: Muse Spark measures it", design: "Shape design: three Meta models propose, the video picks" };
+const traceNames = { agent: "Agent: Muse Spark measures it", design: "Shape design: Meta models propose, the video picks" };
 async function showTraces(spec, base) {
   const traces = spec.traces || {};
   $("traceBox").hidden = !Object.keys(traces).length;
@@ -343,6 +344,8 @@ async function load(entry) {
   $("dlBundle").href = base + "model.zip";
   $("dlBundle").download = `${spec.name}.zip`;
   $("facts").textContent = facts(spec);
+  $("unmeasured").hidden = !spec.unmeasured;
+  $("unmeasured").textContent = spec.unmeasured ? `Not measured: ${spec.unmeasured}` : "";
   const textureMeshes = Object.values(spec.texture?.meshes || {});
   const seenFaces = textureMeshes.reduce((sum, mesh) => sum + (mesh.faces_seen || 0), 0);
   const totalFaces = textureMeshes.reduce((sum, mesh) => sum + (mesh.faces || 0), 0);
@@ -403,6 +406,10 @@ function facts(s) {
     return `Observed depth envelope: ${m.observed_box_size_mm.map(v => v.toFixed(0)).join(" × ")} mm. ` +
       "Hidden surfaces and full dimensions are not verified.";
   }
+  if (s.three_d && m.plate_size_mm && m.hinge_vertical) {  // a door: plate_size_mm is [tall along the hinge, wide]
+    return `${depth}: door ${m.plate_size_mm[1].toFixed(0)} mm wide × ${m.plate_size_mm[0].toFixed(0)} mm tall ` +
+      `on a vertical hinge, opening over ${(m.hinge_range_deg[1] - m.hinge_range_deg[0]).toFixed(0)}° in the video.`;
+  }
   if (s.three_d && m.plate_size_mm) {
     const base = m.base_thickness_measured === false
       ? `base ${m.base_thickness_mm.toFixed(0)} mm thick (assumed)`
@@ -437,7 +444,7 @@ function physicsFacts(p, provenance) {
       `estimated friction from those frames is ${j.friction.toFixed(3)} ${unit}. ` +
       `Let go in MuJoCo at those angles, it moves ${worst(j.drift_with_deg)}° (${worst(j.drift_without_deg)}° without that friction)`;
   }).join(". ");
-  return `Physics: masses judged by Muse Spark from the video: ${links}. ${joints}.`;
+  return `Physics: masses judged by Muse Spark from the video: ${links}.` + (joints ? ` ${joints}.` : "");
 }
 
 let current = null;
@@ -473,7 +480,8 @@ const index = await (await fetch("models/index.json")).json();
 const tabs = $("tabs");
 const titles = { laptop_lidar: "Laptop · iPhone LiDAR · agent", drawer: "Drawer · iPhone LiDAR", notebook: "Laptop · side view", stand: "Desk lamp · side view" };
 const captures = { laptop_lidar: "iPhone LiDAR", drawer: "iPhone LiDAR", notebook: "side view", stand: "side view",
-                   lamp_lidar: "iPhone LiDAR", mouse_lidar: "iPhone LiDAR" };
+                   lamp_lidar: "iPhone LiDAR", mouse_lidar: "iPhone LiDAR", microwave_lidar: "iPhone LiDAR",
+                   airpods_lidar: "iPhone LiDAR" };
 for (const entry of index) {
   const b = document.createElement("button");
   const named = entry.label && entry.label[0].toUpperCase() + entry.label.slice(1);  // what Spark identified
