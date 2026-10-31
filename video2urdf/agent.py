@@ -179,9 +179,13 @@ TOOLS = [
          "required": ["base", "drawers"]}},
     {"name": "fit_chain", "description": "RGB-D captures: thin rods on hinges in a chain (a desk lamp's pole and "
      "arm, a folding arm), fitted in 3D. Each rod becomes a 3D line per frame from its raw depth; each hinge's axis, "
-     "pivot and angle follow from how the rod turns relative to its parent. Writes the model and replays it.",
+     "pivot and angle follow from how the rod turns relative to its parent. Writes the model and replays it. "
+     "If the base has too few depth points on every frame (mostly out of view, or too thin), the chain is anchored "
+     "to the floor and the static scene instead: the hinges are still measured, the base is left out of the model.",
      "parameters": {"type": "object", "properties": {
-         "base": {"type": "string", "description": "tracked part that stays put (the lamp's base)"},
+         "base": {"type": "string", "description": "tracked part that stays put (the lamp's base); or the floor "
+                                                   "itself (same as floor) to anchor the chain to the floor when the "
+                                                   "base can't be measured"},
          "chain": {"type": "array", "items": {"type": "string"},
                    "description": "tracked rods in order from the base outward (e.g. [pole, arm])"},
          "floor": {"type": "string", "description": "tracked surface the base stands on (optional)"},
@@ -230,7 +234,9 @@ upright_hint="drawer_handles" to test a visual upright direction; inspect the re
 the handles and floor can be misidentified. Do not use it for moving objects or other silhouettes.
 For a chain of thin rods on hinges (a desk lamp's base, pole and arm), track the base, each
 rod as its own part and the surface it stands on, then call fit_chain with the rods in order
-from the base outward: it fits every hinge in 3D from the rods' depth. For another
+from the base outward: it fits every hinge in 3D from the rods' depth. A base mostly out of
+view or too thin for depth can't be placed: fit_chain then anchors the chain to the floor and
+the static scene (or pass the floor as base): keep a fixed pole in the chain. For another
 articulated object with two or more moving joints seen approximately from the side, track
 each rigid part and use fit with an explicit parent for each moving part; this is a planar
 visual approximation whose cross-view depth and metric scale are assumed.
@@ -442,9 +448,12 @@ class Agent:
             windows.setdefault(name, []).append((int(r["start_s"] * self.fps), int(r["end_s"] * self.fps)))
         lines = mapped
         report = physics.apply(self.track_dir, props, windows, self.fps, log=lines.append)
+        chain_spec = self.track_dir / "chain.json"
+        spec = json.loads(chain_spec.read_text()) if chain_spec.exists() else {}
+        anchor_root = spec.get("root") if spec.get("anchored") else None  # the floor disc, welded to the world
         for link, r in report["links"].items():
             rho = r["implied_density_kg_m3"]
-            if rho and not 150 <= rho <= 3000:  # beyond wood foam .. aluminium-and-glass
+            if rho and not 150 <= rho <= 3000 and link != anchor_root:  # beyond wood foam .. aluminium-and-glass
                 lines.append(f"WARNING: {link}'s estimated mass over its fitted volume implies {rho} kg/m^3. "
                              "Check the mass and fitted volume; a hollow object can also have a low average density. "
                              "Do not treat the estimate as a measured material density.")
@@ -799,9 +808,11 @@ class Agent:
         if missing or not chain or len(set([base, *chain])) < len(chain) + 1:
             return f"base and rods must be distinct tracked parts; not tracked: {missing}; tracked parts are {c.names}"
         from .chain3d import chain_reference, fit_chain
-        ref = chain_reference(c, base, chain)
+        anchored = base == floor  # the chain stands on the floor itself: no base needed in view
+        ref = chain_reference(c, None if anchored else base, chain)
         if ref is None:
-            return "no frame shows the base and every rod together; re-track the missing part"
+            return (f"no frame shows {'every rod' if anchored else 'the base and every rod'} together; re-track the "
+                    "missing part" + ("" if anchored else ", or pass the floor as base to anchor the chain to it"))
         c.set_ref(ref)
         lines = []
         if c.moving_camera and floor:
