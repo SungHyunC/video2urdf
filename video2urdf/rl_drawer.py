@@ -192,18 +192,49 @@ def scene(run: Path) -> tuple[str, dict]:
     return hand, info
 
 
+def arm_scene(run: Path) -> tuple[str, dict]:
+    """The same cabinet, placed the same way, with the full Panda arm (Menagerie's panda.xml,
+    loaded from a string like scene()). Its keyframe is dropped: the drawer adds a joint."""
+    info = placement(run)
+    meshes, obj, excludes = object_parts(run, info)
+    xml = (PANDA_DIR / "panda.xml").read_text()
+    xml = xml.replace('meshdir="assets"', f'meshdir="{(PANDA_DIR / "assets").resolve()}"')
+    xml = re.sub(r"<keyframe>.*?</keyframe>", "", xml, flags=re.S)
+    xml = xml.replace("<worldbody>", f"""<worldbody>
+    <light pos="0.4 -0.6 1.8" dir="0 0.3 -1" directional="true" castshadow="true"/>
+    <geom name="floor" size="0 0 0.05" type="plane" material="floor"/>
+    {pedestal_geom(info)}
+    {obj}""", 1)
+    xml = xml.replace("<asset>", """<asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.92 0.94 0.97" rgb2="0.75 0.8 0.86" width="512" height="3072"/>
+    <texture type="2d" name="floor" builtin="checker" mark="edge" rgb1="0.85 0.86 0.88" rgb2="0.8 0.81 0.83"
+      markrgb="0.7 0.7 0.7" width="300" height="300"/>
+    <material name="floor" texture="floor" texuniform="true" texrepeat="5 5" reflectance="0.05"/>""" + meshes, 1)
+    xml = xml.replace("</mujoco>", f"""<contact>{excludes}</contact>
+  <option timestep="0.002" cone="elliptic" impratio="10"/>
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.35 0.35 0.35" specular="0 0 0"/>
+    <global offwidth="1920" offheight="1080"/>
+    <quality shadowsize="4096"/>
+  </visual>
+</mujoco>""")
+    info.update(meshes=meshes, obj=obj, excludes=excludes)
+    return xml, info
+
+
 class Contacts:
     """What the hand touches: the strict pinch test and the honesty bookkeeping, shared by the
-    env and the full arm (scripts/run_drawer_policy.py)."""
+    env and the full arm (scripts/run_drawer_policy.py). ``robot``: more bodies that count as the
+    robot (the arm's links) when looking for contacts with anything but the handle."""
 
-    def __init__(self, m: mujoco.MjModel, joint: str, pinch_m: float):
+    def __init__(self, m: mujoco.MjModel, joint: str, pinch_m: float, robot=()):
         self.m, self.pinch_m = m, pinch_m
         jid = m.joint(joint).id
         drawer = m.jnt_bodyid[jid]
         self.handle = next(g for g in range(m.ngeom) if m.geom_bodyid[g] == drawer
                            and "handle" in rt.DESIGN_NAMES.get(m.geom(g).name[4:], "").lower())
         self.left, self.right = m.body("left_finger").id, m.body("right_finger").id
-        self.hand_bodies = {m.body("hand").id, self.left, self.right}
+        self.hand_bodies = {m.body("hand").id, self.left, self.right, *robot}
         self.finger_qadr = m.joint("finger_joint1").qposadr[0]
         self.finger2_qadr = m.joint("finger_joint2").qposadr[0]
         self.hand = m.body("hand").id
