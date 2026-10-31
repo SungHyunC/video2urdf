@@ -120,6 +120,21 @@ class MujocoBlockTest(unittest.TestCase):
             model = mujoco.MjModel.from_xml_path(str(d / "model.urdf"))
             self.assertEqual(model.nmesh, 2)
 
+    def test_planar_emitter_too(self):
+        from video2urdf import emit
+        from video2urdf.joints import Joint, Link
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / "meshes").mkdir()
+            write_stl(d / "meshes/base.stl", *box([-0.15, -0.01, -0.02], [0.15, 0.01, 0]))
+            links = [Link("base", None, None, (np.zeros(2), np.array([0.15, 0.01]), 0.0), mesh="meshes/base.stl"),
+                     Link("lid", "base", Joint("revolute", np.zeros(2), np.zeros(2), np.array([0.0, 1.0]), 0.001),
+                          (np.array([0.0, 0.1]), np.array([0.005, 0.1]), 0.0))]
+            (d / "model.urdf").write_text(emit.urdf("planar", links))
+            self.assertEqual(uc.parse_urdf(d / "model.urdf").mujoco_compiler, {"strippath": "false"})
+            model = mujoco.MjModel.from_xml_path(str(d / "model.urdf"))
+            self.assertEqual((model.nmesh, model.njnt), (1, 1))
+
     def test_doctor_loads_a_urdf_that_has_the_block(self):
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp) / "run"
