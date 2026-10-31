@@ -120,22 +120,26 @@ def measured_vs_estimated(s: dict) -> list[str]:
     path = (s.get("path") or {}).get("chosen")
     m = s.get("model") or {}
     src = m.get("measurement_source") or {}
+    fallback = (s.get("fallback") or {}).get("used")
+    what = "Geometry" if fallback or not m.get("joints") else "Geometry and joint motion"
     if kind == "stray":
-        out.append("Geometry and joint motion: measured from iPhone LiDAR depth and ARKit camera poses.")
+        out.append(f"{what}: measured from iPhone LiDAR depth and ARKit camera poses.")
     elif kind == "rgbd":
-        out.append("Geometry and joint motion: measured from the RGB-D capture's depth (fixed camera).")
+        out.append(f"{what}: measured from the RGB-D capture's depth (fixed camera).")
     elif path == "3d":
         scale = ((src.get("auto_scale") or {}).get("method") if isinstance(src, dict) else None)
         how = {"card": "set from an ID-1 card in view", "object_prior": "estimated from the object's usual size "
                "(Muse Spark): an estimate, not a measurement"}.get(scale, "MapAnything's own (can be several times off)")
-        out.append(f"Geometry and joint motion: from depth that MapAnything estimated from RGB video; metric scale "
-                   f"{how}. Sizes are estimates.")
+        out.append(f"{what}: from depth that MapAnything estimated from RGB video; metric scale {how}. "
+                   "Sizes are estimates.")
     elif path == "planar":
         metric = src.get("metric", "") if isinstance(src, dict) else ""
-        out.append("Joint motion: measured from the parts' 2D motion in a side view. Sizes in the motion plane: "
+        first = ("Geometry: the parts' silhouettes in a side view." if fallback else
+                 "Joint motion: measured from the parts' 2D motion in a side view.")
+        out.append(first + " Sizes in the motion plane: "
                    + ("scaled by an ID-1 card in view." if "card" in metric else "ASSUMED scale (no card measured): "
                       "rough.") + " Depth across the plane: assumed.")
-    if (s.get("fallback") or {}).get("used"):
+    if fallback:
         out.append("No joint was measured: the model is a rigid fallback of the whole object.")
     phys = m.get("physics")
     if phys:
