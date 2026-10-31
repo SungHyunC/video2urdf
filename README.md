@@ -475,6 +475,30 @@ cp .env.example .env                     # then fill in the keys you have
 .venv/bin/python scripts/smoke_test.py   # one cheap call per backend
 ```
 
+### Any capture, one command
+
+```bash
+.venv/bin/python scripts/video2urdf.py INPUT [--robot] [--open-weights]   # -> data/runs/<name>/
+.venv/bin/python scripts/video2urdf.py INPUT --check-only                   # what it would do, nothing billed but one look
+```
+
+`INPUT` can be a Stray Scanner zip or folder (iPhone LiDAR), any phone video (iPhone MOV with
+HEVC, HDR, rotation or variable frame rate; Android MP4; 60 or 120 fps), an RGB-D folder, a photo
+folder, or a zip of any of these; the type is read from the content. Plain video is turned
+upright, tone-mapped to SDR and brought to a steady 30 fps or less; depth captures keep their
+frames aligned with their depth. A quick capture check prints reshoot tips. A depth capture
+takes the 3D path; a plain video goes 3D through MapAnything when the camera moves or looks down
+at an angle, and the planar path when a still camera faces the motion (`--path` overrides).
+Then the agent, physics, textures, Spark's shape design, completing an unseen body, the robot
+tasks (`--robot`) and a viewer folder, with `summary.md` saying what was measured, what was
+estimated and the status. If no joint is found it still writes a rigid model, marked
+`needs_review`. Tried on the laptop, microwave and AirPods-case captures, a side-view MOV, the same
+MOV turned 90 deg and cut to 60 fps, and an RGB-only video: all seven produced a model (six passed
+the checks; the RGB-only laptop came out 321 x 195 mm against LiDAR's 306 x 210 and needs review).
+The simulated robot worked three of the seven (the door and the side-view lids still fail).
+
+The sections below run the steps one at a time.
+
 ### A 2D phone video
 
 Film on a tripod, camera facing the plane the part moves in, an ID-1 sized card in view,
