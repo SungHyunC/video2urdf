@@ -651,7 +651,7 @@ class Agent:
                          "joint axes are taken perpendicular to the image and depths are assumed; sizes are rough.")
         if self.scale_note.startswith("ASSUMED"):
             lines.append("WARNING: the scale is assumed (no card or known length was measured): lengths are rough.")
-        for link, iou in result.ious.items():
+        for link, iou in getattr(result, "ious", {}).items():
             mean = float(np.nanmean(iou)) if np.isfinite(iou).any() else float("nan")
             if np.isfinite(mean) and mean < PLANAR_IOU_MIN:
                 lines.append(f"WARNING: the replayed {link} overlaps its SAM mask by IoU {mean:.2f} on average: it "
