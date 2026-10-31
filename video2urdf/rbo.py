@@ -184,3 +184,36 @@ def truth(root: Path) -> dict:
     frames = {name: np.linalg.inv(cam) @ _interp_poses(t, times, poses)
               for name, (t, poses) in _tf_bodies(seq).items() if name != "AsusXtionCameraFrame"}
     return {"times": times, "joints": joints, "bodies": bodies, "frames": frames}
+
+
+def mocap_hinge(root: Path, n: int, ref: int) -> dict:
+    """The true hinge, in the reference RGB frame's camera coordinates: the plate's motion
+    relative to the base from the two motion-captured rigid bodies (tf frames; the base is the
+    one that moves least in the camera, since a hand may shove the whole object), fitted as a
+    hinge. Returns its axis and a point on it, the angle about it per frame (q, zero on the
+    reference), the fit residual (m), where the plate's frame sits on the reference frame, and
+    the dataset's own joint values (from a fitted model, zeroed on the reference)."""
+    from .lift3d import fit_joint_3d
+    gt = truth(root)
+    frames = sorted(gt["frames"].values(), key=lambda p: np.ptp(p[:n, :3, 3], axis=0).sum())
+    base_f, plate_f = frames[0][:n], frames[-1][:n]
+    rel = np.linalg.inv(base_f) @ plate_f  # plate in the base's frame
+    motion = rel @ np.linalg.inv(rel[ref])  # base-frame points of the plate: reference -> t
+    j = fit_joint_3d(np.tile(np.eye(4), (n, 1, 1)), motion, rel[ref][:3, 3])
+    to_cam = base_f[ref]  # base frame -> reference camera
+    joint, q_dataset = next(iter(gt["joints"].items()))
+    return {"axis": to_cam[:3, :3] @ j.axis, "point": to_cam[:3, :3] @ j.point + to_cam[:3, 3],
+            "q": j.q, "residual": j.residual, "plate_at_ref": plate_f[ref][:3, 3],
+            "joint": joint, "q_dataset": q_dataset[:n] - q_dataset[ref]}
+
+
+def hinge_errors(axis: np.ndarray, point: np.ndarray, gt: dict) -> tuple[float, float]:
+    """A hinge line (reference camera coordinates) against the mocap hinge from mocap_hinge():
+    the axis direction error (deg) and how far the line passes from the true one (m), taken at
+    the middle of the plate."""
+    axis = np.asarray(axis, float)
+    point = np.asarray(point, float)
+    err = float(np.rad2deg(np.arccos(min(1.0, abs(axis @ gt["axis"])))))
+    mid = point + ((gt["plate_at_ref"] - point) @ axis) * axis
+    d = mid - gt["point"]
+    return err, float(np.linalg.norm(d - (d @ gt["axis"]) * gt["axis"]))

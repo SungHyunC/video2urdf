@@ -1,8 +1,8 @@
 """URDF Doctor: check an existing URDF's hinge against one measured from video.
 
 The measured model (a Video2URDF run: model.xml and hinge.json) knows how the real object
-moves. The URDF under test was written some other way (by hand, from CAD, by a vendor) in its
-own frame. The doctor
+moves. The URDF under test was written some other way (by hand, from CAD, by a vendor, by an
+AI asked for one) in its own frame. The doctor
 
 1. registers the URDF's base to the measured base by geometry alone (principal axes, four
    proper orientations, then ICP from the measured points onto the URDF's surface), so the
@@ -15,7 +15,9 @@ own frame. The doctor
    agree. With a joint log (values a robot or sim recorded for the video's frames) it also
    finds a sign flip or an offset in the log.
 
-One revolute joint between a fixed base and one child, as fit_lidar measures.
+One revolute joint between a fixed base and one child, as fit_lidar measures. In the URDF
+under test the moving part is everything the joint carries and the base everything else, so
+either may be split over several links.
 """
 
 import json
@@ -59,10 +61,16 @@ def load(path: Path) -> mujoco.MjModel:
     return mujoco.MjModel.from_xml_path(str(path))
 
 
-def hinge(model: mujoco.MjModel) -> Joint:
-    hinges = [j for j in range(model.njnt) if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE]
+def hinge_names(model: mujoco.MjModel) -> list[str]:
+    return [mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, j) or f"joint{j}" for j in range(model.njnt)
+            if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE]
+
+
+def hinge(model: mujoco.MjModel, name: str | None = None) -> Joint:
+    hinges = [j for j in range(model.njnt) if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE
+              and (name is None or (mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, j) or f"joint{j}") == name)]
     if len(hinges) != 1:
-        raise ValueError(f"expected one revolute joint, found {len(hinges)}")
+        raise ValueError(f"expected one revolute joint{f' named {name}' if name else ''}, found {len(hinges)}")
     j = hinges[0]
     child = int(model.jnt_bodyid[j])
     return Joint(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, j) or f"joint{j}",
@@ -100,12 +108,30 @@ def _mesh_surface(model: mujoco.MjModel, m: int) -> np.ndarray:
     return np.vstack([v, pts])
 
 
+def subtree(model: mujoco.MjModel, body: int) -> list[int]:
+    """The body and every body below it."""
+    out = []
+    for b in range(model.nbody):
+        a = b
+        while a != body and a != 0:
+            a = int(model.body_parentid[a])
+        if a == body:
+            out.append(b)
+    return out
+
+
+def moving_and_fixed(model: mujoco.MjModel, joint: Joint) -> tuple[list[int], list[int]]:
+    """Bodies the joint carries, and all the others (the base, however many links it has)."""
+    moving = subtree(model, joint.child)
+    return moving, [b for b in range(model.nbody) if b not in moving]
+
+
 def body_points(model: mujoco.MjModel, data: mujoco.MjData, bodies: list[int]) -> np.ndarray:
-    """Surface points of the bodies' own geoms in world coordinates."""
+    """Surface points of the bodies' own geoms in world coordinates (ground planes skipped)."""
     keep = set(bodies)
     out = []
     for g in range(model.ngeom):
-        if model.geom_bodyid[g] not in keep:
+        if model.geom_bodyid[g] not in keep or model.geom_type[g] == mujoco.mjtGeom.mjGEOM_PLANE:
             continue
         t = model.geom_type[g]
         if t == mujoco.mjtGeom.mjGEOM_MESH:
@@ -119,7 +145,7 @@ def body_points(model: mujoco.MjModel, data: mujoco.MjData, bodies: list[int]) -
 
 
 def at(model, data, joint: Joint, q: float):
-    data.qpos[:] = 0
+    data.qpos[:] = model.qpos0  # other joints at their reference (a free joint's quaternion stays valid)
     data.qpos[model.jnt_qposadr[joint.jid]] = q
     mujoco.mj_kinematics(model, data)
 
@@ -170,11 +196,14 @@ class Diagnosis:
         return not self.findings
 
 
-def diagnose(urdf: Path, run: Path, joint_log: np.ndarray | None = None, openings_deg=None) -> Diagnosis:
-    """Check ``urdf`` against the measured run folder (model.xml, hinge.json)."""
+def diagnose(urdf: Path, run: Path, joint_log: np.ndarray | None = None, openings_deg=None,
+             joint: str | None = None) -> Diagnosis:
+    """Check ``urdf`` against the measured run folder (model.xml, hinge.json). ``joint`` names
+    the revolute joint to check when the URDF has more than one."""
     um, mm = load(urdf), mujoco.MjModel.from_xml_path(str(run / "model.xml"))
     ud, md = mujoco.MjData(um), mujoco.MjData(mm)
-    uj, mj = hinge(um), hinge(mm)
+    uj, mj = hinge(um, joint), hinge(mm)
+    u_moving, u_fixed = moving_and_fixed(um, uj)
     from .lidar import read_hinge
     h = read_hinge(run)  # axis and q in the model's sense (a door's model turns its axis up)
 
@@ -189,7 +218,7 @@ def diagnose(urdf: Path, run: Path, joint_log: np.ndarray | None = None, opening
     at(mm, md, mj, 0.0)
     meas_base = body_points(mm, md, [mj.parent])
     at(um, ud, uj, 0.0)
-    user_base = body_points(um, ud, [uj.parent])
+    user_base = body_points(um, ud, u_fixed)
     cands = register(user_base, meas_base)
 
     grid = np.deg2rad(np.arange(-180, 180, 2.0))
@@ -201,7 +230,7 @@ def diagnose(urdf: Path, run: Path, joint_log: np.ndarray | None = None, opening
 
         def cost(q):
             at(um, ud, uj, q)
-            return chamfer(body_points(um, ud, [uj.child]), tt)
+            return chamfer(body_points(um, ud, u_moving), tt)
 
         qs = grid if q0 is None else q0 + np.deg2rad(np.arange(-20, 21, 2.0))
         costs = [cost(q) for q in qs]
@@ -232,7 +261,7 @@ def diagnose(urdf: Path, run: Path, joint_log: np.ndarray | None = None, opening
         src.append(user_base[i]), dst.append(meas_base)
         for (q, _), mc in zip(fits, meas_children):
             at(um, ud, uj, q)
-            uc = body_points(um, ud, [uj.child])
+            uc = body_points(um, ud, u_moving)
             d, i = cKDTree(uc).query(mc @ inv[:3, :3].T + inv[:3, 3])
             src.append(uc[i]), dst.append(mc)
         src, dst = np.vstack(src), np.vstack(dst)
@@ -273,6 +302,10 @@ def diagnose(urdf: Path, run: Path, joint_log: np.ndarray | None = None, opening
         "shape_mismatch_mm": 1000 * shape_err, "q_fit_residual_deg": float(np.rad2deg(fit_res)),
         "samples": [{"opening_deg": float(np.rad2deg(o)), "urdf_q_deg": float(np.rad2deg(q)), "mismatch_mm": 1000 * c}
                     for o, q, (_, c) in zip(o_samples, q_user, fits)],
+        # Where the alignment put the URDF, in the measured model's world (for scoring it against
+        # other references, such as motion capture).
+        "registration": t_reg.tolist(), "urdf_axis_in_measured": ua.tolist(),
+        "urdf_anchor_in_measured": up.tolist(), "measured_axis": ma.tolist(), "measured_anchor": mp.tolist(),
     }
     if axis_err > AXIS_TOL_DEG:
         d.findings.append(f"axis direction is {axis_err:.1f} deg off the measured hinge")

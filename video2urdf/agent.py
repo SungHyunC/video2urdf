@@ -33,7 +33,9 @@ MAX_VIDEOS = 2  # videos kept in the conversation; older ones become a note
 VIDEO = os.environ.get("AGENT_VIDEO", "1") != "0"  # send Spark whole videos (Muse Spark 1.3 and Spark Open take mp4)
 VIDEO_WIDTH, VIDEO_FPS = 480, 10  # videos shown to Spark are downscaled; timestamps are kept
 MAX_STEPS = 22  # model turns; the last one must call finish
-CHAIN_COVER_MIN = 0.25  # a rod-chain link whose replay covers less of its mask gets a warning
+CHAIN_COVER_MIN = 0.25
+LEVEL_AGREE_MIN = 0.3  # fit_chain levels the poses on the floor only if this share of its frames agree
+PLANAR_IOU_MIN = 0.2  # a planar fit's link whose replay overlaps its mask less than this gets a warning  # a rod-chain link whose replay covers less of its mask gets a warning
 WHO = "Spark" if "spark" in MODEL.lower() else MODEL  # log headings
 ASSUMED_VIEW_M = 0.6  # frame's long side in metres when no card sets the scale
 VIEW_WIDTH = 540  # px; frames shown to Spark
@@ -178,9 +180,13 @@ TOOLS = [
          "required": ["base", "drawers"]}},
     {"name": "fit_chain", "description": "RGB-D captures: thin rods on hinges in a chain (a desk lamp's pole and "
      "arm, a folding arm), fitted in 3D. Each rod becomes a 3D line per frame from its raw depth; each hinge's axis, "
-     "pivot and angle follow from how the rod turns relative to its parent. Writes the model and replays it.",
+     "pivot and angle follow from how the rod turns relative to its parent. Writes the model and replays it. "
+     "If the base has too few depth points on every frame (mostly out of view, or too thin), the chain is anchored "
+     "to the floor and the static scene instead: the hinges are still measured, the base is left out of the model.",
      "parameters": {"type": "object", "properties": {
-         "base": {"type": "string", "description": "tracked part that stays put (the lamp's base)"},
+         "base": {"type": "string", "description": "tracked part that stays put (the lamp's base); or the floor "
+                                                   "itself (same as floor) to anchor the chain to the floor when the "
+                                                   "base can't be measured"},
          "chain": {"type": "array", "items": {"type": "string"},
                    "description": "tracked rods in order from the base outward (e.g. [pole, arm])"},
          "floor": {"type": "string", "description": "tracked surface the base stands on (optional)"},
@@ -229,7 +235,9 @@ upright_hint="drawer_handles" to test a visual upright direction; inspect the re
 the handles and floor can be misidentified. Do not use it for moving objects or other silhouettes.
 For a chain of thin rods on hinges (a desk lamp's base, pole and arm), track the base, each
 rod as its own part and the surface it stands on, then call fit_chain with the rods in order
-from the base outward: it fits every hinge in 3D from the rods' depth. For another
+from the base outward: it fits every hinge in 3D from the rods' depth. A base mostly out of
+view or too thin for depth can't be placed: fit_chain then anchors the chain to the floor and
+the static scene (or pass the floor as base): keep a fixed pole in the chain. For another
 articulated object with two or more moving joints seen approximately from the side, track
 each rigid part and use fit with an explicit parent for each moving part; this is a planar
 visual approximation whose cross-view depth and metric scale are assumed.
@@ -293,6 +301,21 @@ def cap_images(messages: list[dict]) -> None:
                 seen[kind] += 1
                 if seen[kind] > cap[kind]:
                     m["content"][i] = {"type": "text", "text": f"(older {kind.split('_')[0]} dropped)"}
+
+
+def level_unless_disagreeing(c, floor: str) -> str:
+    """Level the capture's poses on the floor (Capture.level_with), unless fewer than
+    LEVEL_AGREE_MIN of its floor frames agree with the plane it levels to: that plane (from the
+    floor frame nearest the reference) is then another surface or a bad fit, and the few agreeing
+    frames' corrections, held over the whole video, would move every pose by centimetres (the
+    phone stand: 53 of 1567, up to 39 mm). Returns the line for the tool's output."""
+    unlevelled = c.world.copy()
+    fix = c.level_with(floor)
+    if fix.get("floor_frames") and fix["frames_used"] < LEVEL_AGREE_MIN * fix["floor_frames"]:
+        c.world = unlevelled
+        return (f"floor levelling not applied: only {fix['frames_used']} of the {fix['floor_frames']} floor frames agree "
+                "with the floor's plane near the reference frame, so ARKit's poses are used as they are")
+    return levelling_line(fix)
 
 
 def capture_depth_note(capture: Path | None) -> str:
@@ -410,6 +433,9 @@ class Agent:
         parts = json.loads(parts) if isinstance(parts, str) else parts  # models sometimes send JSON strings
         released = json.loads(released) if isinstance(released, str) else released
         released = [released] if isinstance(released, dict) else released
+        # "no spans" also comes as "{}" or [{}] (a jointless model): keep only complete spans
+        released = [r for r in released or [] if isinstance(r, dict) and r.get("joint")
+                    and r.get("start_s") is not None and r.get("end_s") is not None]
         aliases = {}
         static = self.track_dir / "static.json"
         if static.exists():
@@ -441,9 +467,12 @@ class Agent:
             windows.setdefault(name, []).append((int(r["start_s"] * self.fps), int(r["end_s"] * self.fps)))
         lines = mapped
         report = physics.apply(self.track_dir, props, windows, self.fps, log=lines.append)
+        chain_spec = self.track_dir / "chain.json"
+        spec = json.loads(chain_spec.read_text()) if chain_spec.exists() else {}
+        anchor_root = spec.get("root") if spec.get("anchored") else None  # the floor disc, welded to the world
         for link, r in report["links"].items():
             rho = r["implied_density_kg_m3"]
-            if rho and not 150 <= rho <= 3000:  # beyond wood foam .. aluminium-and-glass
+            if rho and not 150 <= rho <= 3000 and link != anchor_root:  # beyond wood foam .. aluminium-and-glass
                 lines.append(f"WARNING: {link}'s estimated mass over its fitted volume implies {rho} kg/m^3. "
                              "Check the mass and fitted volume; a hollow object can also have a low average density. "
                              "Do not treat the estimate as a measured material density.")
@@ -626,6 +655,7 @@ class Agent:
             return "track parts first"
         # A failed replacement fit must not leave an earlier fit marked current.
         self.last_fit = None
+        self.open_warnings = []
         if self.capture is not None and len(parents or {}) < 2:
             return ("This is a depth capture: use fit_lidar for a single hinged plate, fit_drawers for drawers, "
                     "or fit_static for a stationary object. Planar fit is only for a side-view chain with "
@@ -643,9 +673,21 @@ class Agent:
                      widths={slug(k): float(v) for k, v in (widths or {}).items()},
                      thickness={slug(k): float(v) for k, v in (thickness or {}).items()}, log=lambda s: None)
         self.last_fit = result
+        lines = []
+        if self.capture is not None:
+            lines.append("WARNING: planar approximation on a depth capture: no 3D fit tool built this model, so the "
+                         "joint axes are taken perpendicular to the image and depths are assumed; sizes are rough.")
+        if self.scale_note.startswith("ASSUMED"):
+            lines.append("WARNING: the scale is assumed (no card or known length was measured): lengths are rough.")
+        for link, iou in getattr(result, "ious", {}).items():
+            mean = float(np.nanmean(iou)) if np.isfinite(iou).any() else float("nan")
+            if np.isfinite(mean) and mean < PLANAR_IOU_MIN:
+                lines.append(f"WARNING: the replayed {link} overlaps its SAM mask by IoU {mean:.2f} on average: it "
+                             "doesn't follow its part. Watch the replay; re-track it or choose other parents/parts.")
+        self.open_warnings = [line for line in lines if line.startswith("WARNING:")]
         sheet = self.replay_sheet(result)
         self.show(sheet, "fit: worst replay frames", width=sheet.shape[1])
-        return (result.summary() + f"\nScale: {self.scale_note}.\n"
+        return (result.summary() + f"\nScale: {self.scale_note}.\n" + "".join(line + "\n" for line in lines) +
                 "The image shows the replay (colored model over the video) at the worst-IoU frames.")
 
     def replay_sheet(self, result: Fit) -> np.ndarray:
@@ -785,14 +827,15 @@ class Agent:
         if missing or not chain or len(set([base, *chain])) < len(chain) + 1:
             return f"base and rods must be distinct tracked parts; not tracked: {missing}; tracked parts are {c.names}"
         from .chain3d import chain_reference, fit_chain
-        ref = chain_reference(c, base, chain)
+        anchored = base == floor  # the chain stands on the floor itself: no base needed in view
+        ref = chain_reference(c, None if anchored else base, chain)
         if ref is None:
-            return "no frame shows the base and every rod together; re-track the missing part"
+            return (f"no frame shows {'every rod' if anchored else 'the base and every rod'} together; re-track the "
+                    "missing part" + ("" if anchored else ", or pass the floor as base to anchor the chain to it"))
         c.set_ref(ref)
         lines = []
         if c.moving_camera and floor:
-            fix = c.level_with(floor)
-            lines.append(levelling_line(fix))
+            lines.append(level_unless_disagreeing(c, floor))
         try:
             fixed = json.loads(fixed) if isinstance(fixed, str) else (fixed or [])
             summary = fit_chain(c, base, chain, floor, log=lines.append, fixed=tuple(slug(p) for p in fixed))
