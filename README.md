@@ -3,8 +3,10 @@
 **One short video of a real articulated object in, a measured URDF/MJCF out, and a MuJoCo
 replay over the video that shows the model moves like the real thing.**
 
+![An iPhone LiDAR video of a laptop being closed, next to the measured model replayed over the same frames; then a simulated Franka Panda closing the measured laptop](docs/media/hero.gif)
+
 Robotics developers who need a simulation model of a real object (a laptop lid, a desk lamp,
-a drawer, a box flap) usually model it by hand: guess the hinge, guess the limits, tweak until
+a drawer, a microwave door) usually model it by hand: guess the hinge, guess the limits, tweak until
 it looks right. Video2URDF measures it instead. Film the object being opened and closed; a
 Muse Spark agent finds the parts with SAM 3.1, tracks them, fits each joint by least squares,
 writes URDF and MJCF, replays the model in MuJoCo from the camera's own viewpoint and checks
@@ -16,6 +18,16 @@ repository was written during the hackathon; see [Built on](#built-on) for what 
 **Demo video (2:51):** [docs/demo.mp4](docs/demo.mp4) · https://sunghyunc.github.io/video2urdf/demo.mp4  
 **Live viewer:** https://sunghyunc.github.io/video2urdf/ (the phone video, the MuJoCo replay over it,
 the robot demo, and the measured model in 3D with its URDF/MJCF).
+
+**Where to look**
+- **The 3-minute demo** (link above): the pipeline on real objects, start to finish.
+- **The viewer**: pick an object, then *Model over video* and *Robot uses it*; under the 3D view, the
+  URDF/MJCF downloads and *How the Meta models built this model, turn by turn* (every turn and image).
+- **The agent correcting itself**: [the side-view laptop's turn log](https://sunghyunc.github.io/video2urdf/#notebook)
+  (base lost on 89 of 408 frames: re-segmented, re-tracked, refit) and [the finish gate](#the-agent-cant-finish-over-its-own-warnings).
+- **Results**: [at a glance](#at-a-glance) · [RBO motion-capture benchmark](#benchmark-rbo-dataset-real-rgb-d-with-motion-capture) · [five fresh runs per object](#five-fresh-runs-per-object-and-three-objects-it-had-never-seen)
+- **Open weights only**: [the exact commands](#open-weights-only-for-the-open-weight-prize-check) and [what they gave](#open-weights-only).
+- **URDF Doctor**: [checking an existing URDF against a video](#urdf-doctor-checking-an-existing-urdf-against-the-video).
 
 ## At a glance
 
@@ -56,11 +68,11 @@ Spark Open and SAM weights, `--glimmer` on Muse Glimmer 30B served by us.
 | Office drawer, iPhone LiDAR | pulls out 248 mm | hand fit 253 |
 | LED desk lamp, iPhone LiDAR, 2 rods | Spark judged the pole's motion depth noise; refit with it fixed (our step): arm 380 mm, 2..89 deg | video |
 | Shape design, three Meta models per round | lamp: best of three 0.62 / 0.63 per round, Muse Spark alone 0.60 / 0.62 (mask F-score) | measured meshes 0.69 |
-| Robot tasks on the measured models | 6 of 6: lids closed and reopened, drawer out 199 mm and back (cabinet collision on), lamp arms swung, mouse carried and turned | joint values reached in physics |
+| Robot tasks on the measured models | 7 of the viewer's 8: lids closed and reopened, drawer out 199 mm and back (cabinet collision on), lamp arms swung, mouse and AirPods case carried and turned; none for the microwave door yet (the lid task misses it) | joint values reached in physics |
 | A drawer-opening policy learned on the measured drawer (PPO, trained on Modal) | 99/100 held-out placements; 19/20 unseen starts on the full Panda arm; 98% of the travel made pinching the handle | random actions 0/100 |
 | The unseen back of a microwave in a shelf | front measured (477 x 269 mm), depth bounded by the video (334-387 mm), the rest from Muse Spark (a Samsung 23 L): 477 x 365 x 269 mm with its cavity | measured front, video bound |
 | SAM tracking, 1385 frames, 4 parts | 520 s -> 285 s, masks IoU 0.97-0.995 | previous pipeline |
-| Scale for plain video | card x0.75 (8 frames agree); object's usual size x1.01 | expected 1.0 |
+| Scale for plain video (MapAnything depth) | an ID-1 card: x0.75 on the side-view laptop, steady over 8 frames; the object's usual size: x1.01 on the laptop's RGB, already at LiDAR scale | 1.0 expected on the latter |
 
 ## Reproduce it
 
@@ -89,8 +101,9 @@ checks' status), `agent/log.md` (every turn and image the model saw).
 What to expect: the open-weights command, run from a fresh clone on 10/31 (Muse Spark Open on
 Baseten, SAM weights on Modal, shape design included), gave a lid of 306 x 213 mm (spec
 304 x 212), base 10 mm, the replay covering 96% / 93% of the lid's and base's masks, and status
-`needs_review`: on every laptop run the screen track slides onto the lid's back as it shuts,
-which the fit flags. Runs vary; three Meta API runs gave lids of 304 to 316 mm.
+`needs_review`: the screen track slid onto the lid's back as it shut, which that version of the
+checks flagged; that case has been an informational line since, so a run today can also end
+`checks_passed`. Runs vary; three Meta API runs gave lids of 304 to 316 mm.
 
 ## What it does
 
@@ -456,7 +469,8 @@ uv sync --extra rl
   and capped by depth: 121 x 75 x 55 mm (MX Master 3S: 125 x 84 x 51).
 - **The robot uses the model**: a Franka Panda in MuJoCo physics closes and reopens the laptop
   lid (87 deg), pulls the drawer out by its handle with the cabinet's measured collision on
-  (199 mm) and pushes it back, swings the lamp's arm (40 deg), and carries and turns the mouse.
+  (199 mm) and pushes it back, swings the lamp's arm (40 deg), and carries and turns the mouse
+  and the AirPods case. The microwave's door has no robot task yet: the lid task misses it.
 - **Speed and scale**: SAM tracking of 1385 frames went from 520 s to 285 s (both passes at
   once, strided on fast video); plain videos get a metric scale from an ID-1 card or from the
   object's usual size.
