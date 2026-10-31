@@ -410,6 +410,9 @@ class Agent:
         parts = json.loads(parts) if isinstance(parts, str) else parts  # models sometimes send JSON strings
         released = json.loads(released) if isinstance(released, str) else released
         released = [released] if isinstance(released, dict) else released
+        # "no spans" also comes as "{}" or [{}] (a jointless model): keep only complete spans
+        released = [r for r in released or [] if isinstance(r, dict) and r.get("joint")
+                    and r.get("start_s") is not None and r.get("end_s") is not None]
         aliases = {}
         static = self.track_dir / "static.json"
         if static.exists():

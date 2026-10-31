@@ -35,4 +35,20 @@ class PhysicsNamesTest(unittest.TestCase):
             parts.append(dict(parts[1], link='drawer1'))
             self.assertIn('Multiple physics inputs', a.tool_set_physics(parts, []))
 
+    def test_no_released_spans_in_any_spelling(self):
+        # Spark sent "released": "{}" for a jointless AirPods case; the tool raised KeyError 'joint'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'model.xml').write_text('<mujoco/>')
+            a = object.__new__(Agent)
+            a.track_dir, a.last_fit, a.fps = root, {'valid': True}, 30
+            parts = [{'link': 'base', 'material': 'plastic', 'mass_kg': .08, 'friction': .4}]
+            for released in ("{}", "[]", {}, [{}], [{"joint": "lid", "start_s": 1.0}], None):
+                with patch('video2urdf.agent.physics.apply', return_value={'links': {}}) as apply:
+                    a.tool_set_physics(parts, released)
+                self.assertEqual(apply.call_args.args[2], {}, released)
+            with patch('video2urdf.agent.physics.apply', return_value={'links': {}}) as apply:
+                a.tool_set_physics(parts, [{"joint": "lid", "start_s": 1.0, "end_s": 2.0}])
+            self.assertEqual(apply.call_args.args[2], {"lid_joint": [(30, 60)]})
+
 if __name__ == '__main__': unittest.main()
