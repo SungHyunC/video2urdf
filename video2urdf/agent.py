@@ -33,7 +33,8 @@ MAX_VIDEOS = 2  # videos kept in the conversation; older ones become a note
 VIDEO = os.environ.get("AGENT_VIDEO", "1") != "0"  # send Spark whole videos (Muse Spark 1.3 and Spark Open take mp4)
 VIDEO_WIDTH, VIDEO_FPS = 480, 10  # videos shown to Spark are downscaled; timestamps are kept
 MAX_STEPS = 22  # model turns; the last one must call finish
-CHAIN_COVER_MIN = 0.25  # a rod-chain link whose replay covers less of its mask gets a warning
+CHAIN_COVER_MIN = 0.25
+PLANAR_IOU_MIN = 0.2  # a planar fit's link whose replay overlaps its mask less than this gets a warning  # a rod-chain link whose replay covers less of its mask gets a warning
 WHO = "Spark" if "spark" in MODEL.lower() else MODEL  # log headings
 ASSUMED_VIEW_M = 0.6  # frame's long side in metres when no card sets the scale
 VIEW_WIDTH = 540  # px; frames shown to Spark
@@ -626,6 +627,7 @@ class Agent:
             return "track parts first"
         # A failed replacement fit must not leave an earlier fit marked current.
         self.last_fit = None
+        self.open_warnings = []
         if self.capture is not None and len(parents or {}) < 2:
             return ("This is a depth capture: use fit_lidar for a single hinged plate, fit_drawers for drawers, "
                     "or fit_static for a stationary object. Planar fit is only for a side-view chain with "
@@ -643,9 +645,21 @@ class Agent:
                      widths={slug(k): float(v) for k, v in (widths or {}).items()},
                      thickness={slug(k): float(v) for k, v in (thickness or {}).items()}, log=lambda s: None)
         self.last_fit = result
+        lines = []
+        if self.capture is not None:
+            lines.append("WARNING: planar approximation on a depth capture: no 3D fit tool built this model, so the "
+                         "joint axes are taken perpendicular to the image and depths are assumed; sizes are rough.")
+        if self.scale_note.startswith("ASSUMED"):
+            lines.append("WARNING: the scale is assumed (no card or known length was measured): lengths are rough.")
+        for link, iou in result.ious.items():
+            mean = float(np.nanmean(iou)) if np.isfinite(iou).any() else float("nan")
+            if np.isfinite(mean) and mean < PLANAR_IOU_MIN:
+                lines.append(f"WARNING: the replayed {link} overlaps its SAM mask by IoU {mean:.2f} on average: it "
+                             "doesn't follow its part. Watch the replay; re-track it or choose other parents/parts.")
+        self.open_warnings = [line for line in lines if line.startswith("WARNING:")]
         sheet = self.replay_sheet(result)
         self.show(sheet, "fit: worst replay frames", width=sheet.shape[1])
-        return (result.summary() + f"\nScale: {self.scale_note}.\n"
+        return (result.summary() + f"\nScale: {self.scale_note}.\n" + "".join(line + "\n" for line in lines) +
                 "The image shows the replay (colored model over the video) at the worst-IoU frames.")
 
     def replay_sheet(self, result: Fit) -> np.ndarray:
