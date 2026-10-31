@@ -295,7 +295,7 @@ class Capture:
             fix[:3, 3] = height[t] * n0
             self.world[t] = self.world[t] @ np.linalg.inv(fix)
         tilt = np.rad2deg(np.linalg.norm(rotvec, axis=1))
-        return {"frames_used": int(ok.sum()), "tilt_deg_max": float(tilt.max()),
+        return {"frames_used": int(ok.sum()), "floor_frames": len(seen), "tilt_deg_max": float(tilt.max()),
                 "shift_mm_max": float(1000 * np.abs(height).max()),
                 "shift_mm_median": float(1000 * np.median(np.abs(height)))}
 

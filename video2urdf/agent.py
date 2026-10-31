@@ -283,7 +283,12 @@ def levelling_line(fix: dict) -> str:
     if fix.get("no_floor_depth"):
         return ("floor levelling skipped: the floor track has no depth near the reference frame (its mask may be "
                 "on a dark, shiny or distant surface), so the camera poses are ARKit's, unlevelled")
-    return f"floor levelling adjusted the estimated camera pose by up to {fix['shift_mm_max']:.0f} mm"
+    line = f"floor levelling adjusted the estimated camera pose by up to {fix['shift_mm_max']:.0f} mm"
+    seen = fix.get("floor_frames", 0)
+    if seen and fix["frames_used"] < 0.3 * seen:
+        line += (f", from only {fix['frames_used']} of the {seen} floor frames (the others' planes disagree with the "
+                 "reference frame's: the floor track may cover other surfaces), so the poses are close to ARKit's")
+    return line
 
 
 def cap_images(messages: list[dict]) -> None:
