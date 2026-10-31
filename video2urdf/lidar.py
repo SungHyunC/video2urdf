@@ -26,7 +26,8 @@ from scipy.ndimage import median_filter
 from scipy.spatial.transform import Rotation
 
 from . import emit3d, stray
-from .lift3d import clean_angles, fit_plane, fit_planar_hinge, fit_slide, mask_cloud, part_poses_3d
+from .lift3d import (clean_angles, drop_overclosed, fit_plane, fit_planar_hinge, fit_slide, is_door, mask_cloud,
+                     part_poses_3d)
 from .motion import load_gray
 from .pipeline import load_parts, read_frame, video_info
 from .sam import Detection
@@ -42,30 +43,45 @@ MAX_LEVEL_TILT_DEG = 4.0  # a floor fit tilted more than this from the reference
 LEVEL_WINDOW = 31  # frames; ARKit drift is slow
 
 
+class ReferenceAngleError(ValueError):
+    """The reference frame's plate angle is missing; ``valid`` holds the frames whose angle the same
+    fit measured and kept, so a retry can start from one of them."""
+
+    def __init__(self, message: str, valid=()):
+        super().__init__(message)
+        self.valid = list(valid)
+
+
 def require_reference_angle(centroids, angles, ref: int) -> None:
     if ref not in centroids or ref >= len(angles) or not np.isfinite(angles[ref]):
-        raise ValueError(f"The plate's angle on reference frame {ref} was unavailable or rejected as an outlier. "
-                         "A nearby mask may have switched to a different surface; inspect the plate track "
-                         "around the reference, re-anchor it on open frames and fit again.")
+        valid = [t for t in centroids if t < len(angles) and np.isfinite(angles[t])]
+        raise ReferenceAngleError(
+            f"The plate's angle on reference frame {ref} was unavailable or rejected as an outlier. "
+            "A nearby mask may have switched to a different surface; inspect the plate track "
+            "around the reference, re-anchor it on open frames and fit again.", valid)
 
 
 def fit_hinge_with_reference_retries(c, roles, log=print, max_retries: int = 2, prepare_reference=None):
     """Try a few well-observed open references if the chosen reference angle is unusable.
 
     Re-basing updates all camera transforms together. Failed angles are never replaced
-    with a neighbour's value; each candidate runs the complete hinge fit again.
+    with a neighbour's value; each candidate runs the complete hinge fit again. The next
+    candidate is the open frame with the largest plate mask among those whose angle the failed
+    fit did measure (a glossy plate's plane fit fails on many frames, often on the largest
+    view); without that, frames near 20% and 80% of the video.
     """
     tracks = c.by.get(roles.plate, {})
     usable = [t for t in tracks if c.has(roles.base, t) and c.has(roles.plate, t)
               and (not roles.open_indicator or c.has(roles.open_indicator, t))]
     original = c.ref
-    candidates = []
+    spread = []
     for target in (.2 * (c.n - 1), .8 * (c.n - 1)):
-        choices = [t for t in usable if t != original and t not in candidates]
+        choices = [t for t in usable if t != original and t not in spread]
         if choices:
-            candidates.append(min(choices, key=lambda t: abs(t - target)))
-    attempts = [original] + candidates[:max(0, max_retries)]
-    for index, frame in enumerate(attempts):
+            spread.append(min(choices, key=lambda t: abs(t - target)))
+    attempts = [original]
+    for index in range(max(0, max_retries) + 1):
+        frame = attempts[-1]
         if index:
             if prepare_reference is None:
                 c.set_ref(frame)
@@ -74,11 +90,20 @@ def fit_hinge_with_reference_retries(c, roles, log=print, max_retries: int = 2, 
             log(f"Retrying hinge fit at open reference frame {frame} after a rejected reference.")
         try:
             result = fit_hinge(c, roles, log=log)
-            return result, attempts[:index + 1]
+            return result, attempts
         except ValueError as error:
-            if "angle on reference frame" not in str(error) or index == len(attempts) - 1:
+            if "angle on reference frame" not in str(error) or index == max(0, max_retries):
                 raise
             log(f"WARNING: {error}")
+            measured = set(getattr(error, "valid", ())) & set(usable)
+            measured -= set(attempts)
+            if measured:
+                attempts.append(max(measured, key=lambda t: tracks[t].area))
+            else:
+                rest = [t for t in spread if t not in attempts]
+                if not rest:
+                    raise
+                attempts.append(rest[0])
     raise AssertionError("at least one reference attempt is required")
 
 
@@ -384,6 +409,25 @@ def base_top(base: np.ndarray, floor: np.ndarray | None) -> tuple[np.ndarray, fl
     return best
 
 
+DOOR_CHECK_FRAMES = 60  # plate frames sampled to tell a door before the hinge fit
+
+
+def looks_like_door(c: Capture, roles: Roles, base_normal: np.ndarray) -> bool:
+    """A door on a vertical hinge, told from the plate track's own planes on frames spread over
+    the video (lift3d.is_door), before the closed-part fallback, which is built for a lid that
+    shuts onto the base's top. Uses its own random draws: the hinge fit's stay as they were."""
+    frames = sorted(c.by.get(roles.plate, {}))
+    rng = np.random.default_rng(1)
+    normals = []
+    for t in frames[:: max(1, len(frames) // DOOR_CHECK_FRAMES)]:
+        cloud = c.cloud(roles.plate, t)
+        if len(cloud) >= 50:
+            n, _, frac = fit_plane(cloud, rng)
+            if frac >= 0.6:
+                normals.append(n)
+    return len(normals) >= 5 and is_door(np.array(normals), base_normal)
+
+
 def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
     """Fit the plate's hinge; writes hinge.json and hinge.jpg. Returns a summary dict."""
     if not c.has(roles.plate, c.ref):
@@ -396,6 +440,8 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
     nb, db = base_top(base, c.cloud(roles.floor, c.ref) if c.has(roles.floor, c.ref) else None)
     if nb @ (-base.mean(axis=0)) < 0:  # point the base's normal up, toward the camera
         nb, db = -nb, -db
+    up = floor_up(c, roles)  # the base's top may be out of view (a door's base is a side part)
+    door = looks_like_door(c, roles, nb if up is None else up)
     plate, used_closed, used_open = {}, 0, 0
     raised = []  # frames measured from plate_closed's points off the base: its track holds the raised plate
     for t in range(c.n):
@@ -407,12 +453,16 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
                 # discarded, its base mask is not evidence of the lid's back.
                 # Leave a gap instead of turning the fixed base into a plate.
                 continue
+            whole = c.cloud(roles.plate_closed, t)
+            if door:  # a door shuts beside its base, not onto its top: the closed part is its face
+                plate[t] = whole
+                used_closed += 1
+                continue
             # The plate's face isn't tracked: half open with the face turned away, or closed.
             # Decide by geometry, not by whether the open-indicator is seen (a lid half way
             # down already hides the keyboard from a camera in front): points well above the
             # base's top plane are the plate (below it are the base's own sides); if there are
             # hardly any, the object is closed and its top face is the plate's back.
-            whole = c.cloud(roles.plate_closed, t)
             off = whole[whole @ nb - db > OFF_BASE_M]
             if len(off) > max(200, 0.2 * len(whole)):
                 plate[t] = off
@@ -422,9 +472,14 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
                 top = whole[whole @ nb - db > -OFF_BASE_M]
                 plate[t] = top if len(top) >= 50 else whole
                 used_closed += 1
-    hinge = fit_planar_hinge(plate, c.n, c.ref, pin=base.mean(axis=0), base_normal=nb)
+    # Frames known shut (no open indicator) place a door's hinge on its closed face.
+    shut = {t for t in plate if not c.has(roles.open_indicator, t)} if roles.open_indicator else None
+    hinge = fit_planar_hinge(plate, c.n, c.ref, pin=base.mean(axis=0), base_normal=nb, closed_frames=shut,
+                             door=True if door else None)
     raw = int((~np.isnan(hinge.q)).sum())
     hinge.q = clean_angles(hinge.q)
+    if hinge.placed_by != "planes" and shut:  # a door: nothing swings through its cabinet
+        hinge.q = drop_overclosed(hinge.q, shut)
     require_reference_angle(hinge.centroids, hinge.q, c.ref)
     valid = ~np.isnan(hinge.q)
 
@@ -457,6 +512,12 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
         f"base plane; opening {opening:.0f} deg on the reference frame, "
         f"{summary['opening_range_deg'][0]:.0f}..{summary['opening_range_deg'][1]:.0f} deg over the video; "
         f"plate spans {summary['plate_span_along_hinge_mm']:.0f} mm along the hinge")
+    if hinge.placed_by != "planes":
+        summary["hinge_placed_by"] = hinge.placed_by
+        log(f"door: hinge placed by its {hinge.placed_by}" + (
+            " (on the shut door's plane, where the open frames' door points stay equidistant)"
+            if hinge.placed_by == "door closed face" else
+            " (a circle through the door's centroids: no shut frames to place it on the closed face)"))
     from .track_checks import reference_opening_warning
     warning = reference_opening_warning(opening, roles.open_indicator)
     if warning:

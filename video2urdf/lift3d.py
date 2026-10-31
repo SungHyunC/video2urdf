@@ -333,10 +333,65 @@ class PlanarHinge:
     q: np.ndarray  # rotation of the plate about the axis per frame (rad), 0 on the reference frame
     residual: float  # m, RMS distance of the axis from the fitted planes
     centroids: dict  # frame -> plate centroid
+    placed_by: str = "planes"  # how the axis was placed: planes, door circle, door closed face
+
+
+def is_door(normals: np.ndarray, base_normal: np.ndarray | None) -> bool:
+    """Plates turning about an axis along the base's normal (a microwave's or cupboard's door on a
+    vertical hinge beside its top): the direction most perpendicular to every plate normal is
+    then that normal, and it is sharp (the normals spread around it)."""
+    if base_normal is None or len(normals) < 3:
+        return False
+    w, vecs = np.linalg.eigh(normals.T @ normals)
+    return abs(vecs[:, 0] @ base_normal) > np.cos(np.deg2rad(30)) and w[0] < 0.1 * w[1]
+
+
+DOOR_EDGE_SEARCH_M = 0.15  # how far past the closed door's ends its hinge is looked for
+
+
+def door_hinge_on_closed_face(clouds: dict, planes: dict, centroids: dict, axis: np.ndarray,
+                              closed_frames, min_frames: int = 5):
+    """Where a door's hinge stands, from its closed face and its open frames.
+
+    A glossy or dark door gives depth mostly on its handle and edge while it is open: a narrow
+    vertical strip whose plane can turn freely about it, so neither the planes' crossing nor a
+    circle through every centroid (closed ones sit mid-door, open ones at the handle) holds.
+    The closed face is well seen, though, and the hinge lies in its plane, at one of its edges;
+    every open frame's centroid stays at one distance from it. So: the closed face's plane
+    (median over the closed frames, made parallel to the axis), then along that face the
+    position from which the open frames' centroids are most nearly equidistant. Returns
+    (point perpendicular to the axis, spread of those distances in m) or None when there are too
+    few closed or open frames."""
+    closed = [t for t in planes if t in closed_frames]
+    opened = [t for t in planes if t not in closed_frames]
+    if len(closed) < min_frames or len(opened) < min_frames:
+        return None
+    first = planes[closed[0]][0]
+    normals = np.array([planes[t][0] if planes[t][0] @ first >= 0 else -planes[t][0] for t in closed])
+    n0 = np.median(normals, axis=0)
+    n0 -= (n0 @ axis) * axis
+    if np.linalg.norm(n0) < 0.5:
+        return None
+    n0 /= np.linalg.norm(n0)
+    e = np.cross(axis, n0)
+    face = np.vstack([clouds[t] for t in closed[:: max(1, len(closed) // 20)]])
+    offset = float(np.median(face @ n0))
+    lo, hi = np.percentile(face @ e, [1, 99])
+    flat = np.array([centroids[t] for t in opened])
+    flat -= np.outer(flat @ axis, axis)
+    best = None
+    for s in np.linspace(lo - DOOR_EDGE_SEARCH_M, hi + DOOR_EDGE_SEARCH_M, 241):
+        h = offset * n0 + s * e
+        radius = np.linalg.norm(flat - h, axis=1)
+        spread = float(np.median(np.abs(radius - np.median(radius))))
+        if best is None or spread < best[0]:
+            best = (spread, h)
+    return best[1], best[0]
 
 
 def fit_planar_hinge(clouds: dict[int, np.ndarray], n_frames: int, ref: int, pin: np.ndarray,
-                     min_inliers: float = 0.6, base_normal: np.ndarray | None = None) -> PlanarHinge:
+                     min_inliers: float = 0.6, base_normal: np.ndarray | None = None,
+                     closed_frames=None, door: bool | None = None) -> PlanarHinge:
     """Hinge of a flat plate (a laptop lid) from depth alone, no texture needed.
 
     Fit the plate's plane in every frame (``clouds``, in the reference frame). A plate
@@ -345,7 +400,9 @@ def fit_planar_hinge(clouds: dict[int, np.ndarray], n_frames: int, ref: int, pin
     (screen, then the lid's back), so nothing here depends on it: the axis direction is the
     one most perpendicular to all normals, its position the line closest to all planes, and
     the angle is how far the direction from the axis to the plate's centroid has turned.
-    ``pin`` fixes the free position along the axis.
+    ``pin`` fixes the free position along the axis. ``closed_frames`` (frames known to be shut)
+    place a door's hinge on its closed face (door_hinge_on_closed_face). ``door`` overrides the
+    door test against ``base_normal`` (a caller that knows up better than the base's top).
     """
     rng = np.random.default_rng(0)
     planes, centroids = {}, {}
@@ -363,7 +420,8 @@ def fit_planar_hinge(clouds: dict[int, np.ndarray], n_frames: int, ref: int, pin
     # A door turns about an axis along the base's normal (a microwave's door, on a vertical hinge
     # beside its top): then the plate never crosses the base's top along the hinge, and the
     # direction most perpendicular to every plate normal is the hinge itself.
-    door = base_normal is not None and abs(axis @ base_normal) > np.cos(np.deg2rad(30)) and w[0] < 0.1 * w[1]
+    if door is None:
+        door = base_normal is not None and abs(axis @ base_normal) > np.cos(np.deg2rad(30)) and w[0] < 0.1 * w[1]
     if base_normal is not None and not door:
         # The hinge is where the plate meets the base: the line where their planes cross.
         # From the frames where the plate stands well clear of the base (30-150 deg) that
@@ -377,7 +435,12 @@ def fit_planar_hinge(clouds: dict[int, np.ndarray], n_frames: int, ref: int, pin
         if len(crossings) >= 5:
             axis = np.median(crossings, axis=0)
             axis /= np.linalg.norm(axis)
-    if door:
+    on_face = None
+    if door and closed_frames is not None:
+        on_face = door_hinge_on_closed_face(clouds, planes, centroids, axis, set(closed_frames))
+    if on_face is not None:
+        point = on_face[0] + (axis @ pin) * axis
+    elif door:
         # A door's face is often glossy or glass, so its planes' offsets are poor and their
         # crossing lands far off; its centroid still circles the hinge: fit that circle.
         u = np.cross(axis, [1.0, 0, 0] if abs(axis[0]) < 0.9 else [0, 1.0, 0])
@@ -402,7 +465,8 @@ def fit_planar_hinge(clouds: dict[int, np.ndarray], n_frames: int, ref: int, pin
     theta = np.array([np.arctan2(np.cross(u0, radial(t)) @ axis, u0 @ radial(t)) for t in frames])
     q = np.full(n_frames, np.nan)
     q[frames] = theta
-    return PlanarHinge(axis, point, q, float(np.sqrt(np.mean(res ** 2))), centroids)
+    placed_by = "door closed face" if on_face is not None else "door circle" if door else "planes"
+    return PlanarHinge(axis, point, q, float(np.sqrt(np.mean(res ** 2))), centroids, placed_by)
 
 
 def clean_angles(q: np.ndarray, window: int = 15, max_dev: float = np.deg2rad(25)) -> np.ndarray:
@@ -415,6 +479,23 @@ def clean_angles(q: np.ndarray, window: int = 15, max_dev: float = np.deg2rad(25
         near = q[valid[max(0, i - window):i + window + 1]]
         if abs(q[t] - np.median(near)) > max_dev:
             out[t] = np.nan
+    return out
+
+
+def drop_overclosed(q: np.ndarray, shut, max_over: float = np.deg2rad(10)) -> np.ndarray:
+    """A door can't swing through its cabinet: drop angles past the shut position, on the side
+    away from where the open frames lie, by more than ``max_over`` (a run of frames whose glossy
+    face read behind the glass outlasts the running-median cleaning). The shut angle is the
+    median over ``shut`` frames; angles are compared modulo a full turn."""
+    shut = [t for t in shut if t < len(q) and np.isfinite(q[t])]
+    rest = [t for t in range(len(q)) if np.isfinite(q[t]) and t not in set(shut)]
+    if len(shut) < 5 or len(rest) < 5:
+        return q
+    closed = np.median(q[shut])
+    turn = np.angle(np.exp(1j * (q - closed)))  # (-pi, pi] from the shut position
+    sense = 1.0 if np.median(turn[rest]) >= 0 else -1.0
+    out = q.copy()
+    out[np.isfinite(q) & (sense * turn < -max_over)] = np.nan
     return out
 
 

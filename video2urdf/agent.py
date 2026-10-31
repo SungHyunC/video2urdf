@@ -246,6 +246,13 @@ For a single hinged object track, in one track call:
   whole closed laptop, which may be the same tracked part as the base; for a book, the
   closed book),
 - a part seen only while open (e.g. "laptop keyboard"), so closed frames can be told apart.
+A door on a vertical hinge (a microwave's, oven's or cupboard's door) is a plate too: the door
+itself as plate (segment it on an open frame and on a shut frame), the shut door as
+plate_closed (on a shut frame), the inside it uncovers as open_indicator (e.g. "microwave
+interior"), a part beside the door that never moves as base (e.g. "control panel", "cabinet
+side"; not the whole appliance, which contains the door) and the shelf or counter as floor.
+fit_lidar recognises the vertical hinge and places it on the shut door's plane, so the shut
+frames must be tracked. Segment once per part and track: a few candidates are enough.
 Look at frames across the video first to see when it is open and closed. A part that
 disappears and comes back (a screen that closes and reopens) needs candidates on several
 frames, at least one before and one after it disappears. Then call fit_lidar with the
@@ -719,8 +726,13 @@ class Agent:
                 raise
             frames = suggested_open_anchors(c, roles)
             if frames:
-                return (f"{error}\nSuggested open-indicator frames to inspect and segment: {frames}. "
-                        f"Use distinct good {roles.plate} candidates with retrack_part, then fit again. "
+                tried = [line for line in lines if line.startswith(("WARNING: The plate's angle", "Retrying"))]
+                return ("\n".join(tried + [str(error)]) +
+                        f"\nNo reference frame gave the plate a measured angle: its depth plane failed or jumped "
+                        f"there (a glossy, dark or edge-on face gives few or scattered depth points). "
+                        f"Suggested open-indicator frames to inspect and segment: {frames}. "
+                        f"Use distinct good {roles.plate} candidates with retrack_part (where more of its face is "
+                        "seen), then call fit_lidar again right away. "
                         "Check each candidate; an indicator or candidate can itself be wrong.")
             raise
         indicator = set(c.by.get(roles.open_indicator, {})) if roles.open_indicator else None

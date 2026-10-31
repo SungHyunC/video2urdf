@@ -331,6 +331,109 @@ class ReferenceFrameTest(unittest.TestCase):
         }
         self.assertEqual(c.ref_with("base", "plate", "closed"), 3)
 
+    def test_retry_starts_from_the_largest_plate_whose_angle_was_measured(self):
+        from types import SimpleNamespace
+        from video2urdf.lidar import ReferenceAngleError, fit_hinge_with_reference_retries
+
+        class Stub:
+            n, ref = 101, 90
+            by = {"plate": {t: SimpleNamespace(area=a) for t, a in ((20, 50), (55, 300), (70, 900), (90, 1000))},
+                  "base": {t: None for t in (20, 55, 70, 90)}, "keyboard": {t: None for t in (20, 55, 90)}}
+            def has(self, name, frame): return frame in self.by[name]
+            def set_ref(self, frame): self.ref = frame
+
+        def fit(capture, roles, log):
+            if capture.ref == 90:  # 70 has the larger plate but no open indicator; 20 wasn't measured
+                raise ReferenceAngleError("angle on reference frame 90 rejected", valid=[55, 70, 80])
+            return {"reference": capture.ref}
+        roles = SimpleNamespace(plate="plate", base="base", open_indicator="keyboard")
+        with patch("video2urdf.lidar.fit_hinge", side_effect=fit):
+            result, attempts = fit_hinge_with_reference_retries(Stub(), roles, log=lambda _: None)
+        self.assertEqual(attempts, [90, 55])
+        self.assertEqual(result["reference"], 55)
+
+    def test_reference_angle_error_lists_measured_frames(self):
+        from video2urdf.lidar import ReferenceAngleError
+        angles = np.array([0.1, np.nan, 0.3, np.nan])
+        with self.assertRaises(ReferenceAngleError) as caught:
+            require_reference_angle({0: 0, 2: 0, 3: 0}, angles, 3)
+        self.assertEqual(sorted(caught.exception.valid), [0, 2])
+
+
+def door_clouds(hinge=np.array([0.1, 0.0, 0.6]), width=0.36, closed=range(0, 40), opened=range(40, 100)):
+    """A vertical door (y is up, as in camera coordinates) hinged at ``hinge``: shut frames see its
+    whole face, open frames only a narrow strip at its free edge (a glossy door's handle)."""
+    rng = np.random.default_rng(3)
+    face = np.array([0.8, 0.0, -0.6])  # along the shut door, from the hinge to its free edge
+
+    def door(angle, r_lo):
+        r = rng.uniform(r_lo, width, 800)
+        y = rng.uniform(-0.15, 0.15, 800)
+        c, s = np.cos(angle), np.sin(angle)
+        d = np.array([c * face[0] + s * face[2], 0.0, -s * face[0] + c * face[2]])
+        return hinge + np.outer(r, d) + np.outer(y, [0, 1.0, 0]) + rng.normal(0, 0.001, (800, 3))
+
+    clouds = {t: door(0.0, 0.0) for t in closed}
+    angles = np.linspace(np.deg2rad(15), np.deg2rad(100), len(opened))
+    clouds.update({t: door(a, width - 0.02) for t, a in zip(opened, angles)})
+    return clouds, hinge
+
+
+class DoorHingeTest(unittest.TestCase):
+    def test_door_hinge_on_the_closed_face_where_open_points_stay_equidistant(self):
+        from video2urdf.lift3d import fit_planar_hinge
+        clouds, hinge = door_clouds()
+        up = np.array([0, -1.0, 0])
+        fit = fit_planar_hinge(clouds, 100, 70, pin=hinge, base_normal=up, closed_frames=set(range(40)))
+        self.assertEqual(fit.placed_by, "door closed face")
+        gap = fit.point - hinge
+        gap -= (gap @ fit.axis) * fit.axis
+        self.assertLess(np.linalg.norm(gap), 0.01)
+        q = np.rad2deg(fit.q)
+        self.assertAlmostEqual(abs(q[0] - q[99]), 100, delta=3)  # shut vs widest open, either sign
+        # without shut frames the door still gets a hinge (a circle through its centroids)
+        fit = fit_planar_hinge(clouds, 100, 70, pin=hinge, base_normal=up)
+        self.assertEqual(fit.placed_by, "door circle")
+
+    def test_door_test_on_plate_normals(self):
+        from video2urdf.lift3d import is_door
+        up = np.array([0, -1.0, 0])
+        door = [np.array([np.cos(a), 0, np.sin(a)]) for a in np.linspace(0, 1.7, 20)]
+        lid = [np.array([0, -np.cos(a), np.sin(a)]) for a in np.linspace(0, 1.7, 20)]  # turns about x
+        self.assertTrue(is_door(np.array(door), up))
+        self.assertFalse(is_door(np.array(lid), up))
+        self.assertFalse(is_door(np.array(door), None))
+
+    def test_door_told_from_the_plate_track_before_the_lid_fallback(self):
+        from video2urdf.lidar import looks_like_door
+        clouds, _ = door_clouds()
+
+        class Stub:
+            by = {"plate": {t: None for t in clouds}}
+            def cloud(self, part, t): return clouds[t]
+        up = np.array([0, -1.0, 0])
+        self.assertTrue(looks_like_door(Stub(), Roles(None, "base", "plate"), up))
+        # a laptop lid turning about a horizontal hinge on the base's top is not a door
+        rng = np.random.default_rng(0)
+        lid = {}
+        for t, a in enumerate(np.linspace(0, 1.9, 40)):
+            r, x = rng.uniform(0, 0.2, 600), rng.uniform(-0.15, 0.15, 600)
+            lid[t] = np.column_stack([x, -r * np.sin(a), 0.5 - r * np.cos(a)])
+        Stub.by = {"plate": {t: None for t in lid}}
+        Stub.cloud = lambda self, part, t: lid[t]
+        self.assertFalse(looks_like_door(Stub(), Roles(None, "base", "plate"), up))
+
+    def test_door_angles_past_the_shut_position_are_dropped(self):
+        from video2urdf.lift3d import drop_overclosed
+        q = np.deg2rad(np.r_[[-15.0] * 10, np.linspace(-15, 35, 20), [35.0] * 10, [-160, -158], [-12.0] * 10])
+        out = drop_overclosed(q, shut=list(range(10)) + list(range(42, 52)))
+        self.assertTrue(np.isnan(out[40]) and np.isnan(out[41]))
+        self.assertEqual(int(np.isnan(out).sum()), 2)
+        # mirrored: a door opening the other way
+        out = drop_overclosed(-q, shut=list(range(10)) + list(range(42, 52)))
+        self.assertEqual(int(np.isnan(out).sum()), 2)
+        self.assertTrue(np.array_equal(drop_overclosed(q, shut=[0, 1]), q))  # too few shut frames: unchanged
+
 
 if __name__ == "__main__":
     unittest.main()
