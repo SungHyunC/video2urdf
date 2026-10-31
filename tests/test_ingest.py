@@ -26,12 +26,12 @@ def make_video(path: Path, frames: int = 10, fps: int = 30, size=(64, 48), rotat
     return path
 
 
-def make_stray(root: Path, frames: int = 10, video: bool = True) -> Path:
+def make_stray(root: Path, frames: int = 10, video: bool = True, size=(64, 48)) -> Path:
     """A minimal Stray Scanner capture: rgb.mp4, depth/ and confidence/ PNGs, odometry, intrinsics."""
     (root / "depth").mkdir(parents=True, exist_ok=True)
     (root / "confidence").mkdir(exist_ok=True)
     if video:
-        make_video(root / "rgb.mp4", frames, fps=60)
+        make_video(root / "rgb.mp4", frames, fps=60, size=size)
     else:
         (root / "rgb.mp4").write_bytes(b"")
     for t in range(frames):
@@ -172,6 +172,29 @@ class IngestTest(unittest.TestCase):
         self.assertTrue(rows[2].split(",")[2].strip().startswith("0.06"))
         self.assertEqual(I.plan_capture(7200, 3600), 2)
         self.assertEqual(I.plan_capture(3600, 3600), 1)
+
+    def test_older_layout_npy_depth_without_confidence(self):
+        import shutil
+        src = make_stray(self.dir / "cap", frames=40, size=(320, 240))
+        for f in sorted((src / "depth").glob("*.png")):
+            d = cv2.imread(str(f), cv2.IMREAD_UNCHANGED)
+            np.save(f.with_suffix(".npy"), d.astype(np.float32) / 1000)  # metres, as float
+            f.unlink()
+        shutil.rmtree(src / "confidence")
+        ing = I.ingest(src, self.dir / "run" / "input", "old", log=lambda s: None)
+        self.assertTrue(ing.usable)
+        cap = Path(ing.capture)
+        self.assertEqual(I.capture_counts(cap), {"depth": 40, "confidence": 40, "odometry": 40})
+        d = cv2.imread(str(cap / "depth" / "000003.png"), cv2.IMREAD_UNCHANGED)
+        self.assertEqual((d.dtype, int(d[0, 0])), (np.uint16, 503))  # back in millimetres
+        conf = cv2.imread(str(cap / "confidence" / "000003.png"), cv2.IMREAD_UNCHANGED)
+        self.assertEqual(int(conf[0, 0]), 2)
+
+    def test_animated_gif_is_a_video(self):
+        gif = self.dir / "a.gif"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=10",
+                        "-frames:v", "12", str(gif)], check=True)
+        self.assertEqual(I.sniff(gif), "video")
 
     def test_capture_whose_parts_disagree_is_flagged(self):
         src = make_stray(self.dir / "cap", frames=10, video=False)

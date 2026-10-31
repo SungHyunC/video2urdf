@@ -95,6 +95,9 @@ def sniff(path: Path) -> str:
     head = _head(path)
     if not head:
         return "unknown"
+    if image_magic(head) == "gif":  # an animated GIF is a (tiny) video
+        probe = ffprobe(path)
+        return "video" if probe and video_stream(probe) is not None else "image"
     if image_magic(head):
         return "image"
     if head.startswith(b"PK\x03\x04") or head.startswith(b"PK\x05\x06"):
@@ -618,13 +621,37 @@ def images_to_video(images: list[Path], dst: Path, fps: float = IMAGE_FPS, log=p
 
 # ----------------------------------------------------------------------------- depth captures
 
+def frame_files(folder: Path) -> list[Path]:
+    """A capture's per-frame files in name order: PNG, or .npy as older Stray Scanner versions wrote."""
+    if not folder.is_dir():
+        return []
+    return sorted(folder.glob("*.png")) or sorted(folder.glob("*.npy"))
+
+
 def capture_counts(root: Path) -> dict:
     """Frame counts of a Stray-layout capture's parts (they must line up frame for frame)."""
-    depth = sorted((root / "depth").glob("*.png"))
-    conf = sorted((root / "confidence").glob("*.png")) if (root / "confidence").is_dir() else []
     with open(root / "odometry.csv") as fh:
         rows = sum(1 for line in fh if line.strip()) - 1
-    return {"depth": len(depth), "confidence": len(conf), "odometry": rows}
+    return {"depth": len(frame_files(root / "depth")), "confidence": len(frame_files(root / "confidence")),
+            "odometry": rows}
+
+
+def _write_frame(src: Path, dst: Path, depth: bool) -> None:
+    """A depth (uint16 mm) or confidence (uint8, 0-2) frame as the PNG the pipeline reads; .npy
+    frames are converted (float depth is taken as metres)."""
+    import cv2
+    import numpy as np
+    if src.suffix.lower() == ".png":
+        shutil.copy2(src, dst)
+        return
+    a = np.asarray(np.load(src))
+    if depth:
+        if a.dtype.kind == "f":
+            a = np.round(np.nan_to_num(a, nan=0.0, posinf=0.0, neginf=0.0) * 1000.0)
+        a = np.clip(a, 0, 65535).astype(np.uint16)
+    else:
+        a = np.clip(a, 0, 255).astype(np.uint8)
+    cv2.imwrite(str(dst), a)
 
 
 def plan_capture(frames: int, max_frames: int = MAX_CAPTURE_FRAMES) -> int:
@@ -655,25 +682,33 @@ def check_capture(root: Path, video_frames: int, rotation: int) -> list[str]:
 def copy_stray(src: Path, dst: Path, keep_every: int = 1, log=print) -> dict:
     """The capture's files into dst (flat layout). With keep_every > 1, every k-th frame of the
     video, depth (with its confidence) and odometry, renumbered together."""
+    import cv2
+    import numpy as np
     dst.mkdir(parents=True, exist_ok=True)
     for name in ("camera_matrix.csv", "imu.csv", "mapanything.json"):
         if (src / name).is_file():
             shutil.copy2(src / name, dst / name)
-    if keep_every == 1:  # as recorded: names and rows untouched
-        for sub in ("depth", "confidence"):
-            if (src / sub).is_dir():
-                shutil.copytree(src / sub, dst / sub, dirs_exist_ok=True)
+    (dst / "depth").mkdir(exist_ok=True)
+    (dst / "confidence").mkdir(exist_ok=True)
+    conf_dir = src / "confidence"
+    synthesized = 0
+    for i, f in enumerate(frame_files(src / "depth")[::keep_every]):
+        name = f"{i:06d}.png" if keep_every > 1 else f.stem + ".png"  # as recorded unless frames are dropped
+        _write_frame(f, dst / "depth" / name, depth=True)
+        conf = next((conf_dir / (f.stem + ext) for ext in (".png", ".npy") if (conf_dir / (f.stem + ext)).is_file()),
+                    None)  # stray.load pairs a confidence with its depth frame by name
+        if conf is not None:
+            _write_frame(conf, dst / "confidence" / name, depth=False)
+        else:
+            d = cv2.imread(str(dst / "depth" / name), cv2.IMREAD_UNCHANGED)
+            cv2.imwrite(str(dst / "confidence" / name), np.where(d > 0, 2, 0).astype(np.uint8))
+            synthesized += 1
+    if synthesized:
+        log(f"  WARNING: {synthesized} depth frames have no confidence map: all their depth is trusted")
+    if keep_every == 1:  # as recorded: rows and video untouched
         shutil.copy2(src / "odometry.csv", dst / "odometry.csv")
         shutil.copy2(src / "rgb.mp4", dst / "rgb.mp4")
         return capture_counts(dst)
-    (dst / "depth").mkdir(exist_ok=True)
-    has_conf = (src / "confidence").is_dir()
-    if has_conf:
-        (dst / "confidence").mkdir(exist_ok=True)
-    for i, f in enumerate(sorted((src / "depth").glob("*.png"))[::keep_every]):
-        shutil.copy2(f, dst / "depth" / f"{i:06d}.png")
-        if has_conf and (src / "confidence" / f.name).is_file():  # stray.load pairs them by name
-            shutil.copy2(src / "confidence" / f.name, dst / "confidence" / f"{i:06d}.png")
     with open(src / "odometry.csv") as fh:
         lines = [line for line in fh.read().splitlines() if line.strip()]
     out = [lines[0]]
@@ -694,7 +729,7 @@ def copy_stray(src: Path, dst: Path, keep_every: int = 1, log=print) -> dict:
                          capture_output=True, text=True)
     if run.returncode:
         raise ValueError(f"ffmpeg could not decimate rgb.mp4: {run.stderr.strip()[-400:]}")
-    log(f"  kept every {keep_every}th frame of video, depth, confidence and poses together")
+    log(f"  kept 1 frame in {keep_every} of video, depth, confidence and poses together")
     return capture_counts(dst)
 
 
@@ -814,8 +849,14 @@ def ingest(source: Path, input_dir: Path, name: str, turn: int = 0, image_fps: f
         notes.append(f"{n} frames is long: kept 1 frame in {keep} of video, depth and poses together")
     if capture.exists():
         shutil.rmtree(capture)
-    if found.archive is not None and _inside(input_dir, src) and keep == 1:
-        src.rename(capture)  # unpacked by us: move instead of copying
+    where = str(src)
+    if found.archive is not None and _inside(input_dir, src):
+        where = f"{found.archive} -> {src.relative_to(input_dir)}"
+    c0 = capture_counts(src)
+    ready = (frame_files(src / "depth")[0].suffix == ".png" and c0["confidence"] == c0["depth"]
+             and all(f.suffix == ".png" for f in frame_files(src / "confidence")[:1]))
+    if found.archive is not None and _inside(input_dir, src) and keep == 1 and ready:
+        src.rename(capture)  # unpacked by us and already in the layout the pipeline reads: move it
         counts = capture_counts(capture)
     else:
         counts = copy_stray(src, capture, keep_every=keep, log=log)
@@ -826,7 +867,7 @@ def ingest(source: Path, input_dir: Path, name: str, turn: int = 0, image_fps: f
     kind = found.kind
     log(f"  capture: {nv} video frames, {counts['depth']} depth frames, {counts['odometry']} poses, "
         f"{info.width}x{info.height} at {info.fps / keep:.1f} fps ({info.codec})")
-    return Ingested(kind, str(source), str(found.path), str(video), str(capture), nv, info.fps / keep,
+    return Ingested(kind, str(source), where, str(video), str(capture), nv, info.fps / keep,
                     (info.width, info.height), {"video": asdict(info), "counts": counts, "keep_every": keep},
                     notes, warns)
 
