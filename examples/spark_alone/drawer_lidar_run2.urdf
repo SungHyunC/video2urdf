@@ -1,0 +1,275 @@
+<?xml version="1.0"?>
+<robot name="three_drawer_pedestal">
+  <material name="beech">
+    <color rgba="0.87 0.71 0.53 1.0"/>
+  </material>
+  <material name="dark">
+    <color rgba="0.15 0.15 0.17 1.0"/>
+  </material>
+  <material name="silver">
+    <color rgba="0.75 0.77 0.80 1.0"/>
+  </material>
+  <material name="tray_grey">
+    <color rgba="0.78 0.81 0.78 1.0"/>
+  </material>
+
+  <!-- BASE / CARCASS : frame at floor, x forward (drawer opening), y width, z up -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0.30" rpy="0 0 0"/>
+      <mass value="22.0"/>
+      <inertia ixx="0.98" ixy="0" ixz="0" iyy="1.21" iyz="0" izz="0.88"/>
+    </inertial>
+    <!-- top panel -->
+    <visual>
+      <origin xyz="0 0 0.5875" rpy="0 0 0"/>
+      <geometry><box size="0.56 0.43 0.025"/></geometry>
+      <material name="beech"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.5875" rpy="0 0 0"/>
+      <geometry><box size="0.56 0.43 0.025"/></geometry>
+    </collision>
+    <!-- bottom panel -->
+    <visual>
+      <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+      <geometry><box size="0.55 0.42 0.025"/></geometry>
+      <material name="beech"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+      <geometry><box size="0.55 0.42 0.025"/></geometry>
+    </collision>
+    <!-- left side -->
+    <visual>
+      <origin xyz="0 0.20 0.30" rpy="0 0 0"/>
+      <geometry><box size="0.55 0.02 0.55"/></geometry>
+      <material name="beech"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0.20 0.30" rpy="0 0 0"/>
+      <geometry><box size="0.55 0.02 0.55"/></geometry>
+    </collision>
+    <!-- right side -->
+    <visual>
+      <origin xyz="0 -0.20 0.30" rpy="0 0 0"/>
+      <geometry><box size="0.55 0.02 0.55"/></geometry>
+      <material name="beech"/>
+    </visual>
+    <collision>
+      <origin xyz="0 -0.20 0.30" rpy="0 0 0"/>
+      <geometry><box size="0.55 0.02 0.55"/></geometry>
+    </collision>
+    <!-- back panel -->
+    <visual>
+      <origin xyz="-0.265 0 0.30" rpy="0 0 0"/>
+      <geometry><box size="0.02 0.38 0.55"/></geometry>
+      <material name="beech"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.265 0 0.30" rpy="0 0 0"/>
+      <geometry><box size="0.02 0.38 0.55"/></geometry>
+    </collision>
+    <!-- lock cylinder on front-left side -->
+    <visual>
+      <origin xyz="0.20 0.211 0.54" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.008" length="0.006"/></geometry>
+      <material name="silver"/>
+    </visual>
+  </link>
+
+  <!-- TOP DRAWER -->
+  <link name="drawer_top">
+    <inertial>
+      <origin xyz="-0.24 0 -0.03" rpy="0 0 0"/>
+      <mass value="3.5"/>
+      <inertia ixx="0.04" ixy="0" ixz="0" iyy="0.06" iyz="0" izz="0.06"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.02 0.39 0.175"/></geometry>
+      <material name="beech"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.02 0.39 0.175"/></geometry>
+    </collision>
+    <visual>
+      <origin xyz="0.0225 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.025 0.14 0.02"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0225 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.025 0.14 0.02"/></geometry>
+    </collision>
+    <visual>
+      <origin xyz="-0.24 0 -0.085" rpy="0 0 0"/>
+      <geometry><box size="0.46 0.34 0.01"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.24 0 -0.085" rpy="0 0 0"/>
+      <geometry><box size="0.46 0.34 0.01"/></geometry>
+    </collision>
+    <visual>
+      <origin xyz="-0.24 0.165 -0.025" rpy="0 0 0"/>
+      <geometry><box size="0.46 0.01 0.12"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.24 -0.165 -0.025" rpy="0 0 0"/>
+      <geometry><box size="0.46 0.01 0.12"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.465 0 -0.025" rpy="0 0 0"/>
+      <geometry><box size="0.01 0.34 0.12"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.36 0.08 0.0" rpy="0 0 0"/>
+      <geometry><box size="0.12 0.12 0.05"/></geometry>
+      <material name="tray_grey"/>
+    </visual>
+  </link>
+
+  <!-- MIDDLE DRAWER -->
+  <link name="drawer_middle">
+    <inertial>
+      <origin xyz="-0.24 0 -0.03" rpy="0 0 0"/>
+      <mass value="3.5"/>
+      <inertia ixx="0.04" ixy="0" ixz="0" iyy="0.06" iyz="0" izz="0.06"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.02 0.39 0.175"/></geometry>
+      <material name="beech"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.02 0.39 0.175"/></geometry>
+    </collision>
+    <visual>
+      <origin xyz="0.0225 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.025 0.14 0.02"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0225 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.025 0.14 0.02"/></geometry>
+    </collision>
+    <visual>
+      <origin xyz="-0.24 0 -0.085" rpy="0 0 0"/>
+      <geometry><box size="0.46 0.34 0.01"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.24 0 -0.085" rpy="0 0 0"/>
+      <geometry><box size="0.46 0.34 0.01"/></geometry>
+    </collision>
+    <visual>
+      <origin xyz="-0.24 0.165 -0.025" rpy="0 0 0"/>
+      <geometry><box size="0.46 0.01 0.12"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.24 -0.165 -0.025" rpy="0 0 0"/>
+      <geometry><box size="0.46 0.01 0.12"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.465 0 -0.025" rpy="0 0 0"/>
+      <geometry><box size="0.01 0.34 0.12"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.36 0.08 0.0" rpy="0 0 0"/>
+      <geometry><box size="0.12 0.12 0.05"/></geometry>
+      <material name="tray_grey"/>
+    </visual>
+  </link>
+
+  <!-- BOTTOM DRAWER -->
+  <link name="drawer_bottom">
+    <inertial>
+      <origin xyz="-0.24 0 -0.03" rpy="0 0 0"/>
+      <mass value="3.5"/>
+      <inertia ixx="0.04" ixy="0" ixz="0" iyy="0.06" iyz="0" izz="0.06"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.02 0.39 0.175"/></geometry>
+      <material name="beech"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.02 0.39 0.175"/></geometry>
+    </collision>
+    <visual>
+      <origin xyz="0.0225 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.025 0.14 0.02"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0225 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.025 0.14 0.02"/></geometry>
+    </collision>
+    <visual>
+      <origin xyz="-0.24 0 -0.085" rpy="0 0 0"/>
+      <geometry><box size="0.46 0.34 0.01"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.24 0 -0.085" rpy="0 0 0"/>
+      <geometry><box size="0.46 0.34 0.01"/></geometry>
+    </collision>
+    <visual>
+      <origin xyz="-0.24 0.165 -0.025" rpy="0 0 0"/>
+      <geometry><box size="0.46 0.01 0.12"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.24 -0.165 -0.025" rpy="0 0 0"/>
+      <geometry><box size="0.46 0.01 0.12"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.465 0 -0.025" rpy="0 0 0"/>
+      <geometry><box size="0.01 0.34 0.12"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.36 0.08 0.0" rpy="0 0 0"/>
+      <geometry><box size="0.12 0.12 0.05"/></geometry>
+      <material name="tray_grey"/>
+    </visual>
+  </link>
+
+  <joint name="joint_top" type="prismatic">
+    <parent link="base_link"/>
+    <child link="drawer_top"/>
+    <origin xyz="0.275 0 0.483" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0" upper="0.38" effort="50" velocity="0.5"/>
+    <dynamics damping="10" friction="5"/>
+  </joint>
+
+  <joint name="joint_middle" type="prismatic">
+    <parent link="base_link"/>
+    <child link="drawer_middle"/>
+    <origin xyz="0.275 0 0.30" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0" upper="0.38" effort="50" velocity="0.5"/>
+    <dynamics damping="10" friction="5"/>
+  </joint>
+
+  <joint name="joint_bottom" type="prismatic">
+    <parent link="base_link"/>
+    <child link="drawer_bottom"/>
+    <origin xyz="0.275 0 0.117" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0" upper="0.38" effort="50" velocity="0.5"/>
+    <dynamics damping="10" friction="5"/>
+  </joint>
+</robot>

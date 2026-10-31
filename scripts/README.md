@@ -34,6 +34,7 @@ usage. Run them with the project's environment: `.venv/bin/python scripts/<name>
 |---|---|
 | `rbo_download.py`, `rbo_bench.py`, `rbo_eval.py` | The RBO motion-capture benchmark: download, run the agent, score exactly the agent's fit |
 | `refit_lidar.py` | Re-run the agent's LiDAR fit on saved tracks, in a copy (regression checks) |
+| `spark_alone.py` | The "just ask an AI" baseline: the same Muse Spark asked plainly for a URDF of each video, no tools; scored by URDF Doctor and motion capture |
 | `make_synth.py`, `eval_tracks.py`, `fit3d.py` | Synthetic videos with known joints, and scoring against them |
 | `eval_pseudo_depth.py`, `compare_hinges.py` | MapAnything depth and hinge fits against the LiDAR capture |
 | `check_sam_open.py`, `check_fast_mask.py`, `smoke_test.py` | Backend checks: open-weights SAM, the mask decoder, one cheap call per API |
