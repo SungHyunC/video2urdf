@@ -41,7 +41,7 @@ VERTICAL_HINGE_DEG = 30  # a hinge this close to the floor's normal is a door's
 OFF_BASE_M = 0.015  # points this far off the base's top plane belong to a half-open plate
 MAX_LEVEL_TILT_DEG = 4.0  # a floor fit tilted more than this from the reference is a bad fit
 MAX_LEVEL_SHIFT_M = 0.1  # ...or shifted this far off it: another surface (ARKit drifts 1-3 cm)
-MIN_FLOOR_POINTS = 50  # depth points a floor mask needs for its plane to be fitted
+MIN_FLOOR_POINTS = 50  # depth points the floor needs on the frame its reference plane comes from
 LEVEL_WINDOW = 31  # frames; ARKit drift is slow
 
 
@@ -238,30 +238,27 @@ class Capture:
         rng = np.random.default_rng(0)
 
         def plane(t):
-            """The floor's plane on frame t, or None where its depth is too sparse to fit one
-            (the random draws stay those of the fit either way)."""
+            """The floor's plane on frame t and how many depth points it was fitted to."""
             c = self.cloud(floor, t)
-            enough = len(c) >= MIN_FLOOR_POINTS
+            count = len(c)
             if len(c) > sample:
                 c = c[rng.choice(len(c), sample, replace=False)]
             n, d, _ = fit_plane(c, rng)
-            return (n, d) if enough else None
+            return n, d, count
 
         none = {"frames_used": 0, "tilt_deg_max": 0.0, "shift_mm_max": 0.0, "shift_mm_median": 0.0}
         seen = sorted(self.by.get(floor, {}))
         if not seen:
             return none
         # The floor's plane on the reference frame, or the nearest frame it is seen with depth on
-        # (a hand or the opened lid can hide it there; a mask with no depth would fit a made-up
+        # (a hand or the opened lid can hide it there; a mask with no depth would give a made-up
         # plane, and every correction would follow it).
-        reference = None
         for t in sorted(seen, key=lambda t: abs(t - self.ref)):
-            reference = plane(t)
-            if reference is not None:
+            n0, d0, count = plane(t)
+            if count >= MIN_FLOOR_POINTS:
                 break
-        if reference is None:
+        else:
             return {**none, "no_floor_depth": True}
-        n0, d0 = reference
         # Per-frame correction as a small rotation vector (turning that frame's floor normal onto
         # the reference one) and a height shift. Drift is slow and plane fits are noisy (a hand
         # or a chair leg in the floor mask), so implausible frames (tilted, or shifted further
@@ -271,10 +268,7 @@ class Capture:
         for t in range(self.n):
             if not self.has(floor, t):
                 continue
-            fitted = plane(t)
-            if fitted is None:
-                continue
-            n, d = fitted
+            n, d, _ = plane(t)
             if n @ n0 < 0:
                 n, d = -n, -d
             ang = np.arccos(np.clip(n @ n0, -1, 1))
