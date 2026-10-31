@@ -80,8 +80,10 @@ function initCompare() {
   // the leader buffers, its rate nudged for small drift, a seek for large drift (a loop, a stall).
   for (const v of [before, after]) { v.loop = true; v.muted = true; }
   const live = () => want && inView && !document.hidden;
+  let swept = false;
   function tryPlay() {
     if (!live()) return;
+    if (!swept && !reduced) { swept = true; box.classList.add("sweep"); }  // one scan pass when it first plays
     after.play().catch(() => {});
     if (!raf) raf = requestAnimationFrame(sync);
     peek();
