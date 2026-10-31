@@ -573,8 +573,13 @@ class Agent:
             return "Choose at least one segmented part to track."
         chosen = []  # (name, prompt, best detection, its frame, all anchors)
         for p in parts:
-            ids = p.get("candidates") or p.get("candidate")
-            ids = ids if isinstance(ids, list) else [ids]  # Spark sometimes puts a list in "candidate"
+            ids = []  # Spark often gives "candidate" and more anchors in "candidates": use them all
+            for key in ("candidate", "candidates"):
+                given = p.get(key) or []
+                ids += given if isinstance(given, list) else [given]  # sometimes a list in "candidate"
+            ids = list(dict.fromkeys(ids))
+            if not ids:
+                return f"{p.get('name')}: give a segment candidate"
             missing = [i for i in ids if i not in self.candidates]
             if missing:
                 return f"unknown candidate(s) {missing}; segment first"

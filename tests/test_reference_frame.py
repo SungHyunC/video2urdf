@@ -379,6 +379,34 @@ def door_clouds(hinge=np.array([0.1, 0.0, 0.6]), width=0.36, closed=range(0, 40)
     return clouds, hinge
 
 
+class TrackCandidatesTest(unittest.TestCase):
+    def test_candidate_and_candidates_are_both_anchors(self):
+        from types import SimpleNamespace
+
+        class Captured(Exception):
+            pass
+
+        class Sam:
+            def track_boxes(self, video, size, anchors):
+                raise Captured(anchors)
+        agent = object.__new__(Agent)
+        agent.video, agent.size, agent.sam = Path("v.mp4"), (20, 10), Sam()
+        box = {"s1.0": (1, 1, 5, 5), "s2.0": (2, 2, 6, 6), "s3.0": (3, 3, 7, 7)}
+        agent.candidates = {"s1.0": ("microwave door", SimpleNamespace(box=box["s1.0"]), 427),
+                            "s2.0": ("closed microwave door", SimpleNamespace(box=box["s2.0"]), 0),
+                            "s3.0": ("closed microwave door", SimpleNamespace(box=box["s3.0"]), 854)}
+        with self.assertRaises(Captured) as caught:  # Spark's form: the main candidate plus more anchors
+            agent.tool_track([{"name": "plate", "candidate": "s1.0", "candidates": ["s2.0", "s3.0"]}])
+        self.assertEqual(caught.exception.args[0], {0: [(0, box["s2.0"]), (427, box["s1.0"]), (854, box["s3.0"])]})
+        with self.assertRaises(Captured) as caught:
+            agent.tool_track([{"name": "plate", "candidates": ["s1.0", "s1.0"]}])
+        self.assertEqual(caught.exception.args[0], {0: [(427, box["s1.0"])]})
+        agent.candidates["s4.0"] = ("microwave door", SimpleNamespace(box=(4, 4, 8, 8)), 0)
+        self.assertIn("one candidate per frame",
+                      agent.tool_track([{"name": "plate", "candidate": "s4.0", "candidates": ["s2.0"]}]))
+        self.assertIn("give a segment candidate", agent.tool_track([{"name": "plate"}]))
+
+
 class DoorHingeTest(unittest.TestCase):
     def test_door_hinge_on_the_closed_face_where_open_points_stay_equidistant(self):
         from video2urdf.lift3d import fit_planar_hinge
