@@ -86,6 +86,30 @@ class DepthBoundTest(unittest.TestCase):
         self.assertAlmostEqual(out["upper_m"], 0.5)
 
 
+class LevellingTest(unittest.TestCase):
+    def test_a_leaning_front_is_turned_onto_the_pooled_plane(self):
+        rng = np.random.default_rng(0)
+        uz = rng.uniform([0, 0], [0.4, 0.25], (2000, 2))
+        tilt = np.deg2rad(5)  # the frame's front leans 5 deg and sits 12 mm behind the pooled plane
+        pts = np.stack([uz[:, 0], 0.012 + uz[:, 1] * np.sin(tilt), uz[:, 1] * np.cos(tilt)], axis=1)
+        m, info = C.front_correction(pts, FRONT, rng)
+        self.assertTrue(info["aligned"])
+        v = FRONT.uvz(C._apply(m, pts))[:, 1]
+        self.assertLess(np.abs(v).max(), 1e-3)
+        self.assertAlmostEqual(info["turn_deg"], 5.0, places=1)
+
+    def test_support_roll_levels_side_to_side_and_keeps_the_front(self):
+        rng = np.random.default_rng(0)
+        xy = rng.uniform([0, -0.3], [0.4, -0.02], (2000, 2))
+        roll = np.deg2rad(3)  # the support tilts along the front (about its normal), 8 mm high
+        pts = np.stack([xy[:, 0], xy[:, 1], 0.008 + xy[:, 0] * np.tan(roll)], axis=1)
+        m, info = C.support_roll(pts, FRONT, 0.0, rng)
+        out = C._apply(m, pts)
+        self.assertLess(np.ptp(out[:, 2]), 1e-3)
+        self.assertAlmostEqual(float(np.median(out[:, 2])), 0.0, places=3)
+        np.testing.assert_allclose(m[:3, :3] @ FRONT.n, FRONT.n, atol=1e-9)  # turned about the front's normal
+
+
 class ShutStateTest(unittest.TestCase):
     def test_shut_is_the_end_away_from_the_open_frames(self):
         q = np.deg2rad(np.r_[np.full(10, 12.0), np.linspace(10, -40, 10), np.full(10, 11.0)])
