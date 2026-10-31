@@ -310,12 +310,13 @@ class Run:
         d["size"] = list(ing.size)
         return d
 
-    def _look(self, ing) -> dict | None:
+    def _look(self, ing) -> dict:
         look = spark_look(Path(ing.video), ing.frames, ing.fps, log=self.log)
-        if look:
-            self.log(f"   {look.get('object')!r}: moving parts {look.get('moving_parts')}, view {look.get('view')}, "
-                     f"camera {look.get('camera')}, up at the {look.get('up')} ({look.get('up_confidence')})")
-        return look
+        if not look:  # recorded as a failed step; routing goes on with the measured numbers alone
+            raise RuntimeError("no usable answer from Spark")
+        self.log(f"   {look.get('object')!r}: moving parts {look.get('moving_parts')}, view {look.get('view')}, "
+                 f"camera {look.get('camera')}, up at the {look.get('up')} ({look.get('up_confidence')})")
+        return {**look, "_note": f"{look.get('object')}, {look.get('view')} view, up at the {look.get('up')}"}
 
     def _pseudo_depth(self, video: Path) -> Path:
         """Plain video -> a capture in the Stray layout with MapAnything depth, at an automatic scale."""
