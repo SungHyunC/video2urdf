@@ -4,9 +4,9 @@ import unittest
 
 import numpy as np
 
-from video2urdf.chain3d import (BELOW_M, MIN_BASE_POINTS, RodLine, base_points, chain_reference, consensus_line,
-                                drop_to_floor, floor_plane, line_offset, model_rotation, stand_on_floor,
-                                static_reference_line, toward_free_end)
+from video2urdf.chain3d import (BELOW_M, MIN_BASE_POINTS, PLANE_RATIO_MAX, RodLine, base_points, chain_reference,
+                                consensus_line, drop_to_floor, fit_rod_joint, floor_plane, line_offset,
+                                model_rotation, rotation, stand_on_floor, static_reference_line, toward_free_end)
 
 
 class Det:
@@ -160,6 +160,30 @@ class StaticReferenceLineTest(unittest.TestCase):
         self.assertIsNot(line, lines[20])
         self.assertAlmostEqual(why[0], 0.04, delta=0.006)
         self.assertLess(abs(line.center[2] - 0.8), 0.004)
+
+
+class TurnPlaneTest(unittest.TestCase):
+    """A rod that turns about one hinge keeps its directions in one plane; one that also swivels
+    spreads them as much across that plane as within it, and its single-hinge fit can't hold."""
+
+    def lines(self, elevation, swivel):
+        out = {}
+        for t, (e, s) in enumerate(zip(elevation, swivel)):
+            d = rotation(np.array([0, 0, 1.0]), s) @ rotation(np.array([1.0, 0, 0]), e) @ np.array([0, 1.0, 0])
+            out[t] = RodLine(0.15 * d, d, -0.15, 0.15)
+        return out
+
+    def test_hinge_is_planar(self):
+        e = np.deg2rad(np.linspace(-20, 40, 80))
+        j = fit_rod_joint(self.lines(e, np.zeros(80)), ref=10, n=80, near=np.zeros(3))
+        self.assertLess(j.plane_ratio, 0.05)
+        self.assertLess(j.plane_ratio, PLANE_RATIO_MAX)
+
+    def test_swivel_and_hinge_is_not(self):
+        rng = np.random.default_rng(0)
+        e, s = np.deg2rad(rng.uniform(-25, 25, 200)), np.deg2rad(rng.uniform(-25, 25, 200))
+        j = fit_rod_joint(self.lines(e, s), ref=10, n=200, near=np.zeros(3))
+        self.assertGreater(j.plane_ratio, PLANE_RATIO_MAX)
 
 
 class LevellingGuardTest(unittest.TestCase):

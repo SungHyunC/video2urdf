@@ -41,6 +41,11 @@ UPRIGHT_DEG = 30.0  # an anchored first rod this close to vertical stands on the
 FOOT_GUESS_M = 0.05  # ...and extending it further than this down to the floor is mostly a guess
 FLOOR_DISC_M = 0.1  # the anchored root: a floor disc this wide (radius) under the chain's foot
 FLOOR_DISC_THICK_M = 0.003
+# A hinged rod's directions spread in its turning plane; when they spread about as much across it
+# (singular values s3/s2 near 1), the rod turned about more than one axis (a swivel) or its lines are
+# unreliable, and the fitted axis is arbitrary. Seen: phone stand upper arm 0.97 (likely also swivelling
+# about the pole), its forearm 0.37, the LED lamp's arm 0.54.
+PLANE_RATIO_MAX = 0.75
 
 
 @dataclass
@@ -60,6 +65,7 @@ class ChainJoint:
     q: np.ndarray = field(default_factory=lambda: np.zeros(0))
     fixed: bool = False
     residual_m: float = 0.0
+    plane_ratio: float = 0.0  # spread of the rod's directions across the hinge's plane over that within it
 
 
 def mask_axis(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray, float] | None:
@@ -250,14 +256,15 @@ def fit_rod_joint(lines: dict[int, RodLine], ref: int, n: int, near: np.ndarray)
     """Axis, pivot and angle per frame of a rod turning about a hinge (lines in its parent's frame)."""
     ts = sorted(lines)
     dirs = np.array([lines[t].direction for t in ts])
-    axis = np.linalg.svd(dirs, full_matrices=False)[2][2]  # the directions lie in the plane normal to the axis
+    _, sv, vt = np.linalg.svd(dirs, full_matrices=False)
+    axis = vt[2]  # the directions lie in the plane normal to the axis
     d_ref = lines[min(ts, key=lambda t: abs(t - ref))].direction
     q = np.full(n, np.nan)
     for t in ts:
         d = lines[t].direction
         q[t] = np.arctan2(axis @ np.cross(d_ref, d), d_ref @ d)
     q = clean_angles(clean_angles(q), window=8, max_dev=np.deg2rad(10))  # spikes, then hand-occlusion jitter
-    joint = ChainJoint("", "", axis=axis, q=q)
+    joint = ChainJoint("", "", axis=axis, q=q, plane_ratio=float(sv[2] / max(sv[1], 1e-12)))
     if np.nanpercentile(q, 95) - np.nanpercentile(q, 5) < MIN_TURN:
         joint.fixed = True
         first = lines[min(ts, key=lambda t: abs(t - ref))]
@@ -464,6 +471,11 @@ def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=prin
         span = np.rad2deg([np.nanmin(j.q), np.nanmax(j.q)])
         log(f"{j.parent} -> {part}: {'fixed' if j.fixed else f'hinge, {span[0]:.0f}..{span[1]:.0f} deg'}, "
             f"pivot residual {1000 * j.residual_m:.1f} mm, angle on {int(np.isfinite(j.q).sum())}/{c.n} frames")
+        if not j.fixed and j.plane_ratio > PLANE_RATIO_MAX:
+            log(f"WARNING: {part} doesn't turn in one plane: its directions spread {j.plane_ratio:.2f}x as much across "
+                "the fitted hinge's plane as within it, so it turned about more than one axis (a swivel as well as the "
+                "hinge?) or its 3D lines are unreliable; this hinge's axis and angles are not measured, and one hinge "
+                "can't follow it.")
 
     foot_extended = None
     if anchor is not None:  # where the chain stands on the floor
@@ -560,6 +572,7 @@ def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=prin
                                "pivot_residual_mm": 1000 * j.residual_m, "rod_length_mm": 1000 * length,
                                "rod_radius_mm": 1000 * radius, "range_deg": np.rad2deg(limits).tolist(),
                                "frames_measured": 0 if j.child in placed else int(np.isfinite(j.q).sum()),
+                               "turn_plane_ratio": None if j.fixed else j.plane_ratio,
                                "estimated": estimated.get(j.child)})
     (track_dir / "model.urdf").write_text(emit3d.urdf(c.video.stem, links))
     (track_dir / "model.xml").write_text(emit3d.mjcf(c.video.stem, links, np.zeros(3), (c.w, c.h)))
