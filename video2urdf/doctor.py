@@ -175,7 +175,8 @@ def diagnose(urdf: Path, run: Path, joint_log: np.ndarray | None = None, opening
     um, mm = load(urdf), mujoco.MjModel.from_xml_path(str(run / "model.xml"))
     ud, md = mujoco.MjData(um), mujoco.MjData(mm)
     uj, mj = hinge(um), hinge(mm)
-    h = json.loads((run / "hinge.json").read_text())
+    from .lidar import read_hinge
+    h = read_hinge(run)  # axis and q in the model's sense (a door's model turns its axis up)
 
     # The measured joint's opening (0 = closed) from its q, whose sign follows the fitted axis.
     q_meas = np.array([np.nan if v is None else v for v in h["q"]])
