@@ -291,6 +291,20 @@ class ReferenceFrameTest(unittest.TestCase):
                 "indicator": {0: Mask(base), 1: Mask(base)}}
         self.assertEqual(c.ref_with("base", "plate", open_indicator="indicator"), 1)
 
+    def test_reference_failure_says_why(self):
+        # a trash bin whose base candidate is the whole bin: the open lid lies inside it everywhere
+        c = object.__new__(Capture)
+        c.h = c.w = 20
+        c.moving_camera = True
+        bin_ = np.zeros((20, 20), bool)
+        bin_[2:19, 2:18] = True
+        lid = np.zeros((20, 20), bool)
+        lid[3:8, 4:16] = True
+        c.by = {"base": {0: Mask(bin_), 1: Mask(bin_)}, "plate": {0: Mask(lid), 1: Mask(lid)},
+                "indicator": {0: Mask(lid), 1: Mask(lid)}}
+        with self.assertRaisesRegex(ValueError, "inside the base's on 2.*segment only the base's own surface"):
+            c.ref_with("base", "plate", open_indicator="indicator")
+
     def test_warns_when_base_is_only_a_fragment(self):
         c = object.__new__(Capture)
         c.h = c.w = 20

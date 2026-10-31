@@ -207,28 +207,45 @@ class Capture:
             both = {t for t in both if self.by[base][t].area >= well_seen} or both
         if base != plate:
             def unsuitable(t):
+                """Why frame t can't be the reference (None if it can)."""
                 if t not in self.by[plate]:
-                    return False
+                    return None
                 a = self.by[plate][t].full_mask(self.h, self.w)
                 if closed and closed != plate and t in self.by.get(closed, {}):
                     b = self.by[closed][t].full_mask(self.h, self.w)
                     if (a & b).sum() > 0.8 * (a | b).sum():
-                        return True
+                        return "closed"
                 if self.moving_camera and t in self.by[base] and a.any():
                     base_mask = self.by[base][t].full_mask(self.h, self.w)
                     if (a & base_mask).sum() > 0.5 * a.sum():
-                        return True
+                        return "plate in base"
                     if base_mask.any() and (a & base_mask).sum() > 0.5 * base_mask.sum():
-                        return True  # the plate track has swallowed the base
-                return False
+                        return "base in plate"  # the plate track has swallowed the base
+                return None
             # largest first; skip shut ones (checking masks is slow, so stop at the first open one)
             part = self.by[plate] if set(self.by[plate]) & both else self.by[base]
+            reasons = {"closed": 0, "plate in base": 0, "base in plate": 0}
             for t in sorted(both, key=lambda t: -part[t].area):
-                if not unsuitable(t):
+                reason = unsuitable(t)
+                if reason is None:
                     return t
+                reasons[reason] += 1
             if open_indicator:
-                raise ValueError("No open-indicator frame has a suitable plate and base mask; "
-                                 "inspect the tracked parts before fitting the hinge.")
+                worst = max(reasons, key=reasons.get)
+                advice = {
+                    "closed": f"the plate track sits on {closed} even while the object is open: re-anchor the "
+                              "plate on open frames",
+                    "plate in base": f"the {base} mask holds the plate (the whole object, lid included): segment "
+                                     "only the base's own surface (a body wall, rim or keyboard) on an open frame "
+                                     "and re-track the base",
+                    "base in plate": f"the {plate} mask holds the base: re-anchor the plate on open frames "
+                                     "with a candidate that covers the plate alone"}[worst]
+                shut = f"is {closed}'s on {reasons['closed']}, " if closed else ""
+                raise ValueError(
+                    f"No open-indicator frame has a suitable plate and base mask: of the {len(both)} frames "
+                    f"showing {base}, {plate} and {open_indicator}, the plate's mask {shut}lies inside the base's "
+                    f"on {reasons['plate in base']} and holds the base on {reasons['base in plate']}. "
+                    f"Most likely {advice}; then fit again.")
         if not both:
             raise ValueError(f"neither {base} nor {plate} is tracked with a usable mask")
         part = self.by[plate] if set(self.by[plate]) & both else self.by[base]
