@@ -47,6 +47,8 @@
         transition: color .15s, background .15s, border-color .15s; }
 .copy:hover { color: #fff; background: rgba(143, 176, 255, .14); }
 .copy svg { width: 14px; height: 14px; }
+.cmd .nw { white-space: nowrap; }
+@media (max-width: 640px) { .cmd .copy span { display: none; } .cmd .copy { padding: 9px; } }
 .copy.done { color: var(--green); border-color: rgba(70, 220, 158, .45); }
 .cmd-note { font-size: 13px; color: var(--ink-3); margin: 10px 2px 28px; }
 .ctas { display: flex; gap: 12px; flex-wrap: wrap; }
