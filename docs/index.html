@@ -25,7 +25,12 @@
          font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
   header { padding: 20px 16px 8px; max-width: 1280px; margin: 0 auto; }
   h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  .titlebar { display: flex; align-items: baseline; gap: 6px 18px; flex-wrap: wrap; }
+  .titlebar nav { display: flex; gap: 14px; font-size: 14px; }
+  .titlebar a, .tagline a { color: var(--accent); text-decoration: none; }
+  .titlebar a:hover, .tagline a:hover { text-decoration: underline; }
   .tagline { color: var(--muted); margin: 2px 0 12px; }
+  .tagline a { font-weight: 600; }
   .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
   .tabs button, .seg button {
     border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px;
@@ -71,8 +76,16 @@
 </head>
 <body>
 <header>
-  <h1>Video2URDF</h1>
-  <p class="tagline">Turn a video of an object into an approximate 3D model for a robot.</p>
+  <div class="titlebar">
+    <h1>Video2URDF</h1>
+    <nav aria-label="Project">
+      <a href="demo.mp4">Demo video</a>
+      <a href="https://github.com/SungHyunC/video2urdf">Code and results on GitHub</a>
+    </nav>
+  </div>
+  <p class="tagline">A phone video of an object in, a URDF/MJCF with its joints measured from that video out.
+    Pick an object, then press <a href="#" data-video="replay">Model over video</a> or
+    <a href="#" data-video="robot">Robot uses it</a>.</p>
   <nav class="tabs" id="tabs" aria-label="Objects"></nav>
 </header>
 <main>
@@ -470,6 +483,10 @@ function setFollow(on) {
   $("follow").setAttribute("aria-pressed", String(on));
 }
 $("follow").onclick = () => setFollow(!follow);
+for (const a of document.querySelectorAll("[data-video]")) a.onclick = (e) => {  // the header's links press a video tab
+  e.preventDefault();
+  $("videoTabs").querySelector(`[data-key="${a.dataset.video}"]`)?.click();
+};
 
 function tick() {
   requestAnimationFrame(tick);

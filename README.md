@@ -3,8 +3,10 @@
 **One short video of a real articulated object in, a measured URDF/MJCF out, and a MuJoCo
 replay over the video that shows the model moves like the real thing.**
 
+![An iPhone LiDAR video of a laptop being closed, next to the measured model replayed over the same frames; then a simulated Franka Panda closing the measured laptop](docs/media/hero.gif)
+
 Robotics developers who need a simulation model of a real object (a laptop lid, a desk lamp,
-a drawer, a box flap) usually model it by hand: guess the hinge, guess the limits, tweak until
+a drawer, a microwave door) usually model it by hand: guess the hinge, guess the limits, tweak until
 it looks right. Video2URDF measures it instead. Film the object being opened and closed; a
 Muse Spark agent finds the parts with SAM 3.1, tracks them, fits each joint by least squares,
 writes URDF and MJCF, replays the model in MuJoCo from the camera's own viewpoint and checks
@@ -16,6 +18,16 @@ repository was written during the hackathon; see [Built on](#built-on) for what 
 **Demo video (2:51):** [docs/demo.mp4](docs/demo.mp4) · https://sunghyunc.github.io/video2urdf/demo.mp4  
 **Live viewer:** https://sunghyunc.github.io/video2urdf/ (the phone video, the MuJoCo replay over it,
 the robot demo, and the measured model in 3D with its URDF/MJCF).
+
+**Where to look**
+- **The 3-minute demo** (link above): the pipeline on real objects, start to finish.
+- **The viewer**: pick an object, then *Model over video* and *Robot uses it*; under the 3D view, the
+  URDF/MJCF downloads and *How the Meta models built this model, turn by turn* (every turn and image).
+- **The agent correcting itself**: [the side-view laptop's turn log](https://sunghyunc.github.io/video2urdf/#notebook)
+  (base lost on 89 of 408 frames: re-segmented, re-tracked, refit) and [the finish gate](#the-agent-cant-finish-over-its-own-warnings).
+- **Results**: [at a glance](#at-a-glance) · [RBO motion-capture benchmark](#benchmark-rbo-dataset-real-rgb-d-with-motion-capture) · [five fresh runs per object](#five-fresh-runs-per-object-and-three-objects-it-had-never-seen)
+- **Open weights only**: [the exact commands](#open-weights-only-for-the-open-weight-prize-check) and [what they gave](#open-weights-only).
+- **URDF Doctor**: [checking an existing URDF against a video](#urdf-doctor-checking-an-existing-urdf-against-the-video).
 
 ## At a glance
 
@@ -56,11 +68,11 @@ Spark Open and SAM weights, `--glimmer` on Muse Glimmer 30B served by us.
 | Office drawer, iPhone LiDAR | pulls out 248 mm | hand fit 253 |
 | LED desk lamp, iPhone LiDAR, 2 rods | Spark judged the pole's motion depth noise; refit with it fixed (our step): arm 380 mm, 2..89 deg | video |
 | Shape design, three Meta models per round | lamp: best of three 0.62 / 0.63 per round, Muse Spark alone 0.60 / 0.62 (mask F-score) | measured meshes 0.69 |
-| Robot tasks on the measured models | 6 of 6: lids closed and reopened, drawer out 199 mm and back (cabinet collision on), lamp arms swung, mouse carried and turned | joint values reached in physics |
+| Robot tasks on the measured models | 7 of the viewer's 8: lids closed and reopened, drawer out 199 mm and back (cabinet collision on), lamp arms swung, mouse and AirPods case carried and turned; none for the microwave door yet (the lid task misses it) | joint values reached in physics |
 | A drawer-opening policy learned on the measured drawer (PPO, trained on Modal) | 99/100 held-out placements; 19/20 unseen starts on the full Panda arm; 98% of the travel made pinching the handle | random actions 0/100 |
 | The unseen back of a microwave in a shelf | front measured (477 x 269 mm), depth bounded by the video (334-387 mm), the rest from Muse Spark (a Samsung 23 L): 477 x 365 x 269 mm with its cavity | measured front, video bound |
 | SAM tracking, 1385 frames, 4 parts | 520 s -> 285 s, masks IoU 0.97-0.995 | previous pipeline |
-| Scale for plain video | card x0.75 (8 frames agree); object's usual size x1.01 | expected 1.0 |
+| Scale for plain video (MapAnything depth) | an ID-1 card: x0.75 on the side-view laptop, steady over 8 frames; the object's usual size: x1.01 on the laptop's RGB, already at LiDAR scale | 1.0 expected on the latter |
 
 ## Reproduce it
 
@@ -89,8 +101,9 @@ checks' status), `agent/log.md` (every turn and image the model saw).
 What to expect: the open-weights command, run from a fresh clone on 10/31 (Muse Spark Open on
 Baseten, SAM weights on Modal, shape design included), gave a lid of 306 x 213 mm (spec
 304 x 212), base 10 mm, the replay covering 96% / 93% of the lid's and base's masks, and status
-`needs_review`: on every laptop run the screen track slides onto the lid's back as it shuts,
-which the fit flags. Runs vary; three Meta API runs gave lids of 304 to 316 mm.
+`needs_review`: the screen track slid onto the lid's back as it shut, which that version of the
+checks flagged; that case has been an informational line since, so a run today can also end
+`checks_passed`. Runs vary; three Meta API runs gave lids of 304 to 316 mm.
 
 ## What it does
 
@@ -456,7 +469,8 @@ uv sync --extra rl
   and capped by depth: 121 x 75 x 55 mm (MX Master 3S: 125 x 84 x 51).
 - **The robot uses the model**: a Franka Panda in MuJoCo physics closes and reopens the laptop
   lid (87 deg), pulls the drawer out by its handle with the cabinet's measured collision on
-  (199 mm) and pushes it back, swings the lamp's arm (40 deg), and carries and turns the mouse.
+  (199 mm) and pushes it back, swings the lamp's arm (40 deg), and carries and turns the mouse
+  and the AirPods case. The microwave's door has no robot task yet: the lid task misses it.
 - **Speed and scale**: SAM tracking of 1385 frames went from 520 s to 285 s (both passes at
   once, strided on fast video); plain videos get a metric scale from an ID-1 card or from the
   object's usual size.
@@ -530,17 +544,34 @@ video once, structured output; `--reuse` re-applies the saved estimate).
 
 ### Open weights only (for the Open Weight prize check)
 
+With `--open-weights` every model call goes to open weights: Muse Spark Open on Baseten (the agent,
+its physics judgement and the shape design; also on Fireworks when `FIREWORKS_API_KEY` is set) and
+SAM 3.1 / SAM 3 weights in your own Modal workspace. The Meta Model API is not called, so
+`MODEL_API_KEY` can stay empty.
+
 ```bash
-# 1. Muse Spark Open on Baseten: put BASETEN_API_KEY in .env.
-# 2. SAM on your own Modal GPU: accept the SAM License on huggingface.co/facebook/sam3.1
-#    and huggingface.co/facebook/sam3, then
-.venv/bin/modal setup
-.venv/bin/modal secret create huggingface HF_TOKEN=hf_...
-.venv/bin/modal deploy modal_apps/sam3_open.py
-.venv/bin/python scripts/check_sam_open.py --e2e          # synthetic lamp vs the hosted tracks
-# 3. Run everything on open weights:
+# 0. The sample capture in data/real/laptop_lidar (see "Reproduce it" above).
+# 1. Muse Spark Open: BASETEN_API_KEY in .env. A Baseten workspace that lists the model as
+#    meta-models/muse-spark-open (not ...-1026) also needs BASETEN_MODEL=meta-models/muse-spark-open.
+.venv/bin/python scripts/smoke_test.py   # look for "[PASS] baseten chat"; lines for keys you don't have fail, fine here
+# 2. SAM weights on your Modal account. On Hugging Face, request access to facebook/sam3.1 and
+#    facebook/sam3 (SAM License), wait until both are granted, and make a read token.
+.venv/bin/modal setup                                       # browser login; token in ~/.modal.toml
+.venv/bin/modal secret create huggingface HF_TOKEN=hf_...   # the secret the Modal app reads
+.venv/bin/modal deploy modal_apps/sam3_open.py              # the first build takes minutes; ends with "App deployed"
+# 3. Everything on open weights. The first SAM call downloads the 3.5 GB checkpoint into the
+#    sam3-weights volume (once).
 .venv/bin/python scripts/run_agent.py data/real/laptop_lidar --open-weights --out data/tracks_open
 ```
+
+When it works, the run first names the model it runs (`model meta-models/muse-spark-open-1026`), then each turn
+(`segment`, `track`, `fit_lidar`, `watch`, `set_physics`, `finish`), then `=== report ===`, whose
+first line is the automatic checks' status, then `Shape design: <object>, applied` (or `not
+applied` when the design scores below the measured meshes). The SAM calls show on modal.com under
+the app `video2urdf-sam3-open`. The files land in `data/tracks_open/laptop_lidar/` (listed under
+[Reproduce it](#reproduce-it), with the numbers to expect). `scripts/check_sam_open.py` checks the
+mask wire format locally (`RLE ok: ...`); its `--e2e` mode compares the deployed SAM with the
+hosted API's tracks of the synthetic lamp, so it needs a hosted run first (`data/tracks/lamp/`).
 
 `--sam api` keeps the hosted segmenter while reasoning runs on open weights. The Modal app
 scales to zero after 2 idle minutes (A10G, about $0.05-0.10 per video).
@@ -557,8 +588,20 @@ it is up; stop it when done):
 .venv/bin/modal endpoint stop glimmer --yes
 ```
 
-Locally, Glimmer runs under vLLM, SGLang, llama.cpp (`meta-models/Muse-Glimmer-30B-GGUF`) or
-LM Studio with 24 GB+ of VRAM; point `AGENT_BASE_URL`/`AGENT_MODEL` at it.
+Any other OpenAI-compatible server works the same way: Glimmer under vLLM, SGLang, llama.cpp's
+`llama-server` (`meta-models/Muse-Glimmer-30B-GGUF`) or LM Studio, with 24 GB+ of VRAM. Point the
+agent at it without `--open-weights` (that flag selects Baseten) and keep SAM on your Modal app:
+
+```bash
+# AGENT_MODEL: the name your server serves the model under; LOCAL_KEY: any value unless the server checks keys
+export LOCAL_KEY=none AGENT_API_KEY_ENV=LOCAL_KEY AGENT_BASE_URL=http://localhost:8000/v1 \
+       AGENT_MODEL=muse-glimmer-30b AGENT_VIDEO=0 AGENT_MAX_IMAGES=8
+.venv/bin/python scripts/run_agent.py data/real/laptop_lidar --sam open --out data/tracks_local
+```
+
+`AGENT_VIDEO=0` sends frames instead of mp4 video, for servers that drop video (our Glimmer
+endpoint does). With `BASETEN_API_KEY` or `FIREWORKS_API_KEY` set, the shape design (here and with
+`--glimmer`) also asks Spark Open there; add `--no-design` to keep every call on your own server.
 
 ### More commands
 
