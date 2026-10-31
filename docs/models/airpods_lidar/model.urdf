@@ -1,0 +1,96 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="airpods_lidar">
+  <link name="base">
+    <visual name="design_base_0">
+      <origin xyz="0.00000 0.00000 0.00000" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <mesh filename="meshes/design_base_0.stl" />
+      </geometry>
+      <material name="design_base_0_color">
+        <color rgba="0.88000 0.88000 0.89000 1" />
+      </material>
+    </visual>
+    <visual name="design_base_1">
+      <origin xyz="0.02800 0.02000 0.01500" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <box size="0.01200 0.00900 0.00350" />
+      </geometry>
+      <material name="design_base_1_color">
+        <color rgba="0.12000 0.12000 0.13000 1" />
+      </material>
+    </visual>
+    <visual name="design_base_2">
+      <origin xyz="-0.02800 0.02000 0.01500" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <box size="0.01200 0.00900 0.00350" />
+      </geometry>
+      <material name="design_base_2_color">
+        <color rgba="0.12000 0.12000 0.13000 1" />
+      </material>
+    </visual>
+    <visual name="design_base_3">
+      <origin xyz="0.02800 -0.02000 0.01500" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <box size="0.01200 0.00900 0.00350" />
+      </geometry>
+      <material name="design_base_3_color">
+        <color rgba="0.12000 0.12000 0.13000 1" />
+      </material>
+    </visual>
+    <visual name="design_base_4">
+      <origin xyz="-0.02800 -0.02000 0.01500" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <box size="0.01200 0.00900 0.00350" />
+      </geometry>
+      <material name="design_base_4_color">
+        <color rgba="0.12000 0.12000 0.13000 1" />
+      </material>
+    </visual>
+    <visual name="design_base_5">
+      <origin xyz="0.00000 -0.02300 0.01400" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <box size="0.01800 0.00600 0.00180" />
+      </geometry>
+      <material name="design_base_5_color">
+        <color rgba="0.12000 0.12000 0.13000 1" />
+      </material>
+    </visual>
+    <visual name="design_base_6">
+      <origin xyz="0.00000 0.02400 0.00000" rpy="0.00000 0.00000 0.00000" />
+      <geometry>
+        <box size="0.01200 0.00300 0.00220" />
+      </geometry>
+      <material name="design_base_6_color">
+        <color rgba="0.12000 0.12000 0.13000 1" />
+      </material>
+    </visual>
+    <visual name="design_base_7">
+      <origin xyz="-0.00300 0.02750 0.00000" rpy="1.57080 0.00000 0.86217" />
+      <geometry>
+        <box size="0.00922 0.00250 0.00220" />
+      </geometry>
+      <material name="design_base_7_color">
+        <color rgba="0.12000 0.12000 0.13000 1" />
+      </material>
+    </visual>
+    <visual name="design_base_8">
+      <origin xyz="0.00300 0.02750 0.00000" rpy="1.57080 0.00000 -0.86217" />
+      <geometry>
+        <box size="0.00922 0.00180 0.00220" />
+      </geometry>
+      <material name="design_base_8_color">
+        <color rgba="0.75000 0.76000 0.78000 1" />
+      </material>
+    </visual>
+    <inertial>
+      <origin xyz="-5.95975e-05 -0.000180475 -0.000968329" rpy="0.205314 -1.56716 2.94268" />
+      <mass value="0.06" />
+      <inertia ixx="3.22802e-05" ixy="0" ixz="0" iyy="2.58642e-05" iyz="0" izz="1.80329e-05" />
+    </inertial>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/static_object.stl" />
+      </geometry>
+    </collision>
+  </link>
+</robot>
