@@ -201,8 +201,9 @@ def base_points(c, base: str, ref: int, candidates: int = 60) -> tuple[np.ndarra
 
 def floor_plane(c, floor: str | None, ref: int, up: np.ndarray, rng, search: int = 300):
     """The floor's plane as (unit normal along ``up``, offset d with n.x = d, frame): fitted on the
-    frame nearest the reference that shows it with depth. None when it is never seen with depth
-    there or is more than 15 deg off level (another surface)."""
+    frame nearest the reference that shows it with depth and level (within 15 deg of gravity: a
+    tilted fit is the track on another surface there). None when no frame of the ``search``
+    nearest does."""
     if not floor:
         return None
     for t in sorted(c.by.get(floor, {}), key=lambda t: abs(t - ref))[:search]:
@@ -212,9 +213,8 @@ def floor_plane(c, floor: str | None, ref: int, up: np.ndarray, rng, search: int
         nf, df, _ = fit_plane(pts, rng)
         if nf @ up < 0:
             nf, df = -nf, -df
-        if np.rad2deg(np.arccos(np.clip(nf @ up, -1, 1))) >= 15:
-            return None
-        return nf, float(df), t
+        if np.rad2deg(np.arccos(np.clip(nf @ up, -1, 1))) < 15:
+            return nf, float(df), t
     return None
 
 

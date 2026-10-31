@@ -75,6 +75,15 @@ class FloorPlaneTest(unittest.TestCase):
         c = FakeCapture({"floor": {0: Det()}}, {"floor": {0: self.plane_points(tilted, 0.5)}})
         self.assertIsNone(floor_plane(c, "floor", 0, np.array([0, -1.0, 0]), np.random.default_rng(0)))
 
+    def test_skips_frames_where_the_track_is_on_another_surface(self):
+        up = np.array([0, -1.0, 0])
+        c = FakeCapture({"floor": {10: Det(), 30: Det()}},
+                        {"floor": {10: self.plane_points(np.array([0, -1.0, 0.6]), 0.5),
+                                   30: self.plane_points(np.array([0, 1.0, 0]), 0.9)}})
+        n, d, t = floor_plane(c, "floor", ref=12, up=up, rng=np.random.default_rng(0))
+        self.assertEqual(t, 30)
+        self.assertGreater(n @ up, 0.999)
+
     def test_no_floor(self):
         self.assertIsNone(floor_plane(FakeCapture({}, {}), None, 0, np.array([0, 0, 1.0]), np.random.default_rng(0)))
 
