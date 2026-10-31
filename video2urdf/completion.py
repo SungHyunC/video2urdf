@@ -769,6 +769,49 @@ def measure_front(run: Run, views: dict, front: "Front", depth: np.ndarray, whol
     return out
 
 
+def seen_inside(run: Run, depth: np.ndarray, front: "Front", u_range, z_range, max_frames: int = 40) -> dict:
+    """How deep the inside reaches, from the depth points inside the open-indicator part (a
+    microwave's lit cavity) on open frames: its back wall, measured. Each frame's points are taken
+    relative to that frame's own front (the median depth of the body's points near the front
+    plane), so the camera's drift along the depth cancels."""
+    part = run.roles.get("open_indicator")
+    frames = sorted(run.by.get(part, {})) if part else []
+    out = {"depth_m": None, "frames": 0, "points": 0}
+    if not frames:
+        out["why_not"] = "no open-indicator part was tracked"
+        return out
+    pts, used = [], []
+    for t in frames[:: max(1, len(frames) // max_frames)]:
+        p = front.uvz(run.world_points(t, run.mask("open_indicator", t), depth))
+        ref = 0.0
+        if run.has("base", t):
+            b = front.uvz(run.world_points(t, run.mask("base", t), depth))
+            b = b[np.abs(b[:, 1]) < 0.05]
+            if len(b) >= 100:
+                ref = float(np.median(b[:, 1]))
+        p[:, 1] -= ref
+        p = p[(p[:, 0] > u_range[0]) & (p[:, 0] < u_range[1]) & (p[:, 2] > z_range[0]) & (p[:, 2] < z_range[1])
+              & (p[:, 1] > 0)]
+        if len(p) >= 50:
+            pts.append(np.c_[p, np.full(len(p), t)])
+            used.append(t)
+    if not pts:
+        out["why_not"] = "no depth points inside it"
+        return out
+    pts = np.vstack(pts)
+    back = float(np.percentile(pts[:, 1], 97))
+    wall = pts[np.abs(pts[:, 1] - back) < 0.015]
+    out.update({"frames": len(used), "points": int(len(pts)), "back_wall_points": int(len(wall)),
+                "back_wall_frames": int(len(set(wall[:, 3].astype(int)))) if len(wall) else 0})
+    if len(wall) < 100 or out["back_wall_frames"] < 3:
+        out["why_not"] = "its back wall isn't seen on enough frames"
+        return out
+    out["depth_m"] = back
+    out["back_wall_u_m"] = [float(x) for x in np.percentile(wall[:, 0], [5, 95])]
+    out["back_wall_z_m"] = [float(x) for x in np.percentile(wall[:, 2], [5, 95])]
+    return out
+
+
 def background_wall(run: Run, views: dict, front: "Front", depth: np.ndarray, masks: dict, u_range, z_top: float) -> dict:
     """The surface seen right above the object's top, behind its front (in a ring around its
     masks, over its width, up to 15 cm above its top). If it is one near-vertical plane facing the
@@ -940,12 +983,15 @@ def _number(entry, key: str = "value") -> float | None:
 
 
 def resolve_dims(geometry: dict, bounds: dict, answer: dict | None, model: str | None, category: str | None,
-                 defaults: dict) -> dict:
-    """The hidden sizes, each with where it came from: Muse Spark's estimate if usable, else the
-    category default; then clamped to what the measurements and the video allow. ``geometry``
-    holds the measured front (width_m, height_m), the pocket the door needs (pocket_u, pocket_z,
-    pocket_v) and ``bounds`` the depth limits (lower_m, upper_m, with what set them)."""
+                 defaults: dict, measured: dict | None = None) -> dict:
+    """The hidden sizes, each with where it came from: measured if the video saw it (``measured``:
+    {dim: (value_m, why)}, e.g. a cavity's depth seen through the open door), else Muse Spark's
+    estimate if usable, else the category default; then clamped to what the measurements and the
+    video allow. ``geometry`` holds the measured front (width_m, height_m), the pocket the door
+    needs (pocket_u, pocket_z, pocket_v) and ``bounds`` the depth limits (lower_m, upper_m, with
+    what set them)."""
     answer = answer or {}
+    measured = measured or {}
     width, height = geometry["width_m"], geometry["height_m"]
     pu, pz, pv = geometry["pocket_u"], geometry["pocket_z"], geometry["pocket_v"]
     open_w, open_h = (pu[1] - pu[0]) - 2 * FRAME_MARGIN_M, (pz[1] - pz[0]) - 2 * FRAME_MARGIN_M
@@ -961,6 +1007,11 @@ def resolve_dims(geometry: dict, bounds: dict, answer: dict | None, model: str |
     def pick(dim: str, fallback: float | None):
         entry = answer.get(f"{dim}_mm")
         v = _number(entry)
+        if dim in measured:
+            value, why = measured[dim]
+            return {"value_m": float(value), "source": "measured", "model": None, "range_m": None, "reason": why,
+                    "estimate_m": None if v is None else v / 1000,
+                    "estimate_source": "Muse Spark" if v is not None else None}
         if v is not None:
             rng = entry.get("range") if isinstance(entry, dict) else None
             rng = [float(x) / 1000 for x in rng] if isinstance(rng, list) and len(rng) == 2 and all(
@@ -1400,11 +1451,18 @@ def not_measured_lines(name: str, dims: dict, front: dict, bounds: dict) -> list
         line += f" and at least {_mm(bounds['lower_m'])} mm ({bounds['lower_why']})"
     lines.append(line + ".")
     if dims.get("has_cavity") and "cavity_width" in dims:
-        srcs = {dims[k]["source"] for k in ("cavity_width", "cavity_height", "cavity_depth", "wall_thickness")}
+        names = {"cavity_width": "width", "cavity_height": "height", "cavity_depth": "depth", "wall_thickness": "walls"}
+        measured = [names[k] for k in names if dims[k]["source"] == "measured"]
+        estimated = [names[k] for k in names if dims[k]["source"] != "measured"]
+        srcs = {dims[k]["source"] for k in names if dims[k]["source"] != "measured"}
         who = "Muse Spark's estimates" if srcs == {"Muse Spark"} else "estimates (" + ", ".join(sorted(srcs)) + ")"
-        lines.append(f"The cavity behind the door ({_mm(dims['cavity_width']['value_m'])} x "
-                     f"{_mm(dims['cavity_height']['value_m'])} x {_mm(dims['cavity_depth']['value_m'])} mm) and its walls "
-                     f"are {who}, kept behind the door's measured outline.")
+        line = (f"The cavity behind the door is {_mm(dims['cavity_width']['value_m'])} x "
+                f"{_mm(dims['cavity_height']['value_m'])} x {_mm(dims['cavity_depth']['value_m'])} mm: its "
+                + ", ".join(estimated) + f" are {who}, kept behind the door's measured outline")
+        if measured:
+            line += "; its " + ", ".join(measured) + " is measured (" + dims[
+                next(k for k in names if dims[k]["source"] == "measured")]["reason"] + ")"
+        lines.append(line + ".")
     m = dims["mass"]
     lines.append(f"The body's mass ({m['value_kg']:.1f} kg) is " +
                  ("Muse Spark's estimate." if m["source"] == "Muse Spark" else f"a typical value ({m['source']})."))
@@ -1484,6 +1542,15 @@ def complete_body(run_dir: Path, video: Path, capture: Path, log=print, spark: b
         lower_why = None
     bounds = {"silhouette": sil, "wall": meas["background"], "lower_m": sil["lower_m"], "lower_why": lower_why,
               "upper_m": None, "upper_why": None}
+    inside = seen_inside(run, depth, front, (u0, u1), (zf, zt))
+    bounds["inside"] = inside
+    if inside["depth_m"] is not None:
+        log(f"inside: the open-indicator part's back wall is {_mm(inside['depth_m'])} mm behind the front "
+            f"({inside['back_wall_points']} depth points on {inside['back_wall_frames']} open frames)")
+        if bounds["lower_m"] is None or inside["depth_m"] + MIN_WALL_M > bounds["lower_m"]:
+            bounds["lower_m"] = inside["depth_m"] + MIN_WALL_M
+            bounds["lower_why"] = (f"the back of the inside, seen through the open door, is {_mm(inside['depth_m'])} mm "
+                                   "behind the front, plus a wall")
     choices = []
     if sil["upper_m"] is not None:
         s = sil_by[upper_mode]
@@ -1547,7 +1614,11 @@ def complete_body(run_dir: Path, video: Path, capture: Path, log=print, spark: b
         if t_open in images:
             shown.append(images[t_open])
     seen = (f"- seen behind the front: {_mm(meas['seen_depth_m'])} mm (depth points on its top or sides)"
-            if meas["seen_depth_m"] else "- nothing behind the front was measured (no depth points on its top or sides)")
+            if meas["seen_depth_m"] else "- no depth points on its top or sides")
+    if inside["depth_m"] is not None:
+        seen += (f"\n- seen through the open door: the back of the inside is {_mm(inside['depth_m'])} mm behind the front "
+                 f"(the visible part of that back wall spans {_mm(np.ptp(inside['back_wall_u_m']))} x "
+                 f"{_mm(np.ptp(inside['back_wall_z_m']))} mm)")
     bound_text = (f"the body is at most {_mm(bounds['upper_m'])} mm deep ({bounds['upper_why']})"
                   if bounds["upper_m"] else "no limit (the camera never saw past the front)")
     if bounds["lower_m"]:
@@ -1567,7 +1638,12 @@ def complete_body(run_dir: Path, video: Path, capture: Path, log=print, spark: b
         category, defaults = category_of(name)
     geometry = {"width_m": meas["width_m"], "height_m": meas["height_m"], "pocket_u": pocket_geom["u"],
                 "pocket_z": pocket_geom["z"], "pocket_v": pocket_geom["v"]}
-    dims = resolve_dims(geometry, bounds, answer, est.get("model"), category, defaults)
+    measured_dims = {}
+    if inside["depth_m"] is not None and inside["depth_m"] - pocket_geom["v"] >= MIN_CAVITY_M:
+        measured_dims["cavity_depth"] = (inside["depth_m"] - pocket_geom["v"],
+                                         f"its back wall, seen through the open door on {inside['back_wall_frames']} frames, "
+                                         f"is {_mm(inside['depth_m'])} mm behind the front (less the door's pocket)")
+    dims = resolve_dims(geometry, bounds, answer, est.get("model"), category, defaults, measured=measured_dims)
 
     # 4. build
     d = dims["outer_depth"]["value_m"]
@@ -1691,7 +1767,7 @@ def complete_body(run_dir: Path, video: Path, capture: Path, log=print, spark: b
         },
         "bounded": {"upper_mm": None if bounds["upper_m"] is None else 1000 * bounds["upper_m"], "upper_why": bounds["upper_why"],
                     "lower_mm": None if bounds["lower_m"] is None else 1000 * bounds["lower_m"], "lower_why": bounds["lower_why"],
-                    "silhouette": sil, "wall": meas["background"], "dilate_px": edge},
+                    "silhouette": sil, "wall": meas["background"], "inside": inside, "dilate_px": edge},
         "estimated": {"model": est.get("model"), "base_url": est.get("base_url"), "answer": answer,
                       "error": est.get("error"), "dims": dims},
         "built": {"boxes": boxes, "liners": liners, "pocket": pocket, "cavity": cavity, "outer_depth_mm": 1000 * d,

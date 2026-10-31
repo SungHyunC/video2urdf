@@ -163,6 +163,19 @@ class ResolveDimsTest(unittest.TestCase):
         self.assertAlmostEqual(dims["cavity_width"]["value_m"], open_w)
         self.assertIn("clamped", dims["cavity_height"])
 
+    def test_a_measured_cavity_depth_wins_over_the_estimate(self):
+        answer = {"outer_depth_mm": {"value": 370}, "cavity_depth_mm": {"value": 250}}
+        dims = C.resolve_dims(GEOMETRY, {"upper_m": 0.39, "upper_why": "wall"}, answer, "spark",
+                              *C.category_of("microwave"), measured={"cavity_depth": (0.30, "seen through the door")})
+        cd = dims["cavity_depth"]
+        self.assertEqual(cd["source"], "measured")
+        self.assertAlmostEqual(cd["value_m"], 0.30)
+        self.assertAlmostEqual(cd["estimate_m"], 0.25)  # Spark's estimate is kept in the record
+        # a measured value that can't fit the body is still clamped to it
+        dims = C.resolve_dims(GEOMETRY, {"upper_m": 0.2, "upper_why": "silhouette"}, answer, "spark",
+                              *C.category_of("microwave"), measured={"cavity_depth": (0.30, "seen")})
+        self.assertLessEqual(dims["cavity_depth"]["value_m"], 0.2 - GEOMETRY["pocket_v"])
+
     def test_a_lower_bound_above_the_upper_keeps_the_lower(self):
         dims = C.resolve_dims(GEOMETRY, {"upper_m": 0.1, "upper_why": "silhouette", "lower_m": 0.2, "lower_why": "seen"},
                               {"outer_depth_mm": {"value": 300}}, "spark", *C.category_of("microwave"))
