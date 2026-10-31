@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT))
 from video2urdf.pipeline import video_info  # noqa: E402
 
 WEB_HEIGHT = 720  # px, long videos are scaled so their shorter side is at most this
+POLICY_DIR = ROOT / "data" / "policies" / "drawer_ppo_honest"  # scripts/run_drawer_policy.py's default --policy
 
 
 def floats(s: str | None, default):
@@ -104,6 +105,25 @@ def web_video(src: Path, dst: Path, crf: int = 30):
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-vf", vf, "-an", "-c:v", "libx264",
                     "-preset", "slow", "-crf", str(crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart",
                     str(dst)], check=True)
+
+
+def policy_note(policy_dir: Path = POLICY_DIR) -> str | None:
+    """Caption for robot_policy.mp4 (scripts/run_drawer_policy.py), from the policy's own tests:
+    held-out placements in the training simulation (result.json) and unseen start poses on the
+    full arm (arm_eval_cartesian.json)."""
+    try:
+        sim = json.loads((policy_dir / "result.json").read_text())
+        arm = json.loads((policy_dir / "arm_eval_cartesian.json").read_text())["summary"]
+        test = sim["test_policy"]
+        n_sim, n_arm = test["episodes"], arm["episodes"]
+        return (f"A PPO policy trained in MuJoCo on this measured drawer ({sim['steps'] / 1e6:.0f}M steps) opens it "
+                f"(out at least 150 mm while pinching the handle) on {round(test['success_rate'] * n_sim)}/{n_sim} "
+                f"held-out placements in simulation and {round(arm['success_rate'] * n_arm)}/{n_arm} unseen start "
+                f"poses on the full Panda arm under Cartesian impedance control. "
+                f"{100 * arm['held_share_of_travel']:.0f}% of the drawer's travel happens while the fingers pinch "
+                "the handle. Simulation only: it has not run on a real robot.")
+    except (OSError, KeyError, TypeError, ValueError):
+        return None
 
 
 def front(model_xml: Path) -> list[float] | None:
@@ -193,12 +213,15 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
     replay_sources = ([experimental_replay] if (run / "experimental_alignment.json").exists() else []) + [run / "replay3d.mp4", run / "replay.mp4"]
     replay_experimental = False
     for key, src in (("phone", video), *(("replay", p) for p in replay_sources),
-                     ("robot", run / "robot_demo.mp4"), ("physics", run / "physics_demo.mp4")):
+                     ("robot", run / "robot_demo.mp4"), ("policy", run / "robot_policy.mp4"),
+                     ("physics", run / "physics_demo.mp4")):
         if key not in videos and src.exists():
             web_video(src, dst / f"{key}.mp4")
             videos[key] = f"{key}.mp4"
             if key == "replay":
                 replay_experimental = src == experimental_replay
+    note = policy_note() if "policy" in videos else None
+    video_notes = {"policy": note} if note else {}  # key -> caption shown under that video
     meta = {}
     for f in ("model3d.json", "hinge.json"):
         if (run / f).exists():
@@ -243,7 +266,7 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
             shutil.copy(source, target)
 
     spec = {"name": name, "fps": fps, "frames": n, "tree": tree, "joints": joint_tracks(run), "videos": videos,
-            "bundle": "model.zip",
+            "video_notes": video_notes, "bundle": "model.zip",
             "measured": meta, "agent_report": report.read_text() if report.exists() else None,
             # how the model shown relates to the agent's run, when a person refit it or a log was replaced
             "provenance": (run / "provenance.txt").read_text().strip() if (run / "provenance.txt").exists() else None,
