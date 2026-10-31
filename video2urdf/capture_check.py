@@ -261,7 +261,8 @@ def assess(m: dict, has_depth: bool, look: dict | None = None, assumed_fps: bool
         for p in look.get("problems") or []:
             if not isinstance(p, str) or not p.strip() or p in tips:
                 continue
-            if has_depth and any(w in p.lower() for w in ("card", "scale", "reference")):
-                continue  # depth captures are metric: Spark can't tell from frames that no card is needed
+            if any(w in p.lower() for w in ("card", "scale", "reference")) and (
+                    has_depth or any("card-sized reference" in t for t in tips)):
+                continue  # depth captures are metric; on plain video our own card tip already says it
             tips.append(p.strip())
     return {"usable": True, "reason": "", "warnings": warnings, "tips": tips}

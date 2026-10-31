@@ -96,6 +96,8 @@ class AssessTest(unittest.TestCase):
         tips = assess(self.metrics(), True, look=look)["tips"]
         self.assertFalse(any("card" in t for t in tips))  # Spark's own card tip is dropped for depth captures
         self.assertIn("open the lid fully", tips)
+        tips = assess(self.metrics(), False, look=look)["tips"]  # plain video: our card tip, not Spark's too
+        self.assertEqual(sum("card" in t for t in tips), 1)
 
     def test_lidar_depth_coverage(self):
         a = assess(self.metrics(depth_coverage=0.1), has_depth=True)
