@@ -1448,8 +1448,11 @@ def _mm(x) -> str:
 
 
 def _jsonable(o):
-    """numpy values in completion.json: arrays as lists, scalars (incl. bools) as Python values."""
+    """numpy values in completion.json: small arrays as lists, scalars (incl. bools) as Python
+    values; an image-sized array (a mask) has no place in it and is refused."""
     if isinstance(o, np.ndarray):
+        if o.size > 10000:
+            raise TypeError(f"a {o.shape} array (a mask?) doesn't belong in completion.json")
         return o.tolist()
     if isinstance(o, np.generic):
         return o.item()
@@ -1691,8 +1694,8 @@ def complete_body(run_dir: Path, video: Path, capture: Path, log=print, spark: b
     seen_body = {t: whole[t] & ~cv2.dilate(run.object_mask(t).astype(np.uint8), np.ones((9, 9), np.uint8)).astype(bool)
                  for t in whole_shut}
     body_rgb = _colour(images, seen_body)
-    inside = {t: open_frames[t].full_mask(h, w) for t in images if t in open_frames}
-    cavity_rgb = _colour(images, inside, fallback=[min(1, c + 0.3) for c in body_rgb])
+    inside_masks = {t: open_frames[t].full_mask(h, w) for t in images if t in open_frames}
+    cavity_rgb = _colour(images, inside_masks, fallback=[min(1, c + 0.3) for c in body_rgb])
     for stem in MODEL_FILES:
         if (run_dir / f"{stem}.xml").exists():
             add_to_mjcf(run_dir / f"{stem}.xml", door.base, front, boxes, body_rgb + [1], liners, cavity_rgb + [1])
