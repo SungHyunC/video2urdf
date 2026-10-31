@@ -12,9 +12,9 @@ The base stays put in the static scene (ARKit odometry cancels the moving phone)
 The base is placed from its depth points, on any frame that shows it (it doesn't move). When
 no frame gives it enough (mostly out of view, or a thin pole), or the base given is the floor
 itself, the chain is anchored to the static scene instead: the rods' lines are already in one
-world frame (ARKit poses levelled on the floor), so the first hinge is measured there just the
-same; the root link is then the floor (its plane measured, a disc under the chain's foot) and
-the base is left out of the model.
+world frame (ARKit poses, levelled on the floor when its frames agree), so the first hinge is
+measured there just the same; the root link is then the floor (its plane measured, a disc under
+the chain's foot) and the base is left out of the model.
 """
 
 import json
@@ -414,8 +414,8 @@ def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=prin
     root = base if anchor is None else floor
     if anchor is not None:
         log(f"Anchored to the static scene: {anchor['reason']}. The chain stands on the floor ({floor}), placed by the "
-            "phone's tracked poses levelled on it: the hinges are measured in that frame all the same; the base itself "
-            "is left out of the model.")
+            "phone's tracked poses: the hinges are measured in that frame all the same; the base itself is left out of "
+            "the model.")
         if plane is None:
             log(f"WARNING: {floor} has no level depth plane near the reference frame: the model's floor is put at the "
                 "chain's lowest seen point, so heights above the floor are not measured.")
@@ -457,7 +457,7 @@ def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=prin
         else:
             j.q = _smooth(j.q)
         ref_line, outlier = lines[min(lines, key=lambda t: abs(t - ref))], None
-        if anchor is not None and j.fixed:  # the pole an anchored chain stands on: placed by all its frames
+        if anchor is not None and j.fixed:  # a fixed rod of an anchored chain (its pole): placed by all its frames
             ref_line, outlier = static_reference_line(lines, ref)
         if outlier is not None:
             log(f"{part}: its line on the reference frame sits {1000 * outlier[0]:.0f} mm / {outlier[1]:.1f} deg off the "
