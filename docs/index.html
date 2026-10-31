@@ -155,9 +155,8 @@
   .downloads .btn { padding: 10px 14px; font-size: 14px; }
   .value { font: 500 13px/1 var(--mono); font-variant-numeric: tabular-nums; min-width: 4.5em; display: inline-block; text-align: right; color: var(--amber); }
   .factsheet { position: relative; margin-top: 16px; border: 1px solid var(--line); border-radius: var(--r); background: rgba(8, 11, 18, .7); padding: 6px 16px; }
-  .facts { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 14px; margin: 0; padding: 11px 0; color: var(--ink-2); font-size: 14px; line-height: 1.55;
-           border-top: 1px solid var(--line); }
-  .factsheet .facts:first-child, .factsheet .facts[hidden] + .facts { border-top: 0; }
+  .facts { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 14px; margin: 0; padding: 11px 0; color: var(--ink-2); font-size: 14px; line-height: 1.55; }
+  .factsheet .facts:not([hidden]) ~ .facts:not([hidden]) { border-top: 1px solid var(--line); }  /* a rule between shown lines */
   .facts::before { content: attr(data-label); font: 600 10.5px/1.9 var(--mono); text-transform: uppercase; letter-spacing: .09em; color: var(--blue-2); }
   #facts::before { color: var(--amber); }
   #unmeasured::before, #provenance::before { color: var(--ink-3); }
@@ -914,7 +913,7 @@ async function load(entry) {
   $("facts").textContent = facts(spec);
   $("facts").dataset.label = spec.three_d ? "Measured" : "Fit";
   $("unmeasured").hidden = !spec.unmeasured;
-  $("unmeasured").textContent = spec.unmeasured ? `Not measured: ${spec.unmeasured}` : "";
+  $("unmeasured").textContent = spec.unmeasured ? spec.unmeasured[0].toUpperCase() + spec.unmeasured.slice(1) : "";  // labelled "Not measured"
   const textureMeshes = Object.values(spec.texture?.meshes || {});
   const seenFaces = textureMeshes.reduce((sum, mesh) => sum + (mesh.faces_seen || 0), 0);
   const totalFaces = textureMeshes.reduce((sum, mesh) => sum + (mesh.faces || 0), 0);
@@ -958,7 +957,7 @@ async function load(entry) {
   $("physics").hidden = !spec.physics;
   $("physics").textContent = spec.physics ? physicsFacts(spec.physics, spec.physics_input_provenance) : "";
   $("provenance").hidden = !spec.provenance;
-  $("provenance").textContent = spec.provenance ? `Provenance: ${spec.provenance}` : "";
+  $("provenance").textContent = spec.provenance ? spec.provenance[0].toUpperCase() + spec.provenance.slice(1) : "";
   showTraces(spec, base);
   $("reportBox").hidden = !spec.agent_report;
   $("report").textContent = spec.agent_report || "";
@@ -1018,7 +1017,7 @@ function physicsFacts(p, provenance) {
       `estimated friction from those frames is ${j.friction.toFixed(3)} ${unit}. ` +
       `Let go in MuJoCo at those angles, it moves ${worst(j.drift_with_deg)}° (${worst(j.drift_without_deg)}° without that friction)`;
   }).join(". ");
-  return `Physics: masses judged by Muse Spark from the video: ${links}.` + (joints ? ` ${joints}.` : "");
+  return `Masses judged by Muse Spark from the video: ${links}.` + (joints ? ` ${joints}.` : "");
 }
 
 let current = null;
