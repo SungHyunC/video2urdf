@@ -49,7 +49,7 @@ Spark Open and SAM weights, `--glimmer` on Muse Glimmer 30B served by us.
 
 | Measured | Result | vs |
 |---|---|---|
-| RBO benchmark: 13 real RGB-D videos with motion capture, agent from scratch | laptops and books (7): axis 2.2 deg, angle 2.0 deg (medians); box lids (6): axis 5.5 deg but angle 37 deg, SAM loses the lid; 2,040 of 3,046 frames measured | motion capture |
+| RBO benchmark: 13 real RGB-D videos with motion capture, agent from scratch, scored on exactly the agent's fit | laptops and books 6 of 7: hinge axis 1.7 deg, position 23 mm, angle 3.3 deg (medians); box lids 2 of 6, angle 42 deg; the other 5 refused by the fit's own checks | motion capture |
 | Desk lamp seen obliquely, 2 hinges (synthetic, `fit_chain`) | axis 0.4 / 4.8 deg, angle 0.06 / 1.1 deg mean | ground truth |
 | 13" MacBook Pro, iPhone LiDAR | lid 309 x 205 mm; the model covers 95% / 94% of the video's masks | spec 304 x 212 |
 | Black mouse, phone circling it | 121 x 75 x 55 mm; the depth points seen on one frame lie 0.5 mm (median) from the SAM 3D mesh | spec 125 x 84 x 51 |
@@ -57,6 +57,7 @@ Spark Open and SAM weights, `--glimmer` on Muse Glimmer 30B served by us.
 | LED desk lamp, iPhone LiDAR, 2 rods | Spark judged the pole's motion depth noise; refit with it fixed (our step): arm 380 mm, 2..89 deg | video |
 | Shape design, three Meta models per round | lamp: best of three 0.62 / 0.63 per round, Muse Spark alone 0.60 / 0.62 (mask F-score) | measured meshes 0.69 |
 | Robot tasks on the measured models | 6 of 6: lids closed and reopened, drawer out 199 mm and back (cabinet collision on), lamp arms swung, mouse carried and turned | joint values reached in physics |
+| A drawer-opening policy learned on the measured drawer (PPO, trained on Modal) | 99/100 held-out placements; 19/20 unseen starts on the full Panda arm; 98% of the travel made pinching the handle | random actions 0/100 |
 | SAM tracking, 1385 frames, 4 parts | 520 s -> 285 s, masks IoU 0.97-0.995 | previous pipeline |
 | Scale for plain video | card x0.75 (8 frames agree); object's usual size x1.01 | expected 1.0 |
 
@@ -172,11 +173,18 @@ lid, a base mask that holds the plate, a replay covering under half its mask, a 
 front that stands out). `finish` refuses once while the last fit's warnings are unresolved, and
 every run ends with a status in `agent/status.json` and the report's first line:
 `checks_passed`, `needs_review` or `failed` (no model). It refuses only once, so estimated
-masses or hidden sides can't loop. On a fresh LiDAR-laptop run (10/31) Spark's first finish was
-refused (the screen track had slid onto the lid's back on 806/923 frames); it re-segmented the
-lid, re-tracked it, refit (769/923) and finished as `needs_review`, saying what stays
-unverified: lid 306 x 210 mm (spec 304 x 212), replay 88% / 91%. Passing the checks means none
-objected, not that the model was verified against the real object.
+masses or hidden sides can't loop. Passing the checks means none objected, not that the model
+was verified against the real object.
+
+On the never-seen microwave (10/31) Spark's first fit came out wrong: a door 795 x 506 mm and a
+body 30 mm tall that the replay didn't cover at all. It watched the replay, re-tracked the floor
+and the body, and fitted again: the door on a vertical hinge 1.3 deg off vertical, 361 x 255 mm,
+the replay covering 82% of the door and 89% of the body. A laptop run whose screen mask lay on
+the base on 204 open frames was refused once and finished `needs_review`, saying so. The first
+version of these checks also flagged every laptop (a screen's track is meant to fall onto the shut
+lid's back as it closes); that case is now an informational line, and a WARNING only when the
+plate sits on the closed surface while the object is open: fresh laptop runs pass (lid
+306 x 208 mm, replay 88% / 95%).
 
 ### Five fresh runs per object, and three objects it had never seen
 
@@ -191,7 +199,8 @@ weights on Modal, code fixed at one commit; `data/repeat5`, not committed):
 | LED desk lamp | checks_passed x5 | Spark fixed the pole itself every time; arm 377-381 mm, 76-91 deg; pole 241-366 mm | arm 380, pole 351 (our refit) |
 
 Every laptop run was refused once at `finish` for the same reason (the screen track slides onto
-the lid's back as it shuts; an expected case the check still flags). The drawer run that measured
+the lid's back as it shuts, an expected case the check flagged then; it is now informational, and
+the same tracks refit pass in 3 of 5, the other 2 keeping other warnings). The drawer run that measured
 the wrong front ended `needs_review`, not passed. The lamp passes with the arm's replay covering
 only 19-34% of its thin mask, and the pole's length varies: the rod-chain fit had no coverage
 warning then, a gap in the checks (it now warns under 25%, see below).
@@ -213,17 +222,18 @@ model, and all three ended `needs_review` rather than passing:**
 After those runs we fixed what they exposed, then ran the same three captures again (10/31).
 The code changed after seeing them, so these are development results, not blind tests:
 
-- `fit_lidar` now tells a door from a lid (its axis lies along the base's normal) and places a
-  door's hinge by the circle its centroid moves on. Refit on the first run's microwave tracks:
-  the hinge stands 2.5 deg off vertical on the left, the door comes out 241 x 259 mm and its
-  replay covers 63% of the mask (was 6%); the hinge still sits about 10 cm too far left, since
-  the door's mask was a strip by the handle. The agent's own fresh run failed at the fit
-  (the reference frame's door angle was rejected on the glossy door) and ended `failed`.
+- `fit_lidar` now tells a door from a lid (its axis lies along the base's normal) and places the
+  hinge on the shut door's plane, where the open frames' door points stay equidistant (the
+  door's planes alone put it ~10 cm off: the open black glass door returns depth on only 0-10%
+  of its mask). Three fresh agent runs all built a door model: hinge 1.3-6.0 deg off vertical
+  and within 1-2.5 cm of the real hinge edge in the image, door 361-390 x 255-267 mm, replay
+  82-87% of the door; one `checks_passed`, two `needs_review`. The opening reads 52-57 deg, less
+  than the video seems to show, and the body is modelled only as the control-panel column.
 - The static fit picks a reference frame where depth sees the object: the AirPods case now
   passes, 66.8 x 52.5 x 37 mm, replay 91%.
-- The prompt names the body wall or rim as a lidded bin's base: the trash bin's hinge now lies
-  along the top rear edge and the replay covers 60% / 72%, but the open lid is misaligned and it
-  stays `needs_review`.
+- The prompt names the body wall or rim as a lidded bin's base: on one rerun the trash bin's
+  hinge lay along the top rear edge (replay 60% / 72%, open lid misaligned, `needs_review`), but
+  two further fresh runs gave no usable model: SAM never returned a body mask without the lid.
 - The rod-chain fit now warns when a rod's replay covers under 25% of its mask.
 
 ### Benchmark: RBO dataset (real RGB-D with motion capture)
@@ -235,27 +245,32 @@ scored against the plate's motion relative to the base from motion capture. The 
 often push the whole object around while opening it (up to 15 cm and 47 deg), so the base is
 followed too.
 
+The scorer runs the agent's own fit (`lidar.fit_lidar_hinge`, the steps `fit_lidar` takes), so
+it scores exactly what the agent produced. Re-scored 10/31 with the current code on the agent's
+tracks from 10/28:
+
 | Sequence | Axis direction | Axis position | Angle error, median | Angle error, p90 | Frames measured |
 |---|---|---|---|---|---|
-| laptop01 | 2.0 deg | 24 mm | 1.9 deg | 31.7 deg | 186/186 |
-| laptop02 | 2.1 deg | 31 mm | 3.3 deg | 8.1 deg | 203/205 |
-| laptop04 | 2.2 deg | 12 mm | 2.0 deg | 4.0 deg | 176/192 |
-| laptop05 | 0.9 deg | 19 mm | 2.5 deg | 5.4 deg | 184/185 |
-| book03 | 2.5 deg | 18 mm | 1.3 deg | 3.3 deg | 188/329 |
-| book05 | 2.8 deg | 63 mm | 1.4 deg | 54.0 deg | 215/256 |
-| book13 | 6.7 deg | 92 mm | 16.0 deg | 45.9 deg | 124/282 |
-| treasurebox03 | 11.5 deg | 37 mm | 0.9 deg | 7.3 deg | 88/224 |
-| cardboardbox03 | 13.3 deg | 151 mm | 5.5 deg | 34.0 deg | 130/265 |
-| cardboardbox06 | 2.5 deg | 47 mm | 40.8 deg | 132.9 deg | 187/222 |
-| cardboardbox02 | 6.4 deg | 57 mm | 47.3 deg | 125.2 deg | 183/220 |
-| treasurebox05 | 4.5 deg | 126 mm | 33.2 deg | 63.6 deg | 40/217 |
-| treasurebox02 | 2.0 deg | 105 mm | 77.5 deg | 96.1 deg | 136/263 |
-| **median of 13** | **2.5 deg** | **47 mm** | **3.3 deg** | **34.0 deg** | |
+| laptop01 | 1.8 deg | 25 mm | 1.9 deg | 38.7 deg | 146/186 |
+| laptop02 | 2.1 deg | 32 mm | 3.5 deg | 8.3 deg | 201/205 |
+| laptop04 | 0.9 deg | 15 mm | 2.3 deg | 5.4 deg | 162/192 |
+| laptop05 | 0.9 deg | 20 mm | 3.1 deg | 5.6 deg | 158/185 |
+| book03 | 1.5 deg | 17 mm | 3.7 deg | 4.4 deg | 187/329 |
+| book05 | 2.2 deg | 52 mm | 9.6 deg | 13.6 deg | 172/256 |
+| cardboardbox02 | 1.9 deg | 46 mm | 67.8 deg | 133.4 deg | 202/220 |
+| treasurebox02 | 2.1 deg | 131 mm | 16.4 deg | 27.5 deg | 200/263 |
+| book13, cardboardbox03, cardboardbox06, treasurebox03, treasurebox05 | refused: no reference frame where base, cover/lid and open indicator are all measured | | | | |
+| **median of the 8 fitted** | **1.9 deg** | **29 mm** | **3.6 deg** | **10.9 deg** | |
 
-Laptops and two of the books are measured to a few degrees. Box lids are where it fails: in
-these 640 x 480 videos SAM loses the lid (and often the box) on most frames, even after the
-agent re-anchors it, so the closed/open state is guessed from the whole box. Angle errors are
-taken modulo 360 deg. Per-sequence results: `scripts/rbo_bench.py` writes `data/rbo/results/summary.md`.
+Laptops and books are measured to a few degrees. Box lids are where it fails: in these 640 x 480
+videos SAM loses the lid (and often the box) on most frames, so the fit either refuses or guesses
+the open/closed state from the whole box. Angle errors are taken modulo 360 deg. The table we
+published on 10/29 (all 13 fitted, median 2.5 deg / 47 mm / 3.3 deg) came from earlier code:
+two later checks (no closed-surface fallback on open frames where the base shows; no reference
+frame where the base is mostly hidden) refuse five of these tracks now, and on book05 dropped 44
+frames the old fit had mis-measured by ~54 deg that had happened to steady its hinge (1.4 deg
+then, 9.6 deg now). Neither check changes the LiDAR laptop runs. Per-sequence results:
+`scripts/rbo_bench.py` writes `data/rbo/results/summary.md`.
 
 ### Open weights only
 
@@ -296,9 +311,10 @@ taken modulo 360 deg. Per-sequence results: `scripts/rbo_bench.py` writes `data/
   with the fixed pole fit as a joint and the rods' replay covering 18% / 22%: the rod-chain fit
   didn't warn about low coverage then, so the automatic checks passed it (it now warns under 25%).
 - **The RBO benchmark on open weights only** (10/31, Muse Spark Open + SAM weights, one run per
-  sequence): laptops and books 7 of 7, hinge axis 2.8 deg and angle 3.9 deg (medians; the Meta
-  API run: 2.2 / 2.0 deg); box lids 3 of 6 produced no model and the other 3 are poor, as on the
-  Meta API. `scripts/rbo_bench.py --open-weights` keeps these runs apart from the Meta API ones.
+  sequence, scored like the Meta API set): laptops and books 7 of 7, hinge axis 2.8 deg, position
+  33 mm, angle 2.8 deg (medians; the Meta API run: 6 of 7, 1.7 deg / 23 mm / 3.3 deg); box lids
+  4 of 6 fitted but poor (angle 48 deg median), 2 never got a model. `scripts/rbo_bench.py
+  --open-weights` keeps these runs apart from the Meta API ones.
 
 ### The model looks like the object: Spark designs it, the video checks it
 
@@ -378,6 +394,36 @@ on the LiDAR laptop with URDFs in `examples/doctor/` (bugs injected on purpose):
 The axis's turn *within* the base's top plane is only as sure as the measured base outline
 (a few degrees on this capture); tilts out of that plane, positions, signs, offsets and limits
 are what it checks reliably.
+
+### A policy learned on the measured drawer
+
+The drawer measured from video is also a training environment (`video2urdf/rl_drawer.py`): a
+Panda hand on a force-limited mount, the measured drawer and cabinet colliding, and a reward that
+counts drawer travel only while both fingers pinch the handle (pressing along their closing
+direction, each at least 7 mm open on the 18 mm handle). Earlier attempts found loopholes
+(ramming through the drawer front, crushing the fingers past their joint limit to hook the
+handle, a mount pushing with 2 kN); each was closed before this run. PPO with 32 environments on
+Modal CPUs (5M steps, 45 min; about $4 of Modal credit for everything):
+
+| | Held-out placements (sim hand) | Full Panda arm, unseen starts |
+|---|---|---|
+| Opened >= 150 mm while pinching | 99 / 100 (random actions: 0 / 100) | 19 / 20 |
+| Drawer travel made while pinching | 98.2% | 98.4% |
+| Finger opening while holding | >= 7.3 mm | >= 8.6 mm |
+| Deepest contact with anything but the handle | 0.37 mm | 0.41 mm |
+
+The arm follows the policy under Cartesian impedance (the training mount's stiffness, damping and
+60 N cap, within the Panda's joint torque limits); through `robot_tasks.py`'s joint servos it
+doesn't work honestly. The arm's one failure: the hand caught the cabinet's slot edge and tilted
+31 deg. One-step force spikes come from the simulated gripper snapping shut much faster than a
+real Franka hand. Simulation only.
+
+```bash
+uv sync --extra rl
+.venv/bin/modal run modal_apps/rl_drawer_train.py::main --steps 5000000 --envs 32 --name drawer_ppo_honest
+.venv/bin/modal run modal_apps/rl_drawer_train.py::arm --name drawer_ppo_honest --seeds 20
+.venv/bin/python scripts/run_drawer_policy.py data/tracks_design/drawer2_lidar --seed 20012   # the arm video
+```
 
 ### More results
 
@@ -480,6 +526,10 @@ URDF Doctor and the RBO benchmark: [docs/DETAILS.md](docs/DETAILS.md#more-comman
 - Thin parts make replay IoU harsh; book covers and box lids track poorly (see the benchmark).
 - A 2D side view cannot measure the width across the motion plane; it is assumed or set.
 - Floor levelling removes ARKit drift in height and tilt, not along the floor.
+- Doors on vertical hinges: the hinge is placed within a few cm, but the opening reads small and
+  the body is only the part the camera saw. A lidded bin whose body SAM can't separate from its
+  lid gives no usable model.
+- The learned drawer policy is simulation only, run on the arm under Cartesian impedance control.
 
 ## Built on
 

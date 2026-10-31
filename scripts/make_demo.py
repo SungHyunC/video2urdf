@@ -212,17 +212,13 @@ def scenes() -> list[Scene]:
                "lid 309 x 205 mm  (spec: 304 x 212 mm)"],
               side_by_side(PHONE, RUN / "replay3d.mp4", 0, 922)),
         Scene("4  It checks itself",
-              "Spark can't finish over its own warnings. Its first finish here was refused: the screen's track had slid onto the lid's back. It re-tracked the lid and reported what it couldn't verify. Five fresh runs land within four millimetres of the spec.",
-              ["finish refuses once while the fit's own warnings are unresolved",
-               "five fresh runs: lid 304-306 x 208-212 mm  (spec 304 x 212)"],
-              card([("Spark:  finish(\"lid 306 x 210 mm, hinge on the rear edge ...\")", 36, False, white),
-                    ("Not finished yet. The automatic checks have unresolved issues:\n"
-                     "the plate tracker switched to the closed surface on 806/923 frames", 34, False, (255, 140, 120)),
-                    ("Spark:  \"I'll re-segment the lid to fix that.\"", 36, False, white),
-                    ("segment  ->  retrack_part  ->  fit_lidar  ->  watch the replay", 34, False, blue),
-                    ("Spark:  finish(\"NEEDS REVIEW: ... what stays unverified ...\")", 36, False, white),
-                    ("status: needs_review   (checks_passed / needs_review / failed)", 34, False, grey)],
-                   top=230)),
+              "Spark checks its own work. On a microwave it had never seen, its first model was wrong: a door "
+              "twice too big and no body. It watched the replay, re-tracked the floor and the body, and fitted "
+              "again: now the door swings on a vertical hinge, where the real one is.",
+              ["first fit, never-seen microwave: door 795 x 506 mm, the body not covered",
+               "after Spark re-tracked floor and body: hinge 1.3 deg off vertical, door 361 x 255 mm"],
+              stills([ASSETS / "mw_first_fit.jpg", ASSETS / "mw_refit.jpg"],
+                     ["Spark's first fit, drawn over the video", "after Spark re-tracked and fitted again"])),
         Scene("5  It knows what it is",
               "The measured meshes have the right sizes but look like blobs, so Spark names the object and rebuilds it from clean parts. Each round three Meta models propose a design, and the video picks the best.",
               ["Spark names the object and rebuilds each part from the measured sizes",
@@ -232,18 +228,18 @@ def scenes() -> list[Scene]:
                        ["office pedestal cabinet with three drawers", "LED desk lamp"])),
         Scene("6  It looks real",
               "For a curved object, SAM 3D Objects builds a realistic mesh, placed by our LiDAR depth: the depth the "
-              "phone measured lies within half a millimetre of the mouse's mesh. Circling it with the phone gives "
-              "its size from every side.",
+              "phone measured lies within half a millimetre of it.",
               ["SAM 3D Objects: the measured depth lies 0.5 mm from its mesh (median)",
                "masks from every side: 121 x 75 x 55 mm  (spec 125 x 84 x 51)"],
               video_scene(MOUSE / "compare.mp4")),
         Scene("7  The robot uses it",
-              "In MuJoCo physics the Panda grips the handle Spark drew and pulls the drawer out of its measured "
-              "cabinet, then carries the mouse and turns it. Only the grip moves them.",
-              ["drawer out 199 mm by its handle, the cabinet's measured collision on, and back in",
-               "mouse carried 18 cm, then brought back turned 90 deg"],
-              pair(DESIGN / "drawer2_lidar" / "robot_demo.mp4", MOUSE / "robot_demo.mp4",
-                   ("the measured drawer", "the measured mouse"))),
+              "In MuJoCo physics, a policy trained with reinforcement learning on the measured drawer pinches its "
+              "handle and pulls it open, nineteen times in twenty on the full arm. The Panda also carries the "
+              "mouse and turns it.",
+              ["PPO policy trained on Modal on the measured drawer: 99/100 held-out, 19/20 on the arm",
+               "98% of the drawer's travel made while pinching the handle; simulation only"],
+              pair(DESIGN / "drawer2_lidar" / "robot_policy.mp4", MOUSE / "robot_demo.mp4",
+                   ("a learned policy opens the measured drawer", "the measured mouse"))),
         Scene("8  Physics",
               "Spark judges materials and masses. Where a part stands with no hand on it, the joint friction is "
               "measured, and checked by letting go in MuJoCo.",
@@ -251,10 +247,11 @@ def scenes() -> list[Scene]:
                "let go in MuJoCo: stays (+0.1 deg) vs. falls (+11.5 deg) without it"],
               video_scene(RUN / "physics_demo.mp4")),
         Scene("9  Benchmark",
-              "On the RBO motion-capture benchmark, laptops and books come out with a median hinge axis error of two degrees, under three on open weights alone; box lids still fail.",
-              ["laptops and books: hinge axis 2.2 deg (Meta API), 2.8 deg (open weights only), median",
+              "On the RBO motion-capture benchmark, laptops and books come out with a median hinge axis error "
+              "under two degrees, under three on open weights alone; box lids still fail.",
+              ["laptops and books: hinge axis 1.7 deg (Meta API, 6 of 7), 2.8 deg (open weights only, 7 of 7), median",
                "box lids still fail: SAM loses the lid at 640 x 480"],
-              stills([ROOT / "data" / "rbo" / "results" / "laptop04.jpg"],
+              stills([ASSETS / "rbo_laptop04.jpg"],
                      ["laptop04: red = measured, green = motion capture"])),
         Scene("10  URDF Doctor",
               "URDF Doctor checks the models you already have against a video. Three injected bugs and a sign flip "
