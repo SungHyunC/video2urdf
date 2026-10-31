@@ -70,7 +70,9 @@ def fit_hinge_with_reference_retries(c, roles, log=print, max_retries: int = 2, 
     with a neighbour's value; each candidate runs the complete hinge fit again. The next
     candidate is the open frame with the largest plate mask among those whose angle the failed
     fit did measure (a glossy plate's plane fit fails on many frames, often on the largest
-    view); without that, frames near 20% and 80% of the video.
+    view); without that, frames near 20% and 80% of the video. A rejected reference that a retry
+    replaces is logged as a plain line, not a WARNING: the fit that is kept has a measured
+    reference (its own checks still apply); if every attempt fails, the last error is raised.
     """
     tracks = c.by.get(roles.plate, {})
     usable = [t for t in tracks if c.has(roles.base, t) and c.has(roles.plate, t)
@@ -96,7 +98,8 @@ def fit_hinge_with_reference_retries(c, roles, log=print, max_retries: int = 2, 
         except ValueError as error:
             if "angle on reference frame" not in str(error) or index == max(0, max_retries):
                 raise
-            log(f"WARNING: {error}")
+            log(f"Reference frame {frame} rejected: the plate's angle there was unavailable or an outlier "
+                "(its depth plane failed or jumped).")
             measured = set(getattr(error, "valid", ())) & set(usable)
             measured -= set(attempts)
             if measured:

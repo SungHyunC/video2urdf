@@ -739,7 +739,7 @@ class Agent:
                 raise
             frames = suggested_open_anchors(c, roles)
             if frames:
-                tried = [line for line in lines if line.startswith(("WARNING: The plate's angle", "Retrying"))]
+                tried = [line for line in lines if line.startswith(("Reference frame", "Retrying"))]
                 return ("\n".join(tried + [str(error)]) +
                         f"\nNo reference frame gave the plate a measured angle: its depth plane failed or jumped "
                         f"there (a glossy, dark or edge-on face gives few or scattered depth points). "

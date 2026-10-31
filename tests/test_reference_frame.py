@@ -347,10 +347,14 @@ class ReferenceFrameTest(unittest.TestCase):
                 raise ReferenceAngleError("angle on reference frame 90 rejected", valid=[55, 70, 80])
             return {"reference": capture.ref}
         roles = SimpleNamespace(plate="plate", base="base", open_indicator="keyboard")
+        logged = []
         with patch("video2urdf.lidar.fit_hinge", side_effect=fit):
-            result, attempts = fit_hinge_with_reference_retries(Stub(), roles, log=lambda _: None)
+            result, attempts = fit_hinge_with_reference_retries(Stub(), roles, log=logged.append)
         self.assertEqual(attempts, [90, 55])
         self.assertEqual(result["reference"], 55)
+        # the replaced reference is reported, but not as a WARNING the finish gate would hold
+        self.assertTrue(any("Reference frame 90 rejected" in line for line in logged))
+        self.assertFalse(any(line.startswith("WARNING") for line in logged))
 
     def test_reference_angle_error_lists_measured_frames(self):
         from video2urdf.lidar import ReferenceAngleError
