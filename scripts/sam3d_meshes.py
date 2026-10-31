@@ -91,10 +91,12 @@ def links_of(track_dir: Path) -> dict[str, dict]:
         q = np.array([np.nan if v is None else v for v in slide["q"]])
         return {"base": {"part": [roles["base"]], "joint": None},
                 "drawer": {"part": [roles["plate"]], "joint": ("slide", np.array([1., 0, 0]), q)}}
-    hinge = json.loads((track_dir / "hinge.json").read_text())
+    hinge = lidar.read_hinge(track_dir)  # joint values in the model's sense (doors turn their axis up)
     q = np.array([np.nan if v is None else v for v in hinge["q"]])
+    m3 = json.loads((track_dir / "model3d.json").read_text())
+    axis = np.array(m3.get("joint_axis_model", [1.0, 0, 0]))  # a lid's hinge is the model's x; a door's is stored
     return {"base": {"part": [roles["base"]], "joint": None},
-            "lid": {"part": [roles["plate"]], "joint": ("hinge", np.array([1.0, 0, 0]), q)}}
+            "lid": {"part": [roles["plate"]], "joint": ("hinge", axis, q)}}
 
 
 class ReplayPoses:
@@ -401,7 +403,9 @@ def main():
     capture = args.capture or ROOT / "data" / "real" / name
     m3 = json.loads((run / "model3d.json").read_text())
     ctm = m3.get("camera_to_model", {})
-    replay = None if "hinge_point" in ctm else ReplayPoses(run)
+    # Lids use the hinge's own frame (x along the hinge); everything else, doors included, takes its
+    # link poses from the replay's camera and joint values through MuJoCo
+    replay = None if "hinge_point" in ctm and not m3.get("hinge_vertical") else ReplayPoses(run)
     if replay is None:
         rot, point = np.array(ctm["rotation"]), np.array(ctm["hinge_point"])
 

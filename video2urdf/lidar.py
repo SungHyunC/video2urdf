@@ -765,6 +765,23 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
     return replay_hinged(c, roles, rot, point, root_pos, q, summary, log)
 
 
+def read_hinge(track_dir: Path) -> dict:
+    """hinge.json with its axis and joint values in the model's own sense. Door models turn their
+    axis to point up, which negates the joint values; since that fix hinge.json is written in the
+    model's sense, but runs fitted before it kept the fit's sense. The replay (replay3d.npz) drew the
+    model's values, so a run whose hinge.json disagrees with it is read back negated."""
+    hinge = json.loads((Path(track_dir) / "hinge.json").read_text())
+    q = np.array([np.nan if v is None else v for v in hinge["q"]], float)
+    replay = Path(track_dir) / "replay3d.npz"
+    if replay.exists():
+        with np.load(replay) as r:
+            drawn = r["q_lid_joint"] if "q_lid_joint" in r.files else None
+        if drawn is not None and len(drawn) == len(q) and np.nansum(q * drawn) < 0:
+            hinge = {**hinge, "axis": (-np.array(hinge["axis"])).tolist(),
+                     "q": [None if np.isnan(v) else float(-v) for v in q]}
+    return hinge
+
+
 def floor_up(c: Capture, roles: Roles) -> np.ndarray | None:
     """Up, in reference-camera coordinates: the floor's normal toward the camera, else gravity."""
     if roles.floor and c.has(roles.floor, c.ref):
@@ -792,6 +809,11 @@ def build_door_model(c: Capture, roles: Roles, hinge: dict, up: np.ndarray, log=
     q = np.array([np.nan if v is None else v for v in hinge["q"]])
     if axis @ up < 0:  # turn about +up: the joint value keeps its sense about the axis
         axis, q = -axis, -q
+        # hinge.json follows, so every reader (physics, URDF Doctor, SAM 3D, the RBO scorer) sees the
+        # model's own axis and joint values, not the fit's opposite sense
+        hinge = {**hinge, "axis": axis.tolist(), "q": [None if np.isnan(v) else float(v) for v in q],
+                 "axis_turned_to_up": True}
+        (c.track_dir / "hinge.json").write_text(json.dumps(hinge))
     plate_ref = c.cloud(roles.plate, ref)
     out = plate_ref.mean(axis=0) - point
     out -= (out @ up) * up
@@ -849,7 +871,7 @@ def build_door_model(c: Capture, roles: Roles, hinge: dict, up: np.ndarray, log=
     (c.track_dir / "model.urdf").write_text(emit3d.urdf(c.video.stem, links))
     (c.track_dir / "model.xml").write_text(emit3d.mjcf(c.video.stem, links, root_pos, (w, h)))
     summary = {
-        "hinge_vertical": True,
+        "hinge_vertical": True, "joint_axis_model": [float(v) for v in a_m],
         "base_thickness_mm": 1000 * (z_top - z_floor), "base_thickness_measured": measured_floor,
         "plate_thickness_mm": 1000 * thick, "plate_thickness_clipped": True,
         "plate_size_mm": [float(1000 * (hi[0] - lo[0])), float(1000 * hi[1])],
