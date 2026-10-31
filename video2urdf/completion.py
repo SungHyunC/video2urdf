@@ -6,14 +6,18 @@ microwave filmed from the front that is a strip of its control panel: the model 
 and a floating panel, and a robot reaches straight through where the oven is. This step
 completes the body:
 
-1. Measured where seen: the front plane from the shut door's and the body's depth points; the
+1. Measured where seen: each frame levelled on its own (ARKit's poses drift by degrees where the
+   floor isn't tracked); the front plane from the shut door's and the body's depth points; the
    whole object's front (width, top edge, down to the floor) from depth points inside a SAM 3.1
-   mask of the whole object on shut frames; depth points on its top or side faces, if any, give
-   the least depth the body has.
+   mask of the whole object on shut frames; depth points on its top or side faces, and the back
+   of its inside seen through the open door, give the least depth the body has.
 2. Bounded by the video: a body d deep behind the measured front, projected into frames where
    the object is in view, must stay inside the (dilated) whole-object mask. The largest such d
    bounds the hidden depth from above; the smallest d whose silhouette reaches the far edges of
-   the (eroded) mask bounds it from below. Loose where the camera never saw past the front.
+   the (eroded) mask bounds it from below (when most frames agree). A top seen from just above
+   makes this hang on the levelling, so it is done twice (on the front, on the support) and only
+   what both allow is kept; a wall seen right behind the top bounds the depth too. Loose where
+   the camera never saw past the front.
 3. Estimated otherwise: Muse Spark (the agent's backend, so Muse Spark Open in an open-weights
    run) watches the video and gives the hidden sizes typical for the object (or its exact model
    if it recognises it): depth, the cavity behind the door, wall thickness, mass; each with a
@@ -938,19 +942,26 @@ def parse_json(text: str) -> dict:
     return json.loads(text[start:end + 1])
 
 
-def ask_spark(video: Path, facts: dict, images: list[np.ndarray], log=print) -> dict:
+def ask_spark(video: Path, facts: dict, images: list[np.ndarray], log=print, cache: Path | None = None) -> dict:
     """One request to the agent's reasoning backend (Muse Spark on the Meta API; Muse Spark Open
     in an open-weights run): the video, a few annotated frames and the measured facts. Returns
-    the parsed answer with the model's name, or an "error"."""
+    the parsed answer with the model's name, or an "error". An answer saved in ``cache`` for the
+    same model and the same question is reused (a rerun with unchanged measurements asks nothing)."""
     import os
     from openai import OpenAI
     from .agent import API_KEY_ENV, BASE_URL, MAX_IMAGES, MODEL, VIDEO, jpeg_url, mp4_url
+    question = PROMPT.format(**facts)
+    if cache is not None and cache.exists():
+        saved = json.loads(cache.read_text())
+        if saved.get("model") == MODEL and saved.get("base_url") == BASE_URL and saved.get("question") == question:
+            log(f"{MODEL}: the same question was answered before ({cache.name}); reusing that answer")
+            return {k: saved[k] for k in ("model", "base_url", "answer", "raw")} | {"cached": True}
     content = []
     if VIDEO:
         content.append({"type": "video_url", "video_url": {"url": mp4_url(video)}})
     room = MAX_IMAGES - len(content) if MAX_IMAGES else len(images)
     content += [{"type": "image_url", "image_url": {"url": jpeg_url(im, width=1080)}} for im in images[:max(0, room)]]
-    content.append({"type": "text", "text": PROMPT.format(**facts)})
+    content.append({"type": "text", "text": question})
     client = OpenAI(base_url=BASE_URL, api_key=os.environ[API_KEY_ENV], timeout=900, max_retries=2)
     messages = [{"role": "user", "content": content}]
     failures = []
@@ -960,7 +971,10 @@ def ask_spark(video: Path, facts: dict, images: list[np.ndarray], log=print) -> 
             resp = client.chat.completions.create(model=MODEL, messages=messages, max_tokens=6000,
                                                   response_format={"type": "json_object"})
             text = resp.choices[0].message.content or ""
-            return {"model": MODEL, "base_url": BASE_URL, "answer": parse_json(text), "raw": text}
+            out = {"model": MODEL, "base_url": BASE_URL, "answer": parse_json(text), "raw": text}
+            if cache is not None:
+                cache.write_text(json.dumps({**out, "question": question}, indent=2))
+            return out
         except (ValueError, json.JSONDecodeError) as e:
             failures.append(f"attempt {attempt + 1}: {e}: {text[:200]!r}")
             messages = messages + [{"role": "assistant", "content": text or "(empty)"},
@@ -1433,6 +1447,15 @@ def _mm(x) -> str:
     return f"{1000 * x:.0f}"
 
 
+def _jsonable(o):
+    """numpy values in completion.json: arrays as lists, scalars (incl. bools) as Python values."""
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    if isinstance(o, np.generic):
+        return o.item()
+    raise TypeError(f"{type(o).__name__} is not JSON serializable")
+
+
 def not_measured_lines(name: str, dims: dict, front: dict, bounds: dict) -> list[str]:
     """Plain lines for the viewer's "Not measured" note: what was estimated, by what, within what."""
     d = dims["outer_depth"]
@@ -1629,7 +1652,7 @@ def complete_body(run_dir: Path, video: Path, capture: Path, log=print, spark: b
              "door_w": door_hw[1], "door_h": door_hw[0], "side_w": 1000 * side_w, "seen": seen, "bound": bound_text}
     for i, img in enumerate(shown):
         cv2.imwrite(str(out_dir / f"spark_input_{i}.jpg"), img)
-    est = ask_spark(video, facts, shown, log=log) if spark else {"model": None, "answer": None, "error": ["not asked"]}
+    est = ask_spark(video, facts, shown, log=log, cache=out_dir / "spark_answer.json") if spark else {"model": None, "answer": None, "error": ["not asked"]}
     answer = est.get("answer")
     if answer:
         log(f"{est['model']}: {json.dumps(answer, ensure_ascii=False)[:600]}")
@@ -1777,7 +1800,7 @@ def complete_body(run_dir: Path, video: Path, capture: Path, log=print, spark: b
         "not_measured": lines,
         "measured_only_model": ["model.measured.xml", "model.measured.urdf"],
     }
-    (run_dir / "completion.json").write_text(json.dumps(result, indent=2, default=float))
+    (run_dir / "completion.json").write_text(json.dumps(result, indent=2, default=_jsonable))
     (run_dir / "unmeasured.txt").write_text(" ".join(lines) + "\n")
     log("not measured: " + " ".join(lines))
     return result
