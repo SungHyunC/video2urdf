@@ -79,6 +79,21 @@ class RotationTest(unittest.TestCase):
         np.testing.assert_allclose(uc.rpy_matrix(physics._quat_to_rpy(GIMBAL_QUAT)), R, atol=1e-9)
 
 
+class InertialFromGeometryTest(unittest.TestCase):
+    def test_from_the_geometry_even_when_the_file_has_inertials(self):
+        """completion.set_base_inertial calls this on a model that already has physics: the
+        completed body must count, not the old inertial rescaled to the new mass."""
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            toy(d)  # inertials written, base COM at (-0.02, 0.11, -0.013)
+            out = physics.inertials(d / "model.xml", {"base": 9.0, "lid": 0.5})
+            np.testing.assert_allclose(out["base"]["pos"], [0, 0.1, -0.01], atol=1e-6)  # the slab's centre
+            I = 9.0 / 12 * np.array([0.2 ** 2 + 0.02 ** 2, 0.3 ** 2 + 0.02 ** 2, 0.3 ** 2 + 0.2 ** 2])
+            np.testing.assert_allclose(sorted(out["base"]["diaginertia"]), sorted(I), rtol=1e-6)
+            sizes = physics.link_sizes(d / "model.xml")
+            self.assertAlmostEqual(sizes["base"]["solid_volume_l"], 1.2, places=3)  # 300 x 200 x 20 mm
+
+
 class MujocoBlockTest(unittest.TestCase):
     def test_added_merged_and_idempotent(self):
         text = '<?xml version="1.0"?>\n<!-- <robot name="x"> <mujoco> -->\n<robot name="r">\n  <link name="a"/>\n</robot>\n'

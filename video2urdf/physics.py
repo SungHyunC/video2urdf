@@ -63,6 +63,7 @@ def _bodies(model: mujoco.MjModel) -> list[str]:
 def link_sizes(model_xml: Path) -> dict[str, dict]:
     """Bounding box (mm) and solid volume (litres) of each link's geometry, at density 1."""
     spec = mujoco.MjSpec.from_file(str(model_xml))
+    spec.compiler.inertiafromgeom = mujoco.mjtInertiaFromGeom.mjINERTIAFROMGEOM_TRUE  # not an <inertial> it has
     for g in spec.geoms:
         visual_only = g.contype == 0 and g.conaffinity == 0
         g.density, g.mass = (0.0, 0.0) if visual_only else (1.0, float("nan"))  # mass from volume
@@ -95,8 +96,11 @@ def _quat_to_rpy(q) -> tuple[float, float, float]:
 
 def inertials(model_xml: Path, masses: dict[str, float]) -> dict[str, dict]:
     """Each link's inertial at its given mass, from its geometry at uniform density (visual-only
-    geoms, which have contype 0, don't count)."""
+    geoms, which have contype 0, don't count). From the geometry even where the file already
+    has an <inertial>: with MuJoCo's default an explicit inertial wins, which only rescaled the
+    old one (completion's base inertial kept the measured strip's COM and moments at 10 kg)."""
     spec = mujoco.MjSpec.from_file(str(model_xml))
+    spec.compiler.inertiafromgeom = mujoco.mjtInertiaFromGeom.mjINERTIAFROMGEOM_TRUE
     for g in spec.geoms:
         if g.contype == 0 and g.conaffinity == 0:
             g.density, g.mass = 0.0, 0.0
