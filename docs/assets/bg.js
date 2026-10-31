@@ -5,7 +5,7 @@
 import * as THREE from "three";
 
 const VERT = /* glsl */ `
-  uniform float uTime, uSweep, uDpr, uSize;
+  uniform float uTime, uSweep, uDpr, uSize, uBeam;
   attribute float aRand, aKind;
   varying float vGlow, vFade, vRand, vKind;
   const float TAU = 6.2831853;
@@ -17,7 +17,7 @@ const VERT = /* glsl */ `
     float dist = -mv.z;
     float ang = atan(p.z, p.x);                       // the sensor is at the origin
     float d = mod(uSweep - ang, TAU);
-    vGlow = exp(-d * 3.2) * (1.0 - smoothstep(20.0, 36.0, length(p.xz)));
+    vGlow = uBeam * exp(-d * 3.2) * (1.0 - smoothstep(20.0, 36.0, length(p.xz)));
     vFade = (1.0 - smoothstep(8.0, 64.0, dist)) * smoothstep(0.8, 3.0, dist);
     vRand = aRand;
     vKind = aKind;
@@ -92,7 +92,7 @@ export function start(canvas, { reduced = false, hero = null } = {}) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 140);
   const uniforms = {
-    uTime: { value: 0 }, uSweep: { value: 0 }, uDpr: { value: dpr }, uSize: { value: 2.7 },
+    uTime: { value: 0 }, uSweep: { value: 0 }, uDpr: { value: dpr }, uSize: { value: 2.7 }, uBeam: { value: 1 },
     uBlue: { value: new THREE.Color("#3d6ae0") }, uViolet: { value: new THREE.Color("#7b52e6") },
     uAmber: { value: new THREE.Color("#ffb84d") }, uCyan: { value: new THREE.Color("#5fd4ff") },
   };
@@ -130,11 +130,16 @@ export function start(canvas, { reduced = false, hero = null } = {}) {
   const t0 = performance.now() - last * 1000;
   const should = () => !reduced && heroVisible && !document.hidden;
   function loop(now) {
-    if (!should()) { running = false; return; }
+    if (!should()) { running = false; rest(); return; }
     draw((now - t0) / 1000);
     requestAnimationFrame(loop);
   }
-  function kick() { if (!running && should()) { running = true; requestAnimationFrame(loop); } }
+  // Off the hero the field rests: no beam, dimmed, so it never runs behind the text of later sections.
+  function rest() { uniforms.uBeam.value = 0; draw(last); canvas.classList.toggle("dim", !heroVisible); }
+  function kick() {
+    if (!running && should()) { uniforms.uBeam.value = 1; canvas.classList.remove("dim"); running = true; requestAnimationFrame(loop); }
+    else if (!should() && !running) rest();
+  }
   draw(last);
   canvas.classList.add("on");
   if (hero) new IntersectionObserver(([e]) => { heroVisible = e.isIntersecting; kick(); }, { rootMargin: "160px 0px" }).observe(hero);

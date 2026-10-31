@@ -76,44 +76,56 @@ function initCompare() {
     else if (e.key === "End") { setPos(100); e.preventDefault(); }
   });
 
-  // Keep the two videos on one clock: start them together, nudge the follower's rate, seek on big drift.
+  // Keep the two videos on one clock. The replay leads; each frame the phone video follows it: held while
+  // the leader buffers, its rate nudged for small drift, a seek for large drift (a loop, a stall).
   for (const v of [before, after]) { v.loop = true; v.muted = true; }
-  const ready = () => before.readyState >= 3 && after.readyState >= 3;
+  const live = () => want && inView && !document.hidden;
   function tryPlay() {
-    if (!want || !inView || document.hidden) return;
-    if (!ready()) { before.pause(); after.pause(); return; }
-    if (Math.abs(before.currentTime - after.currentTime) > 0.08) before.currentTime = after.currentTime;
+    if (!live()) return;
     after.play().catch(() => {});
-    before.play().catch(() => {});
     if (!raf) raf = requestAnimationFrame(sync);
     peek();
   }
+  let resyncing = false;
+  function resync() {  // big drift: hold the leader, seek the follower to it, then start both together
+    resyncing = true;
+    after.pause(); before.pause();
+    before.addEventListener("seeked", () => {
+      resyncing = false;
+      if (live()) { after.play().catch(() => {}); before.play().catch(() => {}); }
+    }, { once: true });
+    before.currentTime = after.currentTime;
+  }
   function sync() {
     raf = 0;
-    if (!want || !inView || document.hidden) return;
-    if (!after.paused && before.readyState >= 2) {
-      const d = before.currentTime - after.currentTime;
-      if (Math.abs(d) > 0.3) before.currentTime = after.currentTime;   // a loop or a stall
-      else before.playbackRate = clamp(1 - d * 1.6, 0.85, 1.15);
+    if (!live()) return;
+    if (!resyncing) {
+      if (after.paused) after.play().catch(() => {});
+      const leading = !after.paused && after.readyState >= 3;
+      if (!leading) { if (!before.paused) before.pause(); }
+      else if (before.paused) resync();
+      else if (before.readyState >= 2) {
+        const dur = after.duration || 1;  // both loop: measure drift around the loop point
+        const d = ((before.currentTime - after.currentTime + dur * 1.5) % dur) - dur / 2;
+        if (Math.abs(d) > 0.3) resync();
+        else before.playbackRate = clamp(1 - d * 1.6, 0.85, 1.15);
+      }
     }
     raf = requestAnimationFrame(sync);
   }
-  function stop() { before.pause(); after.pause(); }
-  for (const v of [before, after]) {
-    v.addEventListener("canplay", tryPlay);
-    v.addEventListener("waiting", () => { if (want) stop(); });
-    v.addEventListener("loadeddata", () => { if (ready() || before.readyState >= 2 && after.readyState >= 2) box.classList.remove("loading"); });
-  }
+  function stop() { cancelAnimationFrame(raf); raf = 0; resyncing = false; before.pause(); after.pause(); }
+  for (const v of [before, after]) v.addEventListener("loadeddata", () => {
+    if (before.readyState >= 2 && after.readyState >= 2) box.classList.remove("loading");
+  });
   new IntersectionObserver(([e]) => {
     inView = e.isIntersecting;
-    if (inView) { for (const v of [before, after]) if (v.preload !== "auto") v.preload = "auto"; tryPlay(); }
-    else stop();
+    if (inView) tryPlay(); else stop();
   }, { threshold: 0.2 }).observe(box);
   document.addEventListener("visibilitychange", () => (document.hidden ? stop() : tryPlay()));
 
   if (reduced) {  // no autoplay: a play button starts both
     playBtn.hidden = false;
-    playBtn.addEventListener("click", () => { want = true; playBtn.hidden = true; for (const v of [before, after]) v.preload = "auto"; tryPlay(); });
+    playBtn.addEventListener("click", () => { want = true; playBtn.hidden = true; tryPlay(); });
   }
 
   let peeked = false;  // once, show that the divider moves
@@ -151,6 +163,7 @@ function initCompare() {
     const open = $("#cmpOpen");
     open.href = "#" + name;
     open.dataset.model = name;
+    tryPlay();
   }
   setPos(50);
 }
@@ -332,18 +345,17 @@ function initReveal() {
 }
 
 /* ---------- WebGL extras, loaded when they matter ---------- */
-function webgl() {
-  try { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); } catch { return false; }
-}
+// No WebGL probe: a throwaway context costs as much as a real one. Without WebGL the renderer throws and the
+// import's catch leaves the page as it is.
 function initBackground() {
   const canvas = $("#bg");
-  if (!canvas || !webgl()) return;
+  if (!canvas) return;
   const go = () => import("./bg.js").then((m) => m.start(canvas, { reduced, hero: $(".hero") })).catch((e) => console.warn("background", e));
   if (document.readyState === "complete") setTimeout(go, 150); else addEventListener("load", () => setTimeout(go, 150), { once: true });
 }
 function initScan() {
   const card = $("#scanCard");
-  if (!card || !webgl()) return;
+  if (!card) return;
   const io = new IntersectionObserver(([e]) => {
     if (!e.isIntersecting) return;
     io.disconnect();

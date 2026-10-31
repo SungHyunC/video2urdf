@@ -93,7 +93,8 @@
   .btn-sm { padding: 8px 12px; font-size: 13.5px; border-radius: 10px; }
   .m { color: var(--amber); font-variant-numeric: tabular-nums; }          /* a measured number */
   .tag { display: inline-flex; align-items: center; gap: 6px; font: 500 11.5px/1 var(--mono); padding: 5px 8px; border-radius: 7px;
-         color: var(--ink-2); background: rgba(10, 14, 23, .75); border: 1px solid var(--line-2); white-space: nowrap; }
+         color: var(--ink-2); background: rgba(10, 14, 23, .75); border: 1px solid var(--line-2); white-space: nowrap; max-width: 100%; }
+  @media (max-width: 640px) { .tag { white-space: normal; line-height: 1.3; } }
   .tag-measured { color: var(--amber-2); border-color: rgba(255, 184, 77, .45); background: rgba(255, 184, 77, .1); }
   .tag-bounded { color: var(--cyan); border-color: rgba(95, 212, 255, .4); background: rgba(95, 212, 255, .08); }
   .tag-estimated { color: var(--ink-2); border: 1px dashed rgba(182, 191, 210, .45); background: transparent; }
@@ -104,7 +105,7 @@
   @media (max-width: 640px) { .section { padding: 76px 0; } .sec-head p { font-size: 16px; } }
 
   /* ---------- viewer ---------- */
-  .viewer-sec { padding-top: 96px; }
+  .section.viewer-sec { padding: 28px 0 56px; }  /* alone in a run's viewer folder; site.css spaces it on the site */
   .viewer-frame { position: relative; border: 1px solid var(--line-2); border-radius: 26px; padding: 18px;
                   background: linear-gradient(180deg, rgba(17, 23, 37, .9), rgba(9, 12, 20, .92)); box-shadow: var(--shadow); }
   .viewer-frame::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--paper); opacity: .55;
@@ -124,8 +125,8 @@
   .tabs button:hover, .seg button:hover { color: #fff; border-color: var(--line-3); }
   .tabs button[aria-pressed="true"], .seg button[aria-pressed="true"] {
     color: #fff; border-color: transparent; background: var(--grad-btn); box-shadow: 0 8px 24px -10px rgba(122, 92, 255, .9); }
-  .stage { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  @media (max-width: 900px) { .stage { grid-template-columns: 1fr; } }
+  .stage { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  @media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); } }
   .card { background: var(--panel-solid); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden;
           display: flex; flex-direction: column; min-width: 0; }
   .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px;
@@ -142,8 +143,8 @@
   #view3d canvas { position: relative; display: block; width: 100%; height: 100%; }
   .hint { position: absolute; left: 12px; bottom: 10px; font: 12px/1.3 var(--mono); color: var(--ink-3); pointer-events: none; }
   .under { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 22px; align-items: start; margin-top: 16px; }
-  @media (max-width: 900px) { .under { grid-template-columns: 1fr; } }
-  .controls { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; align-items: center; min-width: 0; }
+  @media (max-width: 900px) { .under { grid-template-columns: minmax(0, 1fr); } }
+  .controls { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 16px; align-items: center; min-width: 0; }
   .controls:empty { display: none; }
   .controls label { font: 500 12.5px/1.2 var(--mono); color: var(--ink-2); white-space: nowrap; }
   .controls input[type=range] { flex: 1; min-width: 0; accent-color: var(--violet); }
@@ -154,13 +155,13 @@
   .downloads .btn { padding: 10px 14px; font-size: 14px; }
   .value { font: 500 13px/1 var(--mono); font-variant-numeric: tabular-nums; min-width: 4.5em; display: inline-block; text-align: right; color: var(--amber); }
   .factsheet { position: relative; margin-top: 16px; border: 1px solid var(--line); border-radius: var(--r); background: rgba(8, 11, 18, .7); padding: 6px 16px; }
-  .facts { display: grid; grid-template-columns: 112px 1fr; gap: 14px; margin: 0; padding: 11px 0; color: var(--ink-2); font-size: 14px; line-height: 1.55;
+  .facts { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 14px; margin: 0; padding: 11px 0; color: var(--ink-2); font-size: 14px; line-height: 1.55;
            border-top: 1px solid var(--line); }
   .factsheet .facts:first-child, .factsheet .facts[hidden] + .facts { border-top: 0; }
   .facts::before { content: attr(data-label); font: 600 10.5px/1.9 var(--mono); text-transform: uppercase; letter-spacing: .09em; color: var(--blue-2); }
   #facts::before { color: var(--amber); }
   #unmeasured::before, #provenance::before { color: var(--ink-3); }
-  @media (max-width: 560px) { .facts { grid-template-columns: 1fr; gap: 2px; } }
+  @media (max-width: 560px) { .facts { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
   details.panel { position: relative; margin-top: 12px; border: 1px solid var(--line); border-radius: var(--r); background: rgba(8, 11, 18, .7); }
   details.panel > summary { cursor: pointer; padding: 13px 16px; font: 600 14px/1.3 var(--sans); color: var(--ink); list-style: none; display: flex; align-items: center; gap: 10px; }
   details.panel > summary::-webkit-details-marker { display: none; }
@@ -183,8 +184,8 @@
 
   /* ---------- footer ---------- */
   .foot { position: relative; border-top: 1px solid var(--line); padding: 44px 0 56px; color: var(--ink-3); font-size: 14px; background: rgba(5, 7, 12, .85); }
-  .foot-grid { display: grid; grid-template-columns: 1.4fr 1fr 1.4fr; gap: 28px; }
-  @media (max-width: 820px) { .foot-grid { grid-template-columns: 1fr; } }
+  .foot-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 28px; }
+  @media (max-width: 820px) { .foot-grid { grid-template-columns: minmax(0, 1fr); } }
   .foot h4 { font: 600 11.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--ink-2); margin: 4px 0 14px; }
   .foot ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   .foot a { color: var(--ink-2); }
@@ -246,8 +247,8 @@
     <figure class="hero-visual">
       <div class="compare-card">
         <div class="compare" id="compare" style="--pos: 50%">
-          <video class="cmp-after" muted playsinline preload="metadata" poster="assets/compare/laptop_lidar_replay.jpg" src="assets/compare/laptop_lidar_replay.mp4" aria-label="The measured model replayed over the video"></video>
-          <video class="cmp-before" muted playsinline preload="metadata" poster="assets/compare/laptop_lidar_phone.jpg" src="assets/compare/laptop_lidar_phone.mp4" aria-label="The phone video"></video>
+          <video class="cmp-after" muted playsinline preload="auto" poster="assets/compare/laptop_lidar_replay.jpg" src="assets/compare/laptop_lidar_replay.mp4" aria-label="The measured model replayed over the video"></video>
+          <video class="cmp-before" muted playsinline preload="auto" poster="assets/compare/laptop_lidar_phone.jpg" src="assets/compare/laptop_lidar_phone.mp4" aria-label="The phone video"></video>
           <div class="cmp-scan" aria-hidden="true"></div>
           <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
           <div class="cmp-divider" aria-hidden="true"></div>
@@ -302,7 +303,7 @@
       <div class="sec-head">
         <span class="pill"><span class="dot"></span>8 real objects · filmed for this project</span>
         <h2>Measured from the video, <span class="grad">not modelled by hand</span></h2>
-        <p>Every model here came out of one capture of the real thing. Hover a card to watch the model replayed over its video; open it to orbit it, drive its joints and download it.</p>
+        <p>Every model here came out of one capture of the real thing. Each card plays the model replayed over its video; open one to orbit it, drive its joints and download it.</p>
       </div>
       <a class="btn btn-ghost btn-sm" href="#viewer">Open the viewer →</a>
     </div>
@@ -566,7 +567,7 @@
       <article class="mc"><div class="mc-top"><h3>Muse Spark</h3><span class="tag">Meta Model API</span></div><p class="mc-role">The agent</p><p>Watches the video, names the parts, writes SAM's prompts, calls track and fit, watches the replay to judge the fit, refits; then judges materials and masses and designs the clean visual.</p><code>muse-spark-1.3-contributor</code></article>
       <article class="mc"><div class="mc-top"><h3>SAM 3.1</h3><span class="tag">API or open weights</span></div><p class="mc-role">Finds and tracks every part</p><p>Noun prompts find each part on key frames; one box-anchored video request tracks all parts through the video with stable IDs.</p><code>sam-3.1 · facebook/sam3.1</code></article>
       <article class="mc"><div class="mc-top"><h3>Muse Spark Open</h3><span class="tag">open weights</span></div><p class="mc-role">The same agent, open weights</p><p>Runs the whole pipeline on Baseten or Fireworks, video input included; also proposes shape designs alongside Muse Spark each round.</p><code>muse-spark-open</code></article>
-      <article class="mc"><div class="mc-top"><h3>Muse Glimmer 30B</h3><span class="tag">open weights · served by us</span></div><p class="mc-role">The agent on our own GPU</p><p>A 30B dense model on our Modal endpoint (SGLang), driving the LiDAR laptop end to end through physics from frames and tool calls.</p><code>meta-models/Muse-Glimmer-30B</code></article>
+      <article class="mc"><div class="mc-top"><h3>Muse Glimmer 30B</h3><span class="tag">open weights</span></div><p class="mc-role">The agent on our own GPU</p><p>A 30B dense model on our Modal endpoint (SGLang), driving the LiDAR laptop end to end through physics from frames and tool calls.</p><code>meta-models/Muse-Glimmer-30B</code></article>
       <article class="mc"><div class="mc-top"><h3>SAM 3D Objects</h3><span class="tag">open weights</span></div><p class="mc-role">A realistic mesh per link</p><p>One frame, its SAM 3.1 mask and the LiDAR depth give a coloured mesh in metres, checked against the measured depth points before it is used.</p><code>facebook/sam-3d-objects</code></article>
       <article class="mc"><div class="mc-top"><h3>MapAnything</h3><span class="tag">open weights</span></div><p class="mc-role">Depth for plain video</p><p>Metric depth, intrinsics and camera poses from an RGB video, so the 3D path runs without LiDAR (experimental; scale from a card or the object's usual size).</p><code>facebook/map-anything-apache</code></article>
     </div>

@@ -191,25 +191,30 @@ export async function start({ card, reduced = false, finePointer = true }) {
   const cursor = card.querySelector("#scanCursor"), readQ = card.querySelector("#scanQ"), readF = card.querySelector("#scanF");
   const els = Object.fromEntries(Object.keys(anchors).map((k) => [k, card.querySelector("#" + k)]));
 
-  function resize() {
+  const radius = size / 2;
+  function resize() {  // keep the whole model in view at any aspect (a phone's card is narrow)
     const w = stage.clientWidth, h = stage.clientHeight;
     if (!w || !h) return;
     renderer.setSize(w, h, false);
     camera.aspect = w / h; camera.updateProjectionMatrix();
+    const vf = camera.fov * Math.PI / 180, hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
+    const dist = radius / Math.sin(Math.min(vf, hf) / 2) * 0.8;
+    const off = camera.position.clone().sub(controls.target).setLength(dist);
+    camera.position.copy(controls.target).add(off);
   }
   new ResizeObserver(resize).observe(stage);
   resize();
 
   const v = new THREE.Vector3();
   let frame = 0;
-  function draw(t) {
+  function draw(t, fromControls = false) {
     frame = reduced ? Math.floor(frames * 0.12) : Math.floor(t * fps) % frames;
     const q = track[frame];
     lid.moving.quaternion.setFromAxisAngle(lid.axis, q);
     pointMat.uniforms.uScan.value = box.min.x - 0.1 + ((t * 0.16) % 1) * (box.max.x - box.min.x + 0.2);
     const pulse = 0.85 + 0.15 * Math.sin(t * 3.0);
     glow[1].material.opacity = 0.28 * pulse; glow[2].material.opacity = 0.1 * pulse;
-    controls.update();
+    if (!fromControls) controls.update();  // update() emits "change", which redraws in reduced motion
     renderer.render(scene, camera);
     const w = stage.clientWidth, h = stage.clientHeight;
     for (const [k, a] of Object.entries(anchors)) {
@@ -234,7 +239,7 @@ export async function start({ card, reduced = false, finePointer = true }) {
   const kick = () => { if (!running && should()) { running = true; requestAnimationFrame(loop); } };
   new IntersectionObserver(([e]) => { visible = e.isIntersecting; kick(); }).observe(stage);
   document.addEventListener("visibilitychange", kick);
-  if (reduced) controls.addEventListener("change", () => draw(0));
+  if (reduced) controls.addEventListener("change", () => draw(0, true));
   draw(0);
   card.classList.add("ready");
   kick();
