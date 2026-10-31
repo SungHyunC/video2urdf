@@ -136,6 +136,18 @@ Two capture paths:
 | Joint fit | planar: least-squares hinge centre / slide direction from relative poses | 3D: plate planes per frame, hinge = where plate and base planes cross; slides by ICP |
 | Geometry | voted silhouettes extruded to meshes | sizes from depth (lid outline, base thickness, ...) |
 
+How this differs from research on articulated-object models:
+
+- Ditto (CVPR 2022) and PARIS (ICCV 2023) reconstruct an object's parts and joint from
+  observations of two static states.
+- URDFormer (RSS 2024) predicts a URDF's structure from a single image and fills it with template
+  parts. Articulate-Anything (2024) has a vision-language model write the articulation from text,
+  images or video, with part meshes retrieved from a dataset.
+- Video2URDF takes one casual video of the real object being worked. It measures each joint's
+  axis, position and limits in metres from the parts' tracked motion, and replays the model over
+  the same video to check it. It says which numbers were measured and which were estimated. URDF
+  Doctor runs the same measurement against a URDF you already have.
+
 ## Meta models, and what each does
 
 | Model | Where | Role |
