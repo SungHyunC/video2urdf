@@ -62,6 +62,17 @@ class DepthBoundTest(unittest.TestCase):
         self.assertFalse(out["frames_agree"])
         self.assertAlmostEqual(out["lower_m"], 0.02)  # the depth points' least depth, not the silhouettes'
 
+    def test_most_frames_agreeing_give_a_lower_bound_and_name_the_outlier(self):
+        per = {5: {"upper_m": 0.34, "lower_m": 0.26}, 1126: {"upper_m": 0.44, "lower_m": 0.33},
+               1151: {"upper_m": 0.39, "lower_m": 0.30}, 1161: {"upper_m": 0.32, "lower_m": 0.25},
+               1176: {"upper_m": 0.39, "lower_m": 0.29}, 1261: {"upper_m": 0.33, "lower_m": 0.26}}
+        out = C.combine_bounds(per)
+        self.assertAlmostEqual(out["upper_m"], 0.32)
+        self.assertTrue(out["frames_agree"])
+        self.assertAlmostEqual(out["lower_m"], 0.30)
+        self.assertEqual(out["lower_frames"], [1151])
+        self.assertEqual(out["outside_consensus"], [1126])
+
     def test_frames_that_agree_bracket_the_depth(self):
         per = {1: {"upper_m": 0.44, "lower_m": 0.33}, 2: {"upper_m": 0.5, "lower_m": 0.36}}
         out = C.combine_bounds(per, seen_depth=None)

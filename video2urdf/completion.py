@@ -347,12 +347,14 @@ def frame_depth_bounds(corners_at, project, mask: np.ndarray, depths: np.ndarray
 
 def combine_bounds(per_frame: dict, seen_depth: float | None = None) -> dict:
     """The depth bound over frames: the largest depth every usable frame allows (the smallest
-    upper bound) and, if every frame agrees with it, the largest lower bound. A frame whose upper
-    bound is below the depth already seen on the object (depth points behind its front) or below
-    its own lower bound is inconsistent (its mask misses the object's top or sides) and is not
-    used. When the frames' brackets don't overlap (a top seen at a grazing angle: millimetres of
-    height error per frame move its far edge by many centimetres), the lower bounds are kept in
-    the record but not used; the depth points' least depth stays the lower bound."""
+    upper bound), and a lower bound from the frames that agree: the most frames whose brackets
+    share a depth, if they are at least two thirds of them, give the largest of their lower
+    bounds (frames outside that consensus are listed). A frame whose upper bound is below the
+    depth already seen on the object (depth points behind its front) or below its own lower bound
+    is inconsistent (its mask misses the object's top or sides) and is not used. Without a
+    consensus, or if it contradicts the upper bound, the silhouettes give no lower bound (a top
+    seen at a grazing angle: millimetres of height error per frame move its far edge by many
+    centimetres); the depth points' least depth stays the lower bound."""
     used, dropped = {}, {}
     for t, b in per_frame.items():
         if b.get("upper_m") is None and b.get("lower_m") is None:
@@ -375,12 +377,21 @@ def combine_bounds(per_frame: dict, seen_depth: float | None = None) -> dict:
         out["upper_m"] = min(uppers.values())
         out["upper_frames"] = sorted(t for t, v in uppers.items() if v <= out["upper_m"] + 1e-9)
     if lowers:
-        lower = max(lowers.values())
+        hi = {t: uppers.get(t, np.inf) for t in lowers}
+        best, agree = None, []
+        for d in sorted(set(lowers.values()) | {v for v in hi.values() if np.isfinite(v)}):
+            inside = [t for t in lowers if lowers[t] - 1e-9 <= d <= hi[t] + 1e-9]
+            if len(inside) > len(agree):
+                best, agree = d, inside
+        out["consensus_frames"] = sorted(agree)
+        out["outside_consensus"] = sorted(set(lowers) - set(agree))
+        lower = max(lowers[t] for t in agree) if agree else None
+        out["frames_agree"] = (lower is not None and len(agree) >= max(2, int(np.ceil(2 * len(lowers) / 3)))
+                               and (out["upper_m"] is None or lower <= out["upper_m"] + 1e-9))
         out["silhouette_lower_m"] = lower
-        out["silhouette_lower_frames"] = sorted(t for t, v in lowers.items() if v >= lower - 1e-9)
-        out["frames_agree"] = out["upper_m"] is None or lower <= out["upper_m"]
         if out["frames_agree"]:
-            out["lower_m"], out["lower_frames"] = lower, out["silhouette_lower_frames"]
+            out["lower_m"] = lower
+            out["lower_frames"] = sorted(t for t in agree if lowers[t] >= lower - 1e-9)
     if seen_depth is not None and (out["lower_m"] is None or seen_depth > out["lower_m"]):
         out["lower_m"], out["lower_frames"], out["lower_from_depth_points"] = seen_depth, [], True
     return out
@@ -544,24 +555,56 @@ def support_correction(points: np.ndarray, z_floor: float, rng, max_tilt_deg: fl
                "height_shift_mm": 1000 * (z_floor - height)}
 
 
-def front_correction(points: np.ndarray, front: "Front", rng) -> tuple[np.ndarray, dict]:
-    """A frame's own front points turned about z and shifted along n onto the pooled front plane."""
+def front_correction(points: np.ndarray, front: "Front", rng, yaw_only: bool = False) -> tuple[np.ndarray, dict]:
+    """A frame's own front points turned onto the pooled (vertical) front plane and shifted along
+    its normal onto it. The front decides the frame's pitch: a large, near, well-measured face,
+    where the support in front is seen at a grazing angle (``yaw_only``: the support decided the
+    pitch, the front only turns the frame about the vertical)."""
     from .lift3d import fit_plane
     if len(points) < 200:
         return np.eye(4), {"front_points": int(len(points)), "aligned": False}
     n, _, _ = fit_plane(points, rng)
-    n[2] = 0
-    n /= max(np.linalg.norm(n), 1e-9)
     if n @ front.n < 0:
         n = -n
-    yaw = float(np.arctan2(np.cross(n, front.n)[2], n @ front.n))
-    if abs(np.rad2deg(yaw)) > 15:
-        return np.eye(4), {"front_points": int(len(points)), "aligned": False, "yaw_deg": float(np.rad2deg(yaw))}
-    c, s = np.cos(yaw), np.sin(yaw)
-    m = _about(np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.0]]), points.mean(axis=0))
+    lean = float(np.rad2deg(np.arcsin(np.clip(n[2], -1, 1))))
+    if yaw_only:
+        n = n.copy()
+        n[2] = 0
+        n /= max(np.linalg.norm(n), 1e-9)
+    turn = float(np.rad2deg(np.arccos(np.clip(n @ front.n, -1, 1))))
+    if turn > 15:
+        return np.eye(4), {"front_points": int(len(points)), "aligned": False, "turn_deg": turn}
+    m = _about(_rotation_between(n, front.n), points.mean(axis=0))
     v = float(np.median(front.uvz(_apply(m, points))[:, 1]))
     m[:3, 3] += v * front.n  # the front's median depth onto v = 0
-    return m, {"front_points": int(len(points)), "aligned": True, "yaw_deg": float(np.rad2deg(yaw)), "shift_mm": 1000 * v}
+    return m, {"front_points": int(len(points)), "aligned": True, "turn_deg": turn, "lean_deg": lean, "shift_mm": 1000 * v}
+
+
+def support_roll(points: np.ndarray, front: "Front", z_floor: float, rng) -> tuple[np.ndarray, dict]:
+    """With the front fixed, the support surface levelled side to side (a turn about the front's
+    normal, which keeps the front where it is) and set at the floor's height."""
+    from .lift3d import fit_plane
+    if len(points) < 300:
+        return np.eye(4), {"roll_points": int(len(points))}
+    n, _, frac = fit_plane(points, rng)
+    if n[2] < 0:
+        n = -n
+    if frac < 0.3 or n[2] < np.cos(np.deg2rad(15)):
+        return np.eye(4), {"roll_points": int(len(points))}
+    roll = float(np.arctan2(n @ front.u, n @ front.z))
+    on = points[np.abs((points - points.mean(axis=0)) @ n) < 0.006]
+    a = front.n  # turning about +n by +roll takes the normal's u-component back to z
+    k = np.array([[0, -a[2], a[1]], [a[2], 0, -a[0]], [-a[1], a[0], 0]])
+    r = np.eye(3) + np.sin(roll) * k + (1 - np.cos(roll)) * k @ k
+    m = _about(r, on.mean(axis=0))
+    if abs((r @ n) @ front.u) > abs(n @ front.u):  # wrong way round: turn the other way
+        r = r.T
+        m = _about(r, on.mean(axis=0))
+    height = float(np.median(_apply(m, on)[:, 2]))
+    m[2, 3] += z_floor - height
+    return m, {"roll_points": int(len(points)), "roll_deg": float(np.rad2deg(roll)),
+               "pitch_left_deg": float(np.rad2deg(np.arcsin(np.clip(n @ front.n, -1, 1)))),
+               "floor_shift_mm": 1000 * (z_floor - height)}
 
 
 @dataclass
@@ -609,10 +652,13 @@ def _pooled_front(run: Run, views: dict, depth: np.ndarray, rng) -> tuple["Front
 
 
 def level_views(run: Run, frames, depth: np.ndarray, z_floor: float, rng, object_masks: dict | None = None,
-                log=print) -> tuple[dict, "Front", float]:
-    """Each frame's camera levelled on its own support surface, then the pooled front plane, then
-    each frame's own front turned and shifted onto it. Returns the views, the front and the share
-    of front points on its plane."""
+                log=print, pitch_from: str = "front") -> tuple[dict, "Front", float]:
+    """Each frame's camera levelled: first roughly on its own support surface, then its own front
+    turned and shifted onto the pooled (vertical) front plane, then the support levelled side to
+    side and set at the floor's height. ``pitch_from="support"`` keeps the support's pitch and
+    turns the front about the vertical only (the two disagree by a few degrees on the microwave,
+    which is how uncertain the levelling is). Returns the views, the front and the share of front
+    points on its plane."""
     base = {}
     for t in frames:
         c2m = run.cam_to_world[t].copy()
@@ -625,22 +671,29 @@ def level_views(run: Run, frames, depth: np.ndarray, z_floor: float, rng, object
         p = front.uvz(v.points(run.intr, _front_mask(run, t), depth[t]))
         if len(p):
             lo, hi = min(lo, np.percentile(p[:, 0], 2)), max(hi, np.percentile(p[:, 0], 98))
-    views = {}
-    for t, v in base.items():
+
+    def support(v, t, front):
         mask = (object_masks or {}).get(t, run.object_mask(t))
         p = v.points(run.intr, everything & ~cv2.dilate(mask.astype(np.uint8), np.ones((15, 15), np.uint8)).astype(bool),
                      depth[t])
         f = front.uvz(p)
-        support = p[(f[:, 1] < -0.01) & (f[:, 1] > -0.35) & (f[:, 0] > lo - 0.15) & (f[:, 0] < hi + 0.15)
-                    & (np.abs(f[:, 2] - z_floor) < 0.06)]
-        m, info = support_correction(support, z_floor, rng)
+        return p[(f[:, 1] < -0.01) & (f[:, 1] > -0.35) & (f[:, 0] > lo - 0.15) & (f[:, 0] < hi + 0.15)
+                 & (np.abs(f[:, 2] - z_floor) < 0.06)]
+
+    views = {}
+    for t, v in base.items():
+        m, info = support_correction(support(v, t, front), z_floor, rng)
         views[t] = FrameView(t, m @ v.cam_to_model, info)
     front, _ = _pooled_front(run, views, depth, rng)
     for t, v in views.items():
         p = v.points(run.intr, _front_mask(run, t), depth[t])
         p = p[np.abs(front.uvz(p)[:, 1]) < 0.04]
-        m, info = front_correction(p, front, rng)
-        views[t] = FrameView(t, m @ v.cam_to_model, {**v.info, **info})
+        m, info = front_correction(p, front, rng, yaw_only=pitch_from == "support")
+        v = FrameView(t, m @ v.cam_to_model, {**v.info, **info})
+        if pitch_from == "front":
+            m, info = support_roll(support(v, t, front), front, z_floor, rng)
+            v = FrameView(t, m @ v.cam_to_model, {**v.info, **info})
+        views[t] = v
     front, share = _pooled_front(run, views, depth, rng)
     tilts = [v.info.get("tilt_deg") for v in views.values() if v.info.get("levelled")]
     if tilts:
@@ -820,15 +873,17 @@ Bounded by the video: {bound}
 Estimate the hidden dimensions typical for this kind of object, or for this exact model if you recognise it
 (say which). The cavity is the space behind the door that the door closes over (for a microwave or an oven,
 the cooking chamber; for a cupboard, its inside); wall_thickness is the casing between the cavity and the
-outside on the top, bottom and sides. mass_kg is the whole object without its door. Keep each reason to one
-line. The depth must respect the bound above. Answer with one JSON object only:
+outside on the top, bottom and sides. mass_kg is the whole object without its door. For each size give
+"typical": the usual size for this kind of object (or this model's specification) on its own, and "value":
+your estimate for this object, consistent with the measurements and the bound above. Keep each reason to one
+line. Answer with one JSON object only:
 {{"object": str, "recognised_model": str or null, "has_cavity": bool,
- "outer_depth_mm": {{"value": number, "range": [low, high], "reason": str}},
- "cavity_width_mm": {{"value": number, "range": [low, high], "reason": str}},
- "cavity_height_mm": {{"value": number, "range": [low, high], "reason": str}},
- "cavity_depth_mm": {{"value": number, "range": [low, high], "reason": str}},
- "wall_thickness_mm": {{"value": number, "range": [low, high], "reason": str}},
- "mass_kg": {{"value": number, "range": [low, high], "reason": str}}}}"""
+ "outer_depth_mm": {{"value": number, "typical": number, "range": [low, high], "reason": str}},
+ "cavity_width_mm": {{"value": number, "typical": number, "range": [low, high], "reason": str}},
+ "cavity_height_mm": {{"value": number, "typical": number, "range": [low, high], "reason": str}},
+ "cavity_depth_mm": {{"value": number, "typical": number, "range": [low, high], "reason": str}},
+ "wall_thickness_mm": {{"value": number, "typical": number, "range": [low, high], "reason": str}},
+ "mass_kg": {{"value": number, "typical": number, "range": [low, high], "reason": str}}}}"""
 
 
 def parse_json(text: str) -> dict:
@@ -910,7 +965,9 @@ def resolve_dims(geometry: dict, bounds: dict, answer: dict | None, model: str |
             rng = entry.get("range") if isinstance(entry, dict) else None
             rng = [float(x) / 1000 for x in rng] if isinstance(rng, list) and len(rng) == 2 and all(
                 isinstance(x, (int, float)) for x in rng) else None
+            typical = _number(entry, "typical") if isinstance(entry, dict) else None
             return {"value_m": v / 1000, "source": "Muse Spark", "model": model, "range_m": rng,
+                    "typical_m": None if typical is None else typical / 1000,
                     "reason": str(entry.get("reason", "")) if isinstance(entry, dict) else ""}
         return {"value_m": fallback, "source": default_name, "model": None, "range_m": None,
                 "reason": defaults["reason"]}
@@ -1328,15 +1385,19 @@ def _mm(x) -> str:
 def not_measured_lines(name: str, dims: dict, front: dict, bounds: dict) -> list[str]:
     """Plain lines for the viewer's "Not measured" note: what was estimated, by what, within what."""
     d = dims["outer_depth"]
-    lines = [f"Only the {name}'s front was measured ({_mm(front['width_m'])} x {_mm(front['height_m'])} mm); "
-             "the body behind it was never seen."]
+    lines = [f"the {name}'s body behind its front was never seen (only the front is measured: "
+             f"{_mm(front['width_m'])} x {_mm(front['height_m'])} mm), so it is completed from estimates."]
     clamp = d.get("clamped")
     src = "Muse Spark's estimate" if d["source"] == "Muse Spark" else f"a typical size ({d['source']})"
     line = f"Its depth, {_mm(d['value_m'])} mm, is {src}"
     if clamp:
         line += f" ({_mm(clamp['from_m'])} mm, clamped: {clamp['by']})"
+    if d.get("typical_m") and abs(d["typical_m"] - d["value_m"]) > 0.01:
+        line += f"; it puts this kind of object at {_mm(d['typical_m'])} mm"
     if bounds.get("upper_m") is not None:
         line += f"; the video allows at most {_mm(bounds['upper_m'])} mm ({bounds['upper_why']})"
+    if bounds.get("lower_m"):
+        line += f" and at least {_mm(bounds['lower_m'])} mm ({bounds['lower_why']})"
     lines.append(line + ".")
     if dims.get("has_cavity") and "cavity_width" in dims:
         srcs = {dims[k]["source"] for k in ("cavity_width", "cavity_height", "cavity_depth", "wall_thickness")}
@@ -1381,25 +1442,55 @@ def complete_body(run_dir: Path, video: Path, capture: Path, log=print, spark: b
     whole_shut = {t: m for t, m in whole.items() if t in fs}
     z_floor = -float(run.root_pos[2])
     frames = sorted(set(int(t) for t in shut[:: max(1, len(shut) // 30)]) | set(whole_shut))
-    views, front, share = level_views(run, frames, depth, z_floor, rng, object_masks=whole_shut, log=log)
-    meas = measure_front(run, views, front, depth, whole_shut, log=log)
-    views = meas["views"]
+
+    # 2. bound the hidden depth: silhouettes, and the wall behind if there is one. The top is seen
+    # from just above it, so the silhouettes hang on how each frame is levelled: they are bounded
+    # with the frames levelled on the object's front and, again, on the support in front of it,
+    # and only what both allow is kept (the larger upper bound, the smaller lower bound).
+    sil_by, meas_by = {}, {}
+    for mode in ("front", "support"):
+        quiet = log if mode == "front" else (lambda *a, **k: None)
+        v_, f_, _ = level_views(run, frames, depth, z_floor, rng, object_masks=whole_shut, log=quiet, pitch_from=mode)
+        m_ = measure_front(run, v_, f_, depth, whole_shut, log=quiet)
+        m_["front"] = f_
+        meas_by[mode] = m_
+        a0, a1 = m_["u"]
+        b0, b1 = m_["z"]
+        grid = np.arange(0, MAX_DEPTH_FACTOR * max(m_["width_m"], m_["height_m"]) + DEPTH_STEP_M, DEPTH_STEP_M)
+        per = {t: frame_depth_bounds(lambda d, f_=f_, a0=a0, a1=a1, b0=b0, b1=b1: box_corners(f_, [a0, 0, b0], [a1, d, b1]),
+                                     lambda p, t=t, vs=m_["views"]: vs[t].project(run.intr, p), m, grid, edge)
+               for t, m in whole_shut.items()}
+        sil_by[mode] = combine_bounds(per, m_["seen_depth_m"])
+        log(f"silhouette bound, frames levelled on the {mode}: " + ", ".join(
+            f"{t}: {_mm(b['lower_m'] or 0)}-{_mm(b['upper_m']) if b['upper_m'] is not None else 'open'} mm"
+            for t, b in sorted(per.items())))
+    meas = meas_by["front"]  # the carcass is a box on the object's front: build on the front-levelled frames
+    front, views = meas["front"], meas["views"]
     u0, u1 = meas["u"]
     zf, zt = meas["z"]
-
-    # 2. bound the hidden depth: silhouettes, and the wall behind if there is one
-    depths = np.arange(0, MAX_DEPTH_FACTOR * max(meas["width_m"], meas["height_m"]) + DEPTH_STEP_M, DEPTH_STEP_M)
-    per = {t: frame_depth_bounds(lambda d: box_corners(front, [u0, 0, zf], [u1, d, zt]),
-                                 lambda p, t=t: views[t].project(run.intr, p), m, depths, edge)
-           for t, m in whole_shut.items()}
-    sil = combine_bounds(per, meas["seen_depth_m"])
-    bounds = {"silhouette": sil, "wall": meas["background"], "lower_m": sil.get("lower_m"),
-              "lower_why": ("depth points on its faces behind the front" if sil.get("lower_from_depth_points") else
-                            f"the silhouettes on frames {sil.get('lower_frames')}"), "upper_m": None, "upper_why": None}
+    uppers = {k: s["upper_m"] for k, s in sil_by.items()}
+    lowers = {k: s.get("lower_m") for k, s in sil_by.items()}
+    upper_mode = None if any(v is None for v in uppers.values()) else max(uppers, key=uppers.get)
+    lower_mode = None if any(v is None for v in lowers.values()) else min(lowers, key=lowers.get)
+    sil = {"by_levelling": sil_by, "upper_m": uppers[upper_mode] if upper_mode else None,
+           "lower_m": lowers[lower_mode] if lower_mode else None, "upper_levelling": upper_mode,
+           "lower_levelling": lower_mode}
+    if lower_mode:
+        s = sil_by[lower_mode]
+        lower_why = ("depth points on its faces behind the front" if s.get("lower_from_depth_points") else
+                     f"the silhouettes of {len(s.get('consensus_frames', []))} of {len(s.get('used_frames', []))} frames "
+                     f"need at least that (frame {', '.join(map(str, s.get('lower_frames', [])))}, levelled on the {lower_mode})")
+    else:
+        lower_why = None
+    bounds = {"silhouette": sil, "wall": meas["background"], "lower_m": sil["lower_m"], "lower_why": lower_why,
+              "upper_m": None, "upper_why": None}
     choices = []
-    if sil.get("upper_m") is not None:
-        choices.append((sil["upper_m"], f"its silhouette on frame {', '.join(map(str, sil['upper_frames']))} "
-                                        "leaves the object's mask beyond that"))
+    if sil["upper_m"] is not None:
+        s = sil_by[upper_mode]
+        choices.append((sil["upper_m"], f"its silhouette on frame {', '.join(map(str, s['upper_frames']))} leaves the "
+                                        f"object's mask beyond that, with the frames levelled on the {upper_mode} "
+                                        f"(levelled on the {'support' if upper_mode == 'front' else 'front'}: "
+                                        f"{_mm(uppers['support' if upper_mode == 'front' else 'front'])} mm)"))
     if meas["background"].get("depth_m") is not None:
         choices.append((meas["background"]["depth_m"], "the wall seen right behind its top, assumed to continue "
                                                        "down behind it"))
@@ -1459,9 +1550,12 @@ def complete_body(run_dir: Path, video: Path, capture: Path, log=print, spark: b
             if meas["seen_depth_m"] else "- nothing behind the front was measured (no depth points on its top or sides)")
     bound_text = (f"the body is at most {_mm(bounds['upper_m'])} mm deep ({bounds['upper_why']})"
                   if bounds["upper_m"] else "no limit (the camera never saw past the front)")
+    if bounds["lower_m"]:
+        bound_text += f", and at least {_mm(bounds['lower_m'])} mm ({bounds['lower_why']})"
+    m3 = json.loads((run_dir / "model3d.json").read_text())
+    door_hw = m3.get("plate_size_mm") or [1000 * (door_z[1] - door_z[0]), 1000 * (door_u[1] - door_u[0])]
     facts = {"object": name, "width": 1000 * meas["width_m"], "height": 1000 * meas["height_m"],
-             "door_w": 1000 * (door_u[1] - door_u[0]), "door_h": 1000 * (door_z[1] - door_z[0]),
-             "side_w": 1000 * side_w, "seen": seen, "bound": bound_text}
+             "door_w": door_hw[1], "door_h": door_hw[0], "side_w": 1000 * side_w, "seen": seen, "bound": bound_text}
     for i, img in enumerate(shown):
         cv2.imwrite(str(out_dir / f"spark_input_{i}.jpg"), img)
     est = ask_spark(video, facts, shown, log=log) if spark else {"model": None, "answer": None, "error": ["not asked"]}
@@ -1564,6 +1658,7 @@ def complete_body(run_dir: Path, video: Path, capture: Path, log=print, spark: b
         for test, (qd, a, b) in tests.items():
             r = probe(xml, door.joint, qd, a, b)
             r["stopped_at_front_coords"] = [float(x) for x in front.uvz(np.array(r["stopped_at"]) - run.root_pos)[0]]
+            r["blocked"] = bool(r["short_of_end_m"] > 0.02)  # stopped well before the end of its path
             probes[label][test] = r
     for label in probes:
         log(f"probe ({label}): " + "; ".join(f"{k} stopped at v {1000 * r['stopped_at_front_coords'][1]:.0f} mm, "
@@ -1587,7 +1682,8 @@ def complete_body(run_dir: Path, video: Path, capture: Path, log=print, spark: b
             "front_extent_from": meas["extent_from"], "front_depth_points": meas["front_points"],
             "seen_depth_mm": None if meas["seen_depth_m"] is None else 1000 * meas["seen_depth_m"],
             "seen_behind_points": meas["seen_behind_points"],
-            "door_shut_q_deg": float(np.rad2deg(q_shut)), "door_mm": [1000 * float(np.ptp(door_u)), 1000 * float(np.ptp(door_z))],
+            "door_shut_q_deg": float(np.rad2deg(q_shut)), "door_outline_mm_wide_tall": [float(door_hw[1]), float(door_hw[0])],
+            "door_extent_mm_along_front_up": [1000 * float(np.ptp(door_u)), 1000 * float(np.ptp(door_z))],
             "side_beside_door_mm": 1000 * side_w, "frames": frames,
             "levelling": {str(t): v.info for t, v in views.items() if t in whole_shut},
             "whole_object_masks": {"prompt": prompt, "shut_frames": sorted(whole_shut), "open_frames": sorted(set(whole) - set(whole_shut)),
