@@ -286,7 +286,7 @@ then, 9.6 deg now). Neither check changes the LiDAR laptop runs. Per-sequence re
   fragments (keyboard, trackpad), so its thickness could not be measured; the pipeline and
   Spark's report both flag it instead of passing on a wrong number.
 - **The new captures, everything on open weights** (10/30, Muse Spark Open on Baseten + SAM on
-  Modal; shape design by Spark Open on Baseten and on Fireworks; `data/tracks_open2`):
+  Modal; shape design by Spark Open on Baseten and on Fireworks; `data/archive/tracks_open2`):
   the black mouse came out 121.5 x 75.1 x 54.5 mm (the Meta API run: 121.3 x 75.2 x 54.7), 0.14 kg,
   named "ergonomic computer mouse" and redesigned (mask F-score 0.90 vs 0.94 measured). The LED
   desk lamp: Spark Open's first fit missed the rods (the replay covered 6% / 4% of their masks);
