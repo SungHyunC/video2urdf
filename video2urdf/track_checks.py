@@ -61,6 +61,52 @@ def suggested_open_anchors(c, roles, limit: int = 7) -> list[int]:
     return [frames[i] for i in indexes]
 
 
+SLID_OPEN_WARN_SHARE = 0.3  # of the open frames: those whose plate track sat on the closed surface
+SLID_UNKNOWN_WARN_SHARE = 0.3  # of the video's frames, when no open indicator tells shut from open
+
+
+def slid_plate_lines(slid, n: int, indicator, raised) -> list[str]:
+    """Explain the frames where the plate's mask was plate_closed's (the plate track is dropped
+    there and plate_closed measures them).
+
+    Shut frames (no open indicator) are the designed fallback: SAM keeps a screen's identity as
+    the lid shuts, so its track slides onto the shut lid's back. Open frames where plate_closed's
+    points stand off the base (``raised``: its track followed the plate up as it opened) are
+    measured from those points, as the plate track would have been. Only open frames without a
+    raised plate mean the plate track sat on the closed surface while the object was open: a
+    WARNING once they are a sizeable share of the open frames (a few dozen around the moment the
+    lid shuts are normal: the indicator is still seen while too little of the plate stands off
+    the base). Without an open indicator (``indicator`` None) shut and open can't be told apart,
+    so the share of all such frames in the video decides."""
+    slid = sorted(slid)
+    if not slid:
+        return []
+    if indicator is None:
+        lines = [f"{len(slid)} frames where the plate's mask was plate_closed's (the track slid onto the shut "
+                 "lid's back) are measured from plate_closed instead"]
+        if len(slid) > SLID_UNKNOWN_WARN_SHARE * n:
+            lines.append(f"WARNING: the plate tracker switched to the closed surface on {len(slid)}/{n} frames "
+                         "and no open indicator tells shut frames from open ones; those frames use a fallback mask "
+                         "only when appropriate, so inspect the fitted shape and joint motion.")
+        return lines
+    indicator, raised = set(indicator), set(raised)
+    shut = [t for t in slid if t not in indicator]
+    followed = [t for t in slid if t in indicator and t in raised]
+    harmful = [t for t in slid if t in indicator and t not in raised]
+    lines = [f"{len(slid)} frames where the plate's mask was plate_closed's are measured from plate_closed: "
+             f"{len(shut)} shut (no open indicator: the plate track slid onto the shut plate's back, the designed "
+             f"fallback), {len(followed)} open where plate_closed's track followed the raised plate (measured from "
+             f"its points off the base), {len(harmful)} open without a raised plate"]
+    if len(harmful) > SLID_OPEN_WARN_SHARE * len(indicator):
+        runs = np.split(np.array(harmful), np.flatnonzero(np.diff(harmful) > 1) + 1)
+        spans = ", ".join(f"{r[0]}-{r[-1]}" if len(r) > 1 else f"{r[0]}" for r in runs[:6])
+        lines.append(f"WARNING: on {len(harmful)} of the {len(indicator)} open frames (e.g. {spans}) the plate's mask "
+                     "was the closed surface's and no raised plate was found there: the plate track sat on the closed "
+                     "surface while the object was open. Inspect the plate track on those frames, re-anchor it on "
+                     "open frames (retrack_part) and fit again.")
+    return lines
+
+
 def reference_opening_warning(opening, open_indicator) -> str | None:
     if open_indicator and opening is not None and np.isfinite(opening) and opening < 5:
         return (f"WARNING: reference opening is {opening:.1f}° despite the open indicator; "
