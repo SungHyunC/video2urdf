@@ -490,7 +490,7 @@
     <div class="measured-copy">
       <span class="pill"><span class="dot"></span>Measured, bounded or estimated</span>
       <h2>Every number says <span class="grad">where it came from</span></h2>
-      <p>LiDAR depth inside SAM&nbsp;3.1's masks gives the lid's outline, the base's thickness, and the hinge where the lid's planes cross the base's. The lid on the left moves by the angle measured on each of the video's 923 frames.</p>
+      <p>LiDAR depth inside SAM&nbsp;3.1's masks gives the lid's outline, the base's thickness, and the hinge where the lid's planes cross the base's. The lid on the left follows the joint angle measured from the video, frame by frame.</p>
       <ul class="legend">
         <li><span class="tag tag-measured">measured</span><p>From the video itself: the laptop's lid <b class="m">309 × 205 mm</b> (spec 304 × 212), base <b class="m">14 mm</b>, hinge range <b class="m">116°</b>; joint friction where a part held still with no hand on it.</p></li>
         <li><span class="tag tag-bounded">bounded</span><p>What the video rules out: the microwave's depth is at least <b>334 mm</b> (its cavity's back wall, seen through the open door) and at most <b>387 mm</b>.</p></li>
@@ -522,7 +522,7 @@
       <article class="rc">
         <span class="tag">5 fresh runs per capture</span>
         <h3>Run it again, get the same lid</h3>
-        <p>Every iPhone LiDAR capture, from scratch, five times: the MacBook's lid came out <b class="m">304–306 × 208–212 mm</b> every time (spec 304 × 212). The drawer pulled out <b class="m">242–244 mm</b> in four runs; the fifth measured the wrong front and ended <code>needs_review</code> instead of passing.</p>
+        <p>Every iPhone LiDAR capture, from scratch, five times: the MacBook's lid came out <b class="m">304–306 × 208–212 mm</b> every time (spec 304 × 212), the mouse <b class="m">121–122 × 75 × 55 mm</b>. The drawer pulled out <b class="m">242–244 mm</b> in four runs; the fifth took the wrong front (20 mm), and its checks said <code>needs_review</code>, not passed.</p>
         <a class="more" href="https://github.com/SungHyunC/video2urdf#five-fresh-runs-per-object-and-three-objects-it-had-never-seen">All four objects →</a>
       </article>
       <article class="rc rc-media">
@@ -566,7 +566,7 @@
     <div class="mgrid">
       <article class="mc"><div class="mc-top"><h3>Muse Spark</h3><span class="tag">Meta Model API</span></div><p class="mc-role">The agent</p><p>Watches the video, names the parts, writes SAM's prompts, calls track and fit, watches the replay to judge the fit, refits; then judges materials and masses and designs the clean visual.</p><code>muse-spark-1.3-contributor</code></article>
       <article class="mc"><div class="mc-top"><h3>SAM 3.1</h3><span class="tag">API or open weights</span></div><p class="mc-role">Finds and tracks every part</p><p>Noun prompts find each part on key frames; one box-anchored video request tracks all parts through the video with stable IDs.</p><code>sam-3.1 · facebook/sam3.1</code></article>
-      <article class="mc"><div class="mc-top"><h3>Muse Spark Open</h3><span class="tag">open weights</span></div><p class="mc-role">The same agent, open weights</p><p>Runs the whole pipeline on Baseten or Fireworks, video input included; also proposes shape designs alongside Muse Spark each round.</p><code>muse-spark-open</code></article>
+      <article class="mc"><div class="mc-top"><h3>Muse Spark Open</h3><span class="tag">open weights</span></div><p class="mc-role">The same agent, open weights</p><p>The same agent on open weights, served on Baseten (it takes video too); on Baseten and Fireworks it also proposes shape designs each round, next to Muse Spark.</p><code>muse-spark-open</code></article>
       <article class="mc"><div class="mc-top"><h3>Muse Glimmer 30B</h3><span class="tag">open weights</span></div><p class="mc-role">The agent on our own GPU</p><p>A 30B dense model on our Modal endpoint (SGLang), driving the LiDAR laptop end to end through physics from frames and tool calls.</p><code>meta-models/Muse-Glimmer-30B</code></article>
       <article class="mc"><div class="mc-top"><h3>SAM 3D Objects</h3><span class="tag">open weights</span></div><p class="mc-role">A realistic mesh per link</p><p>One frame, its SAM 3.1 mask and the LiDAR depth give a coloured mesh in metres, checked against the measured depth points before it is used.</p><code>facebook/sam-3d-objects</code></article>
       <article class="mc"><div class="mc-top"><h3>MapAnything</h3><span class="tag">open weights</span></div><p class="mc-role">Depth for plain video</p><p>Metric depth, intrinsics and camera poses from an RGB video, so the 3D path runs without LiDAR (experimental; scale from a card or the object's usual size).</p><code>facebook/map-anything-apache</code></article>
