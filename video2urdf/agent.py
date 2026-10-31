@@ -22,7 +22,7 @@ from . import lidar, physics
 from .pipeline import CARD_LONG_SIDE, Fit, fit, load_parts, long_side_px, read_frame, slug, video_info
 from .sam import Detection, SamClient, parse, replace_tracked_part, sam_client
 from .track_checks import (alternate_plate_hint, base_fragment_warning, named_base_warning,
-                           plate_covers_base_warning, suggested_open_anchors)
+                           plate_covers_base_warning, slid_plate_lines, suggested_open_anchors)
 
 MODEL = os.environ.get("AGENT_MODEL", "muse-spark-1.3-contributor")
 BASE_URL = os.environ.get("AGENT_BASE_URL", "https://api.meta.ai/v1")
@@ -679,13 +679,8 @@ class Agent:
             self.show(sheet, "fit_lidar (slide): 3D replay from the camera", width=sheet.shape[1])
             self.last_fit = summary
             return "\n".join(lines) + "\nImage: the replayed model (colored) over the video."
-        slid = c.drop_where_same(roles.plate, roles.plate_closed)
-        if slid:
-            lines.append(f"{slid} frames where the plate's mask was plate_closed's (the track slid onto the shut lid's "
-                         f"back) are measured from plate_closed instead")
-            if slid > 0.3 * c.n:
-                lines.append(f"WARNING: the plate tracker switched to the closed surface on {slid}/{c.n} frames; "
-                             "those frames use a fallback mask only when appropriate, so inspect the fitted shape and joint motion.")
+        c.drop_where_same(roles.plate, roles.plate_closed)
+        slid = list(getattr(c, "slid_frames", []))  # explained once the fit shows which were raised
         overlapping = c.drop_open_base_overlap(roles)
         if overlapping:
             lines.append(f"WARNING: removed {overlapping} open frames where the plate mask substantially "
@@ -715,7 +710,7 @@ class Agent:
                 capture.follow(roles.base, exclude=(roles.plate,))
 
         try:
-            _, references = lidar.fit_hinge_with_reference_retries(
+            fitted, references = lidar.fit_hinge_with_reference_retries(
                 c, roles, log=lines.append, prepare_reference=prepare_reference)
             if len(references) > 1:
                 lines.append(f"Reference attempts: {references}; using frame {c.ref}.")
@@ -728,6 +723,9 @@ class Agent:
                         f"Use distinct good {roles.plate} candidates with retrack_part, then fit again. "
                         "Check each candidate; an indicator or candidate can itself be wrong.")
             raise
+        indicator = set(c.by.get(roles.open_indicator, {})) if roles.open_indicator else None
+        raised = fitted.get("raised_from_closed_frames", []) if isinstance(fitted, dict) else []
+        lines += slid_plate_lines(slid, c.n, indicator, raised)
         (self.track_dir / "roles.json").write_text(json.dumps(vars(roles)))
         summary = lidar.build_model(c, roles, log=lines.append)
         (self.track_dir / "static.json").unlink(missing_ok=True)

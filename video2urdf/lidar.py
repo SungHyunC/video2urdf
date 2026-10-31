@@ -306,7 +306,8 @@ class Capture:
         """Forget ``part`` on frames where its mask is ``other``'s. SAM keeps a screen's identity
         as the lid shuts, so a plate (inner face) track slides onto the closed lid's back, which
         is plate_closed; those frames then go through the plate_closed path, built for them.
-        Returns how many frames were dropped."""
+        Returns how many frames were dropped; the frames are kept in ``slid_frames``."""
+        self.slid_frames = []
         if not other or other == part or part not in self.by or other not in self.by:
             return 0
         drop = []
@@ -316,6 +317,7 @@ class Capture:
                 drop.append(t)
         for t in drop:
             del self.by[part][t]
+        self.slid_frames = drop
         return len(drop)
 
     def drop_open_base_overlap(self, roles: Roles) -> int:
@@ -395,6 +397,7 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
     if nb @ (-base.mean(axis=0)) < 0:  # point the base's normal up, toward the camera
         nb, db = -nb, -db
     plate, used_closed, used_open = {}, 0, 0
+    raised = []  # frames measured from plate_closed's points off the base: its track holds the raised plate
     for t in range(c.n):
         if c.has(roles.plate, t):
             plate[t] = c.cloud(roles.plate, t)
@@ -414,6 +417,7 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
             if len(off) > max(200, 0.2 * len(whole)):
                 plate[t] = off
                 used_open += 1
+                raised.append(t)
             else:  # closed: its top face is the plate's back (not a box's walls below it)
                 top = whole[whole @ nb - db > -OFF_BASE_M]
                 plate[t] = top if len(top) >= 50 else whole
@@ -475,7 +479,7 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
     (c.track_dir / "hinge.json").write_text(json.dumps({
         "reference_frame": c.ref, "axis": hinge.axis.tolist(), "point": hinge.point.tolist(),
         "residual_m": hinge.residual, "q": [None if np.isnan(v) else float(v) for v in hinge.q], **summary}))
-    return summary
+    return {**summary, "raised_from_closed_frames": raised}
 
 
 def build_model(c: Capture, roles: Roles, log=print) -> dict:

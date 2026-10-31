@@ -11,7 +11,8 @@ from video2urdf.lidar import Roles
 from video2urdf.lidar import can_use_closed_fallback, require_reference_angle
 from video2urdf.lift3d import clean_angles
 from video2urdf.agent import Agent
-from video2urdf.track_checks import alternate_plate_hint, named_base_warning, plate_covers_base_warning, suggested_open_anchors
+from video2urdf.track_checks import (alternate_plate_hint, named_base_warning, plate_covers_base_warning,
+                                     slid_plate_lines, suggested_open_anchors)
 
 
 class Mask:
@@ -36,6 +37,48 @@ class ReferenceFrameTest(unittest.TestCase):
                 "keyboard": {i: Mask(b) for i in range(5)}}
         warnings = Agent.mask_checks(object.__new__(Agent), c, Roles(None, "base", "plate", "base", "keyboard"), {})
         self.assertFalse(any("drifted" in w or "whole object" in w for w in warnings))
+
+    def test_plate_on_shut_lid_back_is_informational(self):
+        # A laptop: shut on 40-99 (no keyboard), the screen track slid onto the lid's back there.
+        indicator = set(range(40)) | set(range(100, 140))
+        lines = slid_plate_lines(range(40, 100), 140, indicator, [])
+        self.assertEqual(len(lines), 1)
+        self.assertIn("60 shut", lines[0])
+        self.assertFalse(lines[0].startswith("WARNING"))
+        # plate_closed's track followed the raised lid on open frames: measured, not a warning
+        lines = slid_plate_lines(range(0, 100), 140, indicator, range(0, 30))
+        self.assertFalse(any(line.startswith("WARNING") for line in lines))
+        self.assertIn("30 open where plate_closed's track followed the raised plate", lines[0])
+        # a few unraised open frames as the lid shuts are normal
+        lines = slid_plate_lines(range(30, 100), 140, indicator, [])
+        self.assertFalse(any(line.startswith("WARNING") for line in lines))
+
+    def test_plate_on_closed_surface_while_open_warns(self):
+        indicator = set(range(40)) | set(range(100, 140))
+        lines = slid_plate_lines(range(0, 140), 140, indicator, range(100, 110))
+        self.assertTrue(lines[-1].startswith("WARNING"))
+        self.assertIn("70 of the 80 open frames", lines[-1])
+        self.assertIn("0-39", lines[-1])
+        self.assertEqual(slid_plate_lines([], 140, indicator, []), [])
+
+    def test_slid_frames_without_indicator_keep_the_share_rule(self):
+        self.assertFalse(any(l.startswith("WARNING") for l in slid_plate_lines(range(20), 100, None, [])))
+        self.assertTrue(slid_plate_lines(range(40), 100, None, [])[-1].startswith("WARNING"))
+
+    def test_dropped_plate_frames_are_recorded(self):
+        c = object.__new__(Capture)
+        c.h = c.w = 10
+        lid = np.zeros((10, 10), bool)
+        lid[:4] = True
+        other = np.zeros((10, 10), bool)
+        other[6:] = True
+        c.by = {"plate": {0: Mask(lid), 1: Mask(lid), 2: Mask(lid)},
+                "closed": {1: Mask(lid), 2: Mask(other)}}
+        self.assertEqual(c.drop_where_same("plate", "closed"), 1)
+        self.assertEqual(c.slid_frames, [1])
+        self.assertEqual(set(c.by["plate"]), {0, 2})
+        self.assertEqual(c.drop_where_same("plate", None), 0)
+        self.assertEqual(c.slid_frames, [])
 
     def test_reanchor_suggestions_span_visible_open_intervals(self):
         c = object.__new__(Capture)
