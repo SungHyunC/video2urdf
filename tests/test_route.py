@@ -92,6 +92,10 @@ class AssessTest(unittest.TestCase):
         self.assertTrue(any("card" in t for t in a["tips"]))
         self.assertIn("keep the hinge visible", a["tips"])
         self.assertFalse(any("card" in t for t in assess(self.metrics(), True, look=look)["tips"]))  # LiDAR: no card
+        look["problems"] = ["no scale card visible - place a card next to object", "open the lid fully"]
+        tips = assess(self.metrics(), True, look=look)["tips"]
+        self.assertFalse(any("card" in t for t in tips))  # Spark's own card tip is dropped for depth captures
+        self.assertIn("open the lid fully", tips)
 
     def test_lidar_depth_coverage(self):
         a = assess(self.metrics(depth_coverage=0.1), has_depth=True)

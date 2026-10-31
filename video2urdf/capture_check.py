@@ -259,6 +259,9 @@ def assess(m: dict, has_depth: bool, look: dict | None = None, assumed_fps: bool
             tips.append("For real sizes, lay a card-sized reference (85.6 x 54 mm; a loyalty card, never a "
                         "payment card: frames go to a cloud API) flat next to the object, in view.")
         for p in look.get("problems") or []:
-            if isinstance(p, str) and p.strip() and p not in tips:
-                tips.append(p.strip())
+            if not isinstance(p, str) or not p.strip() or p in tips:
+                continue
+            if has_depth and any(w in p.lower() for w in ("card", "scale", "reference")):
+                continue  # depth captures are metric: Spark can't tell from frames that no card is needed
+            tips.append(p.strip())
     return {"usable": True, "reason": "", "warnings": warnings, "tips": tips}
