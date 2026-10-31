@@ -11,7 +11,8 @@ from video2urdf.lidar import Roles
 from video2urdf.lidar import can_use_closed_fallback, require_reference_angle
 from video2urdf.lift3d import clean_angles
 from video2urdf.agent import Agent
-from video2urdf.track_checks import alternate_plate_hint, named_base_warning, plate_covers_base_warning, suggested_open_anchors
+from video2urdf.track_checks import (alternate_plate_hint, named_base_warning, plate_covers_base_warning,
+                                     slid_plate_lines, suggested_open_anchors)
 
 
 class Mask:
@@ -36,6 +37,48 @@ class ReferenceFrameTest(unittest.TestCase):
                 "keyboard": {i: Mask(b) for i in range(5)}}
         warnings = Agent.mask_checks(object.__new__(Agent), c, Roles(None, "base", "plate", "base", "keyboard"), {})
         self.assertFalse(any("drifted" in w or "whole object" in w for w in warnings))
+
+    def test_plate_on_shut_lid_back_is_informational(self):
+        # A laptop: shut on 40-99 (no keyboard), the screen track slid onto the lid's back there.
+        indicator = set(range(40)) | set(range(100, 140))
+        lines = slid_plate_lines(range(40, 100), 140, indicator, [])
+        self.assertEqual(len(lines), 1)
+        self.assertIn("60 shut", lines[0])
+        self.assertFalse(lines[0].startswith("WARNING"))
+        # plate_closed's track followed the raised lid on open frames: measured, not a warning
+        lines = slid_plate_lines(range(0, 100), 140, indicator, range(0, 30))
+        self.assertFalse(any(line.startswith("WARNING") for line in lines))
+        self.assertIn("30 open where plate_closed's track followed the raised plate", lines[0])
+        # a few unraised open frames as the lid shuts are normal
+        lines = slid_plate_lines(range(30, 100), 140, indicator, [])
+        self.assertFalse(any(line.startswith("WARNING") for line in lines))
+
+    def test_plate_on_closed_surface_while_open_warns(self):
+        indicator = set(range(40)) | set(range(100, 140))
+        lines = slid_plate_lines(range(0, 140), 140, indicator, range(100, 110))
+        self.assertTrue(lines[-1].startswith("WARNING"))
+        self.assertIn("70 of the 80 open frames", lines[-1])
+        self.assertIn("0-39", lines[-1])
+        self.assertEqual(slid_plate_lines([], 140, indicator, []), [])
+
+    def test_slid_frames_without_indicator_keep_the_share_rule(self):
+        self.assertFalse(any(l.startswith("WARNING") for l in slid_plate_lines(range(20), 100, None, [])))
+        self.assertTrue(slid_plate_lines(range(40), 100, None, [])[-1].startswith("WARNING"))
+
+    def test_dropped_plate_frames_are_recorded(self):
+        c = object.__new__(Capture)
+        c.h = c.w = 10
+        lid = np.zeros((10, 10), bool)
+        lid[:4] = True
+        other = np.zeros((10, 10), bool)
+        other[6:] = True
+        c.by = {"plate": {0: Mask(lid), 1: Mask(lid), 2: Mask(lid)},
+                "closed": {1: Mask(lid), 2: Mask(other)}}
+        self.assertEqual(c.drop_where_same("plate", "closed"), 1)
+        self.assertEqual(c.slid_frames, [1])
+        self.assertEqual(set(c.by["plate"]), {0, 2})
+        self.assertEqual(c.drop_where_same("plate", None), 0)
+        self.assertEqual(c.slid_frames, [])
 
     def test_reanchor_suggestions_span_visible_open_intervals(self):
         c = object.__new__(Capture)
@@ -157,6 +200,29 @@ class ReferenceFrameTest(unittest.TestCase):
         self.assertEqual(prepared, [20])
         self.assertEqual(result["reference"], 20)
 
+    def test_agent_and_rbo_scorer_run_the_same_hinge_fit_steps(self):
+        from video2urdf.lidar import fit_lidar_hinge
+        calls = []
+
+        class CaptureStub:
+            n, ref, moving_camera, by = 10, 0, False, {}
+            world = np.tile(np.eye(4), (10, 1, 1))
+            def drop_where_same(self, *args): calls.append("drop_where_same"); return 0
+            def drop_open_base_overlap(self, *args): calls.append("drop_open_base_overlap"); return 0
+            def ref_with(self, *args): calls.append(("ref_with",) + args); return 3
+            def set_ref(self, t): calls.append(("set_ref", t)); self.ref = t
+            def follow(self, *args, **kwargs): calls.append("follow"); return {"frames": 0}
+
+        roles = Roles("floor", "base", "plate", "back", "keyboard")
+        with patch("video2urdf.lidar.fit_hinge", return_value={"fitted": True}):
+            summary, references = fit_lidar_hinge(CaptureStub(), roles, log=lambda _: None)
+        self.assertEqual(calls, ["drop_where_same", "drop_open_base_overlap",
+                                 ("ref_with", "base", "plate", "back", "keyboard"), ("set_ref", 3), "follow"])
+        self.assertEqual((summary, references), ({"fitted": True}, [3]))
+        root = Path(__file__).resolve().parent.parent
+        for path in (root / "video2urdf" / "agent.py", root / "scripts" / "rbo_eval.py"):
+            self.assertIn("lidar.fit_lidar_hinge(", path.read_text())  # one fit, so the benchmark scores the agent's
+
     def test_hinge_requires_actual_plate_mask_at_reference(self):
         from types import SimpleNamespace
         from video2urdf.lidar import fit_hinge
@@ -248,6 +314,20 @@ class ReferenceFrameTest(unittest.TestCase):
                 "indicator": {0: Mask(base), 1: Mask(base)}}
         self.assertEqual(c.ref_with("base", "plate", open_indicator="indicator"), 1)
 
+    def test_reference_failure_says_why(self):
+        # a trash bin whose base candidate is the whole bin: the open lid lies inside it everywhere
+        c = object.__new__(Capture)
+        c.h = c.w = 20
+        c.moving_camera = True
+        bin_ = np.zeros((20, 20), bool)
+        bin_[2:19, 2:18] = True
+        lid = np.zeros((20, 20), bool)
+        lid[3:8, 4:16] = True
+        c.by = {"base": {0: Mask(bin_), 1: Mask(bin_)}, "plate": {0: Mask(lid), 1: Mask(lid)},
+                "indicator": {0: Mask(lid), 1: Mask(lid)}}
+        with self.assertRaisesRegex(ValueError, "inside the base's on 2.*segment only the base's own surface"):
+            c.ref_with("base", "plate", open_indicator="indicator")
+
     def test_warns_when_base_is_only_a_fragment(self):
         c = object.__new__(Capture)
         c.h = c.w = 20
@@ -287,6 +367,174 @@ class ReferenceFrameTest(unittest.TestCase):
             "closed": {i: rect(0, 1, 19, 20) for i in range(4)},
         }
         self.assertEqual(c.ref_with("base", "plate", "closed"), 3)
+
+    def test_retry_starts_from_the_largest_plate_whose_angle_was_measured(self):
+        from types import SimpleNamespace
+        from video2urdf.lidar import ReferenceAngleError, fit_hinge_with_reference_retries
+
+        class Stub:
+            n, ref = 101, 90
+            by = {"plate": {t: SimpleNamespace(area=a) for t, a in ((20, 50), (55, 300), (70, 900), (90, 1000))},
+                  "base": {t: None for t in (20, 55, 70, 90)}, "keyboard": {t: None for t in (20, 55, 90)}}
+            def has(self, name, frame): return frame in self.by[name]
+            def set_ref(self, frame): self.ref = frame
+
+        def fit(capture, roles, log):
+            if capture.ref == 90:  # 70 has the larger plate but no open indicator; 20 wasn't measured
+                raise ReferenceAngleError("angle on reference frame 90 rejected", valid=[55, 70, 80])
+            return {"reference": capture.ref}
+        roles = SimpleNamespace(plate="plate", base="base", open_indicator="keyboard")
+        logged = []
+        with patch("video2urdf.lidar.fit_hinge", side_effect=fit):
+            result, attempts = fit_hinge_with_reference_retries(Stub(), roles, log=logged.append)
+        self.assertEqual(attempts, [90, 55])
+        self.assertEqual(result["reference"], 55)
+        # the replaced reference is reported, but not as a WARNING the finish gate would hold
+        self.assertTrue(any("Reference frame 90 rejected" in line for line in logged))
+        self.assertFalse(any(line.startswith("WARNING") for line in logged))
+
+    def test_reference_angle_error_lists_measured_frames(self):
+        from video2urdf.lidar import ReferenceAngleError
+        angles = np.array([0.1, np.nan, 0.3, np.nan])
+        with self.assertRaises(ReferenceAngleError) as caught:
+            require_reference_angle({0: 0, 2: 0, 3: 0}, angles, 3)
+        self.assertEqual(sorted(caught.exception.valid), [0, 2])
+
+
+def door_clouds(hinge=np.array([0.1, 0.0, 0.6]), width=0.36, closed=range(0, 40), opened=range(40, 100)):
+    """A vertical door (y is up, as in camera coordinates) hinged at ``hinge``: shut frames see its
+    whole face, open frames only a narrow strip at its free edge (a glossy door's handle)."""
+    rng = np.random.default_rng(3)
+    face = np.array([0.8, 0.0, -0.6])  # along the shut door, from the hinge to its free edge
+
+    def door(angle, r_lo):
+        r = rng.uniform(r_lo, width, 800)
+        y = rng.uniform(-0.15, 0.15, 800)
+        c, s = np.cos(angle), np.sin(angle)
+        d = np.array([c * face[0] + s * face[2], 0.0, -s * face[0] + c * face[2]])
+        return hinge + np.outer(r, d) + np.outer(y, [0, 1.0, 0]) + rng.normal(0, 0.001, (800, 3))
+
+    clouds = {t: door(0.0, 0.0) for t in closed}
+    angles = np.linspace(np.deg2rad(15), np.deg2rad(100), len(opened))
+    clouds.update({t: door(a, width - 0.02) for t, a in zip(opened, angles)})
+    return clouds, hinge
+
+
+class LevellingTest(unittest.TestCase):
+    def stub(self, clouds, ref):
+        class Stub:
+            n, world = len(clouds), np.tile(np.eye(4), (len(clouds), 1, 1))
+            by = {"floor": {t: None for t in range(len(clouds))}}
+            def has(self, part, t): return t in self.by.get(part, {})
+            def cloud(self, part, t): return clouds[t]
+        s = Stub()
+        s.ref = ref
+        return s
+
+    def floor(self, y, rng):
+        return np.column_stack([rng.uniform(-0.2, 0.2, 800), np.full(800, y) + rng.normal(0, 0.001, 800),
+                                rng.uniform(0.4, 0.8, 800)])
+
+    def test_floor_plane_comes_from_a_frame_with_depth_and_other_surfaces_are_ignored(self):
+        rng = np.random.default_rng(0)
+        clouds = [self.floor(0.3, rng) for _ in range(12)]
+        clouds[11] = np.zeros((0, 3))  # the reference frame's floor mask has no depth
+        clouds[5] = self.floor(-0.35, rng)  # the track slid onto a shelf above: 65 cm off, still level
+        c = self.stub(clouds, ref=11)
+        fix = Capture.level_with(c, "floor")
+        self.assertLess(fix["shift_mm_max"], 5)
+        self.assertTrue(np.allclose(c.world[5], np.eye(4), atol=1e-3))
+        c = self.stub([np.zeros((0, 3))] * 4, ref=0)
+        self.assertTrue(Capture.level_with(c, "floor")["no_floor_depth"])
+
+
+class TrackCandidatesTest(unittest.TestCase):
+    def test_candidate_and_candidates_are_both_anchors(self):
+        from types import SimpleNamespace
+
+        class Captured(Exception):
+            pass
+
+        class Sam:
+            def track_boxes(self, video, size, anchors):
+                raise Captured(anchors)
+        agent = object.__new__(Agent)
+        agent.video, agent.size, agent.sam = Path("v.mp4"), (20, 10), Sam()
+        box = {"s1.0": (1, 1, 5, 5), "s2.0": (2, 2, 6, 6), "s3.0": (3, 3, 7, 7)}
+        agent.candidates = {"s1.0": ("microwave door", SimpleNamespace(box=box["s1.0"]), 427),
+                            "s2.0": ("closed microwave door", SimpleNamespace(box=box["s2.0"]), 0),
+                            "s3.0": ("closed microwave door", SimpleNamespace(box=box["s3.0"]), 854)}
+        with self.assertRaises(Captured) as caught:  # Spark's form: the main candidate plus more anchors
+            agent.tool_track([{"name": "plate", "candidate": "s1.0", "candidates": ["s2.0", "s3.0"]}])
+        self.assertEqual(caught.exception.args[0], {0: [(0, box["s2.0"]), (427, box["s1.0"]), (854, box["s3.0"])]})
+        with self.assertRaises(Captured) as caught:
+            agent.tool_track([{"name": "plate", "candidates": ["s1.0", "s1.0"]}])
+        self.assertEqual(caught.exception.args[0], {0: [(427, box["s1.0"])]})
+        agent.candidates["s4.0"] = ("microwave door", SimpleNamespace(box=(4, 4, 8, 8)), 0)
+        self.assertIn("one candidate per frame",
+                      agent.tool_track([{"name": "plate", "candidate": "s4.0", "candidates": ["s2.0"]}]))
+        self.assertIn("give a segment candidate", agent.tool_track([{"name": "plate"}]))
+
+
+class DoorHingeTest(unittest.TestCase):
+    def test_door_hinge_on_the_closed_face_where_open_points_stay_equidistant(self):
+        from video2urdf.lift3d import fit_planar_hinge
+        clouds, hinge = door_clouds()
+        up = np.array([0, -1.0, 0])
+        fit = fit_planar_hinge(clouds, 100, 70, pin=hinge, base_normal=up, closed_frames=set(range(40)))
+        self.assertEqual(fit.placed_by, "door closed face")
+        gap = fit.point - hinge
+        gap -= (gap @ fit.axis) * fit.axis
+        self.assertLess(np.linalg.norm(gap), 0.01)
+        q = np.rad2deg(fit.q)
+        self.assertAlmostEqual(abs(q[0] - q[99]), 100, delta=3)  # shut vs widest open, either sign
+        # without shut frames the door still gets a hinge (a circle through its centroids)
+        fit = fit_planar_hinge(clouds, 100, 70, pin=hinge, base_normal=up)
+        self.assertEqual(fit.placed_by, "door circle")
+
+    def test_door_test_on_plate_normals(self):
+        from video2urdf.lift3d import is_door
+        up = np.array([0, -1.0, 0])
+        door = [np.array([np.cos(a), 0, np.sin(a)]) for a in np.linspace(0, 1.7, 20)]
+        lid = [np.array([0, -np.cos(a), np.sin(a)]) for a in np.linspace(0, 1.7, 20)]  # turns about x
+        self.assertTrue(is_door(np.array(door), up))
+        self.assertFalse(is_door(np.array(lid), up))
+        self.assertFalse(is_door(np.array(door), None))
+        # a door shut most of the time, open on a quarter of the frames, plus one stray flat plane
+        shut = [np.array([1.0, 0, 0])] * 40
+        swung = [np.array([np.cos(a), 0, np.sin(a)]) for a in np.linspace(0.3, 0.9, 14)]
+        self.assertTrue(is_door(np.array(shut + swung + [np.array([0, 1.0, 0.05]) / np.hypot(1, 0.05)]), up))
+        self.assertFalse(is_door(np.array(shut + [np.array([0.999, 0.0, 0.045])] * 3), up))  # never turns
+
+    def test_door_told_from_the_plate_track_before_the_lid_fallback(self):
+        from video2urdf.lidar import looks_like_door
+        clouds, _ = door_clouds()
+
+        class Stub:
+            by = {"plate": {t: None for t in clouds}}
+            def cloud(self, part, t): return clouds[t]
+        up = np.array([0, -1.0, 0])
+        self.assertTrue(looks_like_door(Stub(), Roles(None, "base", "plate"), up))
+        # a laptop lid turning about a horizontal hinge on the base's top is not a door
+        rng = np.random.default_rng(0)
+        lid = {}
+        for t, a in enumerate(np.linspace(0, 1.9, 40)):
+            r, x = rng.uniform(0, 0.2, 600), rng.uniform(-0.15, 0.15, 600)
+            lid[t] = np.column_stack([x, -r * np.sin(a), 0.5 - r * np.cos(a)])
+        Stub.by = {"plate": {t: None for t in lid}}
+        Stub.cloud = lambda self, part, t: lid[t]
+        self.assertFalse(looks_like_door(Stub(), Roles(None, "base", "plate"), up))
+
+    def test_door_angles_past_the_shut_position_are_dropped(self):
+        from video2urdf.lift3d import drop_overclosed
+        q = np.deg2rad(np.r_[[-15.0] * 10, np.linspace(-15, 35, 20), [35.0] * 10, [-160, -158], [-12.0] * 10])
+        out = drop_overclosed(q, shut=list(range(10)) + list(range(42, 52)))
+        self.assertTrue(np.isnan(out[40]) and np.isnan(out[41]))
+        self.assertEqual(int(np.isnan(out).sum()), 2)
+        # mirrored: a door opening the other way
+        out = drop_overclosed(-q, shut=list(range(10)) + list(range(42, 52)))
+        self.assertEqual(int(np.isnan(out).sum()), 2)
+        self.assertTrue(np.array_equal(drop_overclosed(q, shut=[0, 1]), q))  # too few shut frames: unchanged
 
 
 if __name__ == "__main__":

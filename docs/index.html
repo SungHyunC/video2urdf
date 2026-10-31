@@ -44,6 +44,7 @@
   .seg button { padding: 4px 10px; font-size: 13px; }
   .media { position: relative; background: #000; aspect-ratio: 4 / 3; }
   .media video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
+  .caption { margin: 0; padding: 8px 12px 10px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
   #view3d { position: relative; aspect-ratio: 4 / 3; background: var(--canvas); touch-action: none; }
   #view3d canvas { display: block; width: 100%; height: 100%; }
   .hint { position: absolute; left: 10px; bottom: 8px; font-size: 12px; color: var(--muted); pointer-events: none; }
@@ -82,6 +83,7 @@
         <div class="seg" id="videoTabs"></div>
       </div>
       <div class="media"><video id="video" playsinline muted loop controls preload="auto"></video></div>
+      <p class="caption" id="videoNote" hidden></p>
     </div>
     <div class="card">
       <div class="card-head">
@@ -101,6 +103,7 @@
     <a class="btn ghost" id="dlBundle" download hidden>Download model + meshes</a>
   </div>
   <p class="facts" id="facts"></p>
+  <p class="facts" id="unmeasured" hidden></p>
   <p class="facts" id="appearance" hidden></p>
   <p class="facts" id="quality" hidden></p>
   <p class="facts" id="physics" hidden></p>
@@ -233,7 +236,7 @@ function applyLook() {
 }
 for (const b of document.querySelectorAll("#looks button")) b.onclick = () => { look = b.dataset.look; applyLook(); };
 
-const traceNames = { agent: "Agent: Muse Spark measures it", design: "Shape design: three Meta models propose, the video picks" };
+const traceNames = { agent: "Agent: Muse Spark measures it", design: "Shape design: Meta models propose, the video picks" };
 async function showTraces(spec, base) {
   const traces = spec.traces || {};
   $("traceBox").hidden = !Object.keys(traces).length;
@@ -322,8 +325,8 @@ async function load(entry) {
   const vt = $("videoTabs");
   vt.innerHTML = "";
   const hasCompletedVisual = spec.shape_inference?.active === true && spec.shape_inference?.inferred_visuals?.length > 0;
-  const labels = { phone: "Phone video", replay: spec.replay_experimental ? "Experimental model over video" : hasCompletedVisual ? "Fitted model over video" : "Model over video", robot: "Robot uses it", physics: "Physics check" };
-  const order = ["phone", "replay", "robot", "physics"].filter((k) => spec.videos[k]);
+  const labels = { phone: "Phone video", replay: spec.replay_experimental ? "Experimental model over video" : hasCompletedVisual ? "Fitted model over video" : "Model over video", robot: "Robot uses it", policy: "Learned policy (PPO)", physics: "Physics check" };
+  const order = ["phone", "replay", "robot", "policy", "physics"].filter((k) => spec.videos[k]);
   for (const k of order) {
     const b = document.createElement("button");
     b.textContent = labels[k];
@@ -341,6 +344,8 @@ async function load(entry) {
   $("dlBundle").href = base + "model.zip";
   $("dlBundle").download = `${spec.name}.zip`;
   $("facts").textContent = facts(spec);
+  $("unmeasured").hidden = !spec.unmeasured;
+  $("unmeasured").textContent = spec.unmeasured ? `Not measured: ${spec.unmeasured}` : "";
   const textureMeshes = Object.values(spec.texture?.meshes || {});
   const seenFaces = textureMeshes.reduce((sum, mesh) => sum + (mesh.faces_seen || 0), 0);
   const totalFaces = textureMeshes.reduce((sum, mesh) => sum + (mesh.faces || 0), 0);
@@ -401,6 +406,10 @@ function facts(s) {
     return `Observed depth envelope: ${m.observed_box_size_mm.map(v => v.toFixed(0)).join(" × ")} mm. ` +
       "Hidden surfaces and full dimensions are not verified.";
   }
+  if (s.three_d && m.plate_size_mm && m.hinge_vertical) {  // a door: plate_size_mm is [tall along the hinge, wide]
+    return `${depth}: door ${m.plate_size_mm[1].toFixed(0)} mm wide × ${m.plate_size_mm[0].toFixed(0)} mm tall ` +
+      `on a vertical hinge, opening over ${(m.hinge_range_deg[1] - m.hinge_range_deg[0]).toFixed(0)}° in the video.`;
+  }
   if (s.three_d && m.plate_size_mm) {
     const base = m.base_thickness_measured === false
       ? `base ${m.base_thickness_mm.toFixed(0)} mm thick (assumed)`
@@ -435,16 +444,20 @@ function physicsFacts(p, provenance) {
       `estimated friction from those frames is ${j.friction.toFixed(3)} ${unit}. ` +
       `Let go in MuJoCo at those angles, it moves ${worst(j.drift_with_deg)}° (${worst(j.drift_without_deg)}° without that friction)`;
   }).join(". ");
-  return `Physics: masses judged by Muse Spark from the video: ${links}. ${joints}.`;
+  return `Physics: masses judged by Muse Spark from the video: ${links}.` + (joints ? ` ${joints}.` : "");
 }
 
 let current = null;
+const ownTime = new Set(["robot", "policy", "physics"]);  // simulation clips: not on the phone video's clock
 function showVideo(key, base) {
   current = key;
   for (const b of $("videoTabs").children) b.setAttribute("aria-pressed", String(b.dataset.key === key));
+  const note = spec.video_notes?.[key];
+  $("videoNote").hidden = !note;
+  $("videoNote").textContent = note || "";
   const t = video.currentTime;
   video.src = base + spec.videos[key];
-  video.onloadedmetadata = () => { if (key !== "robot" && key !== "physics") video.currentTime = Math.min(t, video.duration - 0.05); video.play().catch(() => {}); };
+  video.onloadedmetadata = () => { if (!ownTime.has(key)) video.currentTime = Math.min(t, video.duration - 0.05); video.play().catch(() => {}); };
 }
 
 function setFollow(on) {
@@ -455,7 +468,7 @@ $("follow").onclick = () => setFollow(!follow);
 
 function tick() {
   requestAnimationFrame(tick);
-  if (model && follow && current !== "robot" && spec) {
+  if (model && follow && !ownTime.has(current) && spec) {
     const f = Math.min(spec.frames - 1, Math.max(0, Math.floor(video.currentTime * spec.fps)));
     for (const j of Object.values(model.joints)) if (j.track) setJoint(j, j.track[Math.min(f, j.track.length - 1)]);
   }
@@ -467,7 +480,8 @@ const index = await (await fetch("models/index.json")).json();
 const tabs = $("tabs");
 const titles = { laptop_lidar: "Laptop · iPhone LiDAR · agent", drawer: "Drawer · iPhone LiDAR", notebook: "Laptop · side view", stand: "Desk lamp · side view" };
 const captures = { laptop_lidar: "iPhone LiDAR", drawer: "iPhone LiDAR", notebook: "side view", stand: "side view",
-                   lamp_lidar: "iPhone LiDAR", mouse_lidar: "iPhone LiDAR" };
+                   lamp_lidar: "iPhone LiDAR", mouse_lidar: "iPhone LiDAR", microwave_lidar: "iPhone LiDAR",
+                   airpods_lidar: "iPhone LiDAR" };
 for (const entry of index) {
   const b = document.createElement("button");
   const named = entry.label && entry.label[0].toUpperCase() + entry.label.slice(1);  // what Spark identified

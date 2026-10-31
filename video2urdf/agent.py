@@ -19,6 +19,7 @@ import numpy as np
 from openai import OpenAI
 
 from . import lidar, physics
+from .lidar import levelling_line
 from .pipeline import CARD_LONG_SIDE, Fit, fit, load_parts, long_side_px, read_frame, slug, video_info
 from .sam import Detection, SamClient, parse, replace_tracked_part, sam_client
 from .track_checks import (alternate_plate_hint, base_fragment_warning, named_base_warning,
@@ -246,6 +247,13 @@ For a single hinged object track, in one track call:
   whole closed laptop, which may be the same tracked part as the base; for a book, the
   closed book),
 - a part seen only while open (e.g. "laptop keyboard"), so closed frames can be told apart.
+A door on a vertical hinge (a microwave's, oven's or cupboard's door) is a plate too: the door
+itself as plate (segment it on an open frame and on a shut frame), the shut door as
+plate_closed (on a shut frame), the inside it uncovers as open_indicator (e.g. "microwave
+interior"), a part beside the door that never moves as base (e.g. "control panel", "cabinet
+side"; not the whole appliance, which contains the door) and the shelf or counter as floor.
+fit_lidar recognises the vertical hinge and places it on the shut door's plane, so the shut
+frames must be tracked. Segment once per part and track: a few candidates are enough.
 Look at frames across the video first to see when it is open and closed. A part that
 disappears and comes back (a screen that closes and reopens) needs candidates on several
 frames, at least one before and one after it disappears. Then call fit_lidar with the
@@ -566,8 +574,13 @@ class Agent:
             return "Choose at least one segmented part to track."
         chosen = []  # (name, prompt, best detection, its frame, all anchors)
         for p in parts:
-            ids = p.get("candidates") or p.get("candidate")
-            ids = ids if isinstance(ids, list) else [ids]  # Spark sometimes puts a list in "candidate"
+            ids = []  # Spark often gives "candidate" and more anchors in "candidates": use them all
+            for key in ("candidate", "candidates"):
+                given = p.get(key) or []
+                ids += given if isinstance(given, list) else [given]  # sometimes a list in "candidate"
+            ids = list(dict.fromkeys(ids))
+            if not ids:
+                return f"{p.get('name')}: give a segment candidate"
             missing = [i for i in ids if i not in self.candidates]
             if missing:
                 return f"unknown candidate(s) {missing}; segment first"
@@ -679,53 +692,20 @@ class Agent:
             self.show(sheet, "fit_lidar (slide): 3D replay from the camera", width=sheet.shape[1])
             self.last_fit = summary
             return "\n".join(lines) + "\nImage: the replayed model (colored) over the video."
-        slid = c.drop_where_same(roles.plate, roles.plate_closed)
-        if slid:
-            lines.append(f"{slid} frames where the plate's mask was plate_closed's (the track slid onto the shut lid's "
-                         f"back) are measured from plate_closed instead")
-            if slid > 0.3 * c.n:
-                lines.append(f"WARNING: the plate tracker switched to the closed surface on {slid}/{c.n} frames; "
-                             "those frames use a fallback mask only when appropriate, so inspect the fitted shape and joint motion.")
-        overlapping = c.drop_open_base_overlap(roles)
-        if overlapping:
-            lines.append(f"WARNING: removed {overlapping} open frames where the plate mask substantially "
-                         "overlapped the base; these frames have no reliable plate observation.")
-        raw_world, raw_ref = c.world.copy(), c.ref
-        ref = c.ref_with(roles.base, roles.plate, roles.plate_closed, roles.open_indicator)
-        if ref != c.ref:
-            c.set_ref(ref)
-            lines.append(f"reference frame {c.ref}: where the plate is seen largest")
-        if c.moving_camera:
-            fix = c.level_with(roles.floor)
-            lines.append(f"floor levelling adjusted the estimated camera pose by up to {fix['shift_mm_max']:.0f} mm")
-        else:  # a fixed camera: the object itself may be pushed around, so measure from its base
-            moved = c.follow(roles.base, exclude=(roles.plate,))
-            if moved["frames"]:
-                lines.append(f"base followed on {moved['frames']} frames: moved up to {moved['moved_mm_max']:.0f} mm, "
-                             f"turned {moved['turned_deg_max']:.1f} deg")
-        def prepare_reference(capture, frame):
-            # Restart camera transforms from the unlevelled capture; rebasing an
-            # already levelled/followed frame can change the measured opening.
-            capture.world = raw_world.copy()
-            capture.ref = raw_ref
-            capture.set_ref(frame)
-            if capture.moving_camera:
-                capture.level_with(roles.floor)
-            else:
-                capture.follow(roles.base, exclude=(roles.plate,))
-
-        try:
-            _, references = lidar.fit_hinge_with_reference_retries(
-                c, roles, log=lines.append, prepare_reference=prepare_reference)
-            if len(references) > 1:
-                lines.append(f"Reference attempts: {references}; using frame {c.ref}.")
+        try:  # the same steps rbo_eval scores (lidar.fit_lidar_hinge)
+            _, references = lidar.fit_lidar_hinge(c, roles, log=lines.append)
         except ValueError as error:
             if "angle on reference frame" not in str(error):
                 raise
             frames = suggested_open_anchors(c, roles)
             if frames:
-                return (f"{error}\nSuggested open-indicator frames to inspect and segment: {frames}. "
-                        f"Use distinct good {roles.plate} candidates with retrack_part, then fit again. "
+                tried = [line for line in lines if line.startswith(("Reference frame", "Retrying"))]
+                return ("\n".join(tried + [str(error)]) +
+                        f"\nNo reference frame gave the plate a measured angle: its depth plane failed or jumped "
+                        f"there (a glossy, dark or edge-on face gives few or scattered depth points). "
+                        f"Suggested open-indicator frames to inspect and segment: {frames}. "
+                        f"Use distinct good {roles.plate} candidates with retrack_part (where more of its face is "
+                        "seen), then call fit_lidar again right away. "
                         "Check each candidate; an indicator or candidate can itself be wrong.")
             raise
         (self.track_dir / "roles.json").write_text(json.dumps(vars(roles)))
@@ -812,7 +792,7 @@ class Agent:
         lines = []
         if c.moving_camera and floor:
             fix = c.level_with(floor)
-            lines.append(f"floor levelling adjusted the camera pose by up to {fix['shift_mm_max']:.0f} mm")
+            lines.append(levelling_line(fix))
         try:
             fixed = json.loads(fixed) if isinstance(fixed, str) else (fixed or [])
             summary = fit_chain(c, base, chain, floor, log=lines.append, fixed=tuple(slug(p) for p in fixed))
@@ -889,7 +869,7 @@ class Agent:
         lines = drawer_prompt_warnings(self.track_dir, base, [part for part, _ in spec])
         if c.moving_camera and floor:
             fix = c.level_with(slug(floor))
-            lines.append(f"floor levelling adjusted the estimated camera pose by up to {fix['shift_mm_max']:.0f} mm")
+            lines.append(levelling_line(fix))
         b = c.merge("cabinet", base) if len(base) > 1 else base[0]
         (self.track_dir / "drawers.json").write_text(json.dumps({"floor": floor and slug(floor), "base": base,
                                                                   "drawers": [[d, list(w)] for d, w in spec]}))

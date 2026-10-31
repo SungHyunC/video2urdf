@@ -1,0 +1,27 @@
+<mujoco model="microwave_lidar">
+  <compiler angle="radian" />
+  <visual>
+    <global offwidth="1920" offheight="1440" />
+  </visual>
+  <asset>
+    <mesh name="base_0" file="meshes/base_tex.obj" inertia="exact" />
+    <mesh name="lid_0" file="meshes/lid_tex.obj" inertia="exact" />
+    <texture name="video_tex" type="2d" file="meshes/video_tex.png" />
+    <material name="video_tex" texture="video_tex" />
+  </asset>
+  <worldbody>
+    <camera name="video" pos="0 0 1" />
+    <body name="base" pos="0.00000 0.00000 0.13786">
+      <inertial pos="0.430275 0.0961751 -0.0741825" quat="0.65565 0 0 0.755065" mass="0.05" diaginertia="8.34954e-05 6.76301e-05 1.5952e-05" />
+      <geom type="mesh" mesh="base_0" rgba="1 1 1 1" material="video_tex" friction="0.5 0.005 0.0001" />
+      <body name="lid" pos="0.00000 0.00000 0.00000">
+        <joint name="lid_joint" type="hinge" axis="0.06898 -0.07864 0.99451" range="-0.7336 0.2131" limited="true" frictionloss="0.394419" solreffriction="0.005 1" solimpfriction="0.99 0.999 0.001" damping="0.02" />
+        <inertial pos="0.193492 0.0065435 0.002285" quat="0.458512 0.532388 0.500444 0.505851" mass="1.8" diaginertia="0.0330592 0.0224047 0.0107745" />
+        <geom type="mesh" mesh="lid_0" rgba="1 1 1 1" material="video_tex" friction="0.4 0.005 0.0001" />
+      </body>
+    </body>
+  </worldbody>
+  <contact>
+    <exclude body1="base" body2="lid" />
+  </contact>
+</mujoco>

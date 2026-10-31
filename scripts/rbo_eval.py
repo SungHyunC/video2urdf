@@ -13,8 +13,9 @@ Or let the agent track and pick the roles, then score what it chose:
   .venv/bin/python scripts/rbo_eval.py laptop02 --tracks data/rbo/agent
 
 Ground truth: the plate's motion relative to the base, from the two motion-captured rigid
-bodies (tf frames), fitted as a hinge; its angle is the true joint value. Our side follows
-the base by ICP too, so moving the whole object doesn't count against either. The dataset's
+bodies (tf frames), fitted as a hinge; its angle is the true joint value. Our side is the
+agent's own fit_lidar hinge fit (lidar.fit_lidar_hinge: same steps and reference retries),
+which follows the base too, so moving the whole object doesn't count against either. The dataset's
 own joint values (from a fitted model) are scored as well. Writes data/rbo/results/<name>.json and <name>.jpg (our hinge red, truth green).
 """
 
@@ -84,11 +85,9 @@ def main():
         roles = lidar.Roles(args.floor, args.base, args.plate, args.plate_closed, args.open_indicator)
     else:  # the roles the agent chose
         roles = lidar.Roles(**json.loads((c.track_dir / "roles.json").read_text()))
-    c.set_ref(c.ref_with(roles.base, roles.plate))
-    followed = c.follow(roles.base, exclude=(roles.plate,))  # the object may be moved as a whole
-    print(f"base followed on {followed['frames']} frames: moved up to {followed.get('moved_mm_max', 0):.0f} mm, "
-          f"turned {followed.get('turned_deg_max', 0):.1f} deg")
-    ours = lidar.fit_hinge(c, roles)
+    # Exactly the agent's fit_lidar hinge fit (same steps, same order, same reference retries;
+    # it follows the base, which the operator may push around): score what the agent fits.
+    ours, references = lidar.fit_lidar_hinge(c, roles)
     hinge = json.loads((c.track_dir / "hinge.json").read_text())
     axis, point = np.array(hinge["axis"]), np.array(hinge["point"])
     q = np.array([np.nan if v is None else v for v in hinge["q"]])
@@ -133,7 +132,7 @@ def main():
         "angle_error_deg_p90": float(np.percentile(err, 90)),
         "angle_error_vs_dataset_joint_deg_median": float(np.median(err_dataset)),
         "true_range_deg": float(np.rad2deg(np.ptp(q_true))), "measured_range_deg": float(np.rad2deg(np.nanmax(q) - np.nanmin(q))),
-        "true_hinge_fit_residual_mm": 1000 * true_res, "ours": ours,
+        "true_hinge_fit_residual_mm": 1000 * true_res, "reference_attempts": references, "ours": ours,
     }
     out = args.results or args.data / "results"
     out.mkdir(parents=True, exist_ok=True)

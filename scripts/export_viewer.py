@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT))
 from video2urdf.pipeline import video_info  # noqa: E402
 
 WEB_HEIGHT = 720  # px, long videos are scaled so their shorter side is at most this
+POLICY_DIR = ROOT / "data" / "policies" / "drawer_ppo_honest"  # scripts/run_drawer_policy.py's default --policy
 
 
 def floats(s: str | None, default):
@@ -93,7 +94,8 @@ def joint_tracks(run: Path) -> dict[str, list]:
     if (run / "slide.json").exists():
         return {"drawer_joint": json.loads((run / "slide.json").read_text())["q"]}
     if (run / "hinge.json").exists() and (run / "model3d.json").exists():
-        return {"lid_joint": json.loads((run / "hinge.json").read_text())["q"]}
+        from video2urdf.physics import hinge_q  # in the model's sense: a door's model can negate it
+        return {"lid_joint": [None if v != v else float(v) for v in hinge_q(run)]}
     joints = json.loads((run / "joints.json").read_text())["joints"]
     return {f"{j['child']}_joint": j["q"] for j in joints if j["type"] != "fixed"}
 
@@ -106,10 +108,30 @@ def web_video(src: Path, dst: Path, crf: int = 30):
                     str(dst)], check=True)
 
 
+def policy_note(policy_dir: Path = POLICY_DIR) -> str | None:
+    """Caption for robot_policy.mp4 (scripts/run_drawer_policy.py), from the policy's own tests:
+    held-out placements in the training simulation (result.json) and unseen start poses on the
+    full arm (arm_eval_cartesian.json)."""
+    try:
+        sim = json.loads((policy_dir / "result.json").read_text())
+        arm = json.loads((policy_dir / "arm_eval_cartesian.json").read_text())["summary"]
+        test = sim["test_policy"]
+        n_sim, n_arm = test["episodes"], arm["episodes"]
+        return (f"A PPO policy trained in MuJoCo on this measured drawer ({sim['steps'] / 1e6:.0f}M steps) opens it "
+                f"(out at least 150 mm while pinching the handle) on {round(test['success_rate'] * n_sim)}/{n_sim} "
+                f"held-out placements in simulation and {round(arm['success_rate'] * n_arm)}/{n_arm} unseen start "
+                f"poses on the full Panda arm under Cartesian impedance control. "
+                f"{100 * arm['held_share_of_travel']:.0f}% of the drawer's travel happens while the fingers pinch "
+                "the handle. Simulation only: it has not run on a real robot.")
+    except (OSError, KeyError, TypeError, ValueError):
+        return None
+
+
 def front(model_xml: Path) -> list[float] | None:
     """Where to look from, in the model's frame (horizontal): a hinged part's inner face looks
     toward its parent (a screen toward the keyboard), so from the child's centre toward the
-    root's; a slide pulls out toward the viewer."""
+    root's; a slide pulls out toward the viewer; a door on a vertical hinge is seen face-on from
+    the side the phone filmed it from (replay3d.npz)."""
     import mujoco
     import numpy as np
     model = mujoco.MjModel.from_xml_path(str(model_xml))
@@ -128,8 +150,24 @@ def front(model_xml: Path) -> list[float] | None:
                     return direction
         return None
     j = 0
+    replay = model_xml.parent / "replay3d.npz"
     if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_SLIDE:
         v = data.xaxis[j].copy()
+    elif abs(data.xaxis[j][2]) > 0.9 and replay.exists():  # a door: its thin direction, toward the phone
+        body = model.jnt_bodyid[j]
+        pts = []
+        for g in range(model.ngeom):
+            if model.geom_bodyid[g] == body and model.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH:
+                m = model.geom_dataid[g]
+                vert = model.mesh_vert[model.mesh_vertadr[m]: model.mesh_vertadr[m] + model.mesh_vertnum[m]]
+                pts.append(data.geom_xpos[g] + vert @ data.geom_xmat[g].reshape(3, 3).T)
+        if not pts:
+            return None
+        pts = np.vstack(pts)
+        c = pts.mean(axis=0)
+        v = np.linalg.svd(pts - c, full_matrices=False)[2][2]
+        phone = np.load(replay)["cam_to_world"][:, :3, 3].mean(axis=0)  # cameras in the model's frame
+        v = v if v @ (phone - c) > 0 else -v
     else:
         v = data.subtree_com[1] - data.subtree_com[model.jnt_bodyid[j]]
     v[2] = 0
@@ -193,12 +231,15 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
     replay_sources = ([experimental_replay] if (run / "experimental_alignment.json").exists() else []) + [run / "replay3d.mp4", run / "replay.mp4"]
     replay_experimental = False
     for key, src in (("phone", video), *(("replay", p) for p in replay_sources),
-                     ("robot", run / "robot_demo.mp4"), ("physics", run / "physics_demo.mp4")):
+                     ("robot", run / "robot_demo.mp4"), ("policy", run / "robot_policy.mp4"),
+                     ("physics", run / "physics_demo.mp4")):
         if key not in videos and src.exists():
             web_video(src, dst / f"{key}.mp4")
             videos[key] = f"{key}.mp4"
             if key == "replay":
                 replay_experimental = src == experimental_replay
+    note = policy_note() if "policy" in videos else None
+    video_notes = {"policy": note} if note else {}  # key -> caption shown under that video
     meta = {}
     for f in ("model3d.json", "hinge.json"):
         if (run / f).exists():
@@ -243,10 +284,12 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
             shutil.copy(source, target)
 
     spec = {"name": name, "fps": fps, "frames": n, "tree": tree, "joints": joint_tracks(run), "videos": videos,
-            "bundle": "model.zip",
+            "video_notes": video_notes, "bundle": "model.zip",
             "measured": meta, "agent_report": report.read_text() if report.exists() else None,
             # how the model shown relates to the agent's run, when a person refit it or a log was replaced
             "provenance": (run / "provenance.txt").read_text().strip() if (run / "provenance.txt").exists() else None,
+            # what the capture didn't measure, in plain words (written by hand per run)
+            "unmeasured": (run / "unmeasured.txt").read_text().strip() if (run / "unmeasured.txt").exists() else None,
             "traces": traces,
             "three_d": (run / "model3d.json").exists(), "physics": phys,
             "appearance": read_optional("appearance.json"), "shape_inference": read_optional("shape_inference.json"),
