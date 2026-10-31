@@ -72,6 +72,7 @@ Spark Open and SAM weights, `--glimmer` on Muse Glimmer 30B served by us.
 | A drawer-opening policy learned on the measured drawer (PPO, trained on Modal) | 99/100 held-out placements; 19/20 unseen starts on the full Panda arm; 98% of the travel made pinching the handle | random actions 0/100 |
 | The unseen back of a microwave in a shelf | front measured (477 x 269 mm), depth bounded by the video (334-387 mm), the rest from Muse Spark (a Samsung 23 L): 477 x 365 x 269 mm with its cavity | measured front, video bound |
 | SAM tracking, 1385 frames, 4 parts | 520 s -> 285 s, masks IoU 0.97-0.995 | previous pipeline |
+| The downloads, loaded outside our own scripts (`scripts/check_exports.py`) | all 8 models' zips: the MJCF in MuJoCo, the URDF in PyBullet, yourdfpy and Drake, joints and limits equal to the fit's; MuJoCo's own URDF import runs 7 (the side-view laptop's lid overlaps its base 13 mm at the hinge, which only the MJCF can exclude) | the fit's records |
 | Scale for plain video (MapAnything depth) | an ID-1 card: x0.75 on the side-view laptop, steady over 8 frames; the object's usual size: x1.01 on the laptop's RGB, already at LiDAR scale | 1.0 expected on the latter |
 
 ## Reproduce it
@@ -622,6 +623,20 @@ export LOCAL_KEY=none AGENT_API_KEY_ENV=LOCAL_KEY AGENT_BASE_URL=http://localhos
 endpoint does). With `BASETEN_API_KEY` or `FIREWORKS_API_KEY` set, the shape design (here and with
 `--glimmer`) also asks Spark Open there; add `--no-design` to keep every call on your own server.
 
+### Check the downloads
+
+The viewer's "Download model" zip holds `model.urdf`, `model.xml` and their meshes. To check
+them the way a user loads them (MuJoCo for both files, PyBullet, yourdfpy, Drake):
+
+```bash
+uv run --no-project --python 3.12 --with pybullet --with yourdfpy --with mujoco --with drake \
+    python scripts/check_exports.py docs/models     # one row per model per loader
+```
+
+On Apple Silicon pybullet has no wheel, so uv builds it from source the first time (a few
+minutes). Simulate the MJCF in MuJoCo (it carries the contact exclusions a URDF can't); ROS
+users need to rewrite the mesh paths as `package://`.
+
 ### More commands
 
 Plain video without LiDAR (MapAnything), the robot tasks and the viewer, SAM 3D link meshes,
@@ -658,6 +673,7 @@ DINOv2 (used inside SAM 3D Objects), MapAnything (Meta).
 | [Remotion](https://www.remotion.dev) | Remotion License (free for individuals) | the promo video in `promo/` |
 | [SGLang](https://github.com/sgl-project/sglang) | Apache-2.0 | serving Muse Glimmer on our Modal endpoint (via `modal endpoint create`) |
 | [mapbox-earcut](https://github.com/skogler/mapbox_earcut_python) | ISC | triangulating mesh caps |
+| [PyBullet](https://github.com/bulletphysics/bullet3), [yourdfpy](https://github.com/clemense/yourdfpy), [Drake](https://github.com/RobotLocomotion/drake) | zlib, MIT, BSD-3-Clause | checking the downloads (`scripts/check_exports.py`, fetched by `uv run --with`, not a dependency) |
 | OpenCV, NumPy, SciPy, numba, OpenAI Python SDK (as the OpenAI-compatible client), Modal | various OSS | |
 | [Stray Scanner](https://github.com/strayrobots/scanner) | app | recording iPhone LiDAR captures |
 

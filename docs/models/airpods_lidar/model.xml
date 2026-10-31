@@ -1,3 +1,8 @@
+<!-- Video2URDF model "airpods_lidar", measured from a video (https://github.com/SungHyunC/video2urdf).
+     Mesh and texture paths are relative to this file (meshes/...): this file alone won't load;
+     unzip model.zip (the viewer's "Download model + meshes") and load it from there.
+     Needs MuJoCo 3.2.5 or later (mesh inertia attribute). Measured geoms are group 3 (they
+     collide), the visible design group 0, superseded visuals group 4. -->
 <mujoco model="airpods_lidar">
   <compiler angle="radian" />
   <visual>

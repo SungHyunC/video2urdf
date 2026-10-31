@@ -1,3 +1,8 @@
+<!-- Video2URDF model "microwave_lidar", measured from a video (https://github.com/SungHyunC/video2urdf).
+     Mesh and texture paths are relative to this file (meshes/...): this file alone won't load;
+     unzip model.zip (the viewer's "Download model + meshes") and load it from there.
+     Needs MuJoCo 3.2.5 or later (mesh inertia attribute). Measured geoms are group 3 (they
+     collide), the visible design group 0, superseded visuals group 4. -->
 <mujoco model="microwave_lidar">
   <compiler angle="radian" />
   <visual>
@@ -12,7 +17,7 @@
   <worldbody>
     <camera name="video" pos="0 0 1" />
     <body name="base" pos="0.00000 0.00000 0.13786">
-      <inertial pos="0.430275 0.0961751 -0.0741825" quat="0.65565 0 0 0.755065" mass="10.2" diaginertia="0.0170331 0.0137965 0.00325421" />
+      <inertial pos="0.245817 0.269804 -0.00368882" quat="-0.00467686 0.707405 0.00110012 0.706793" mass="10.2" diaginertia="0.364663 0.337362 0.193732" />
       <geom type="mesh" mesh="base_0" rgba="1 1 1 1" material="video_tex" friction="0.5 0.005 0.0001" />
       <geom name="completed_side_high_u" type="box" pos="0.397838 0.270853 -0.00361144" size="0.0440244 0.1825 0.134252" quat="0.996037 0 0 0.0889415" rgba="0.0823529 0.0823529 0.0823529 1" friction="0.5 0.005 0.0001" />
       <geom name="completed_cavity_top_wall" type="box" pos="0.159951 0.245485 0.114764" size="0.194594 0.165319 0.0158759" quat="0.996037 0 0 0.0889415" rgba="0.0823529 0.0823529 0.0823529 1" friction="0.5 0.005 0.0001" />

@@ -9,6 +9,7 @@ import numpy as np
 
 from .emit3d import contact_excludes
 from .joints import Link
+from .portable import MUJOCO_BLOCK
 
 THICKNESS = 0.02  # m
 
@@ -73,8 +74,10 @@ def mjcf(name: str, links: list[Link], camera: dict | None = None, size: tuple[i
 
 
 def urdf(name: str, links: list[Link]) -> str:
+    """URDF with mesh paths relative to the file; the <mujoco> block keeps MuJoCo's URDF compiler
+    from stripping them (see portable.py)."""
     by_name = {l.name: l for l in links}
-    out = [f'<?xml version="1.0"?>\n<robot name="{name}">']
+    out = [f'<?xml version="1.0"?>\n<robot name="{name}">\n  {MUJOCO_BLOCK}']
     for l in links:
         center, half, angle = l.box
         if l.mesh:

@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .portable import MUJOCO_BLOCK
+
 
 @dataclass
 class Visual:
@@ -32,7 +34,9 @@ def _v(x) -> str:
 
 
 def urdf(name: str, links: list[Link3D]) -> str:
-    out = [f'<?xml version="1.0"?>\n<robot name="{name}">']
+    """URDF with mesh paths relative to the file. The <mujoco> block keeps MuJoCo's URDF compiler
+    from stripping them to bare file names (see portable.py); other parsers ignore it."""
+    out = [f'<?xml version="1.0"?>\n<robot name="{name}">\n  {MUJOCO_BLOCK}']
     for l in links:
         out.append(f'  <link name="{l.name}">')
         for i, v in enumerate(l.visuals):
