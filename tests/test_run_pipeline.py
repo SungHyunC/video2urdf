@@ -86,6 +86,57 @@ class SummaryTest(unittest.TestCase):
             self.assertEqual(json.loads((Path(tmp) / "summary.json").read_text())["status"], "failed")
 
 
+class StepsTest(unittest.TestCase):
+    """The glue after the agent, with the agent and the repo scripts replaced by fakes."""
+
+    def run_with(self, agent_writes_model: bool, agent_error: str | None = None):
+        from unittest import mock
+
+        from video2urdf import run as R
+
+        def fake_agent(self, video, capture):
+            self.model_dir.mkdir(parents=True, exist_ok=True)
+            if agent_writes_model:
+                (self.model_dir / "model.xml").write_text(MJCF)
+                (self.model_dir / "model.urdf").write_text("<robot name='m'/>")
+                (self.model_dir / "agent").mkdir(exist_ok=True)
+                (self.model_dir / "agent" / "status.json").write_text(json.dumps(
+                    {"status": "checks_passed", "issues": []}))
+            return {"report": "ok", "error": agent_error, "last_fit": agent_writes_model, "scale_note": "x",
+                    "px_per_m": None, "status": {"status": "checks_passed", "issues": []} if agent_writes_model else None}
+
+        def fake_script(self, name, args):
+            if name == "physics":
+                raise RuntimeError("add_physics.py exited 1")
+            return {"_note": "ok"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = make_video(Path(tmp) / "clip.mp4", frames=60, fps=30, size=(320, 240))
+            with mock.patch.object(R.Run, "_agent", fake_agent), mock.patch.object(R.Run, "script", fake_script), \
+                    mock.patch.object(R.Run, "_viewer", lambda self, video: {"_note": "skipped in test"}), \
+                    mock.patch.object(R.Run, "_fallback", lambda self, *a: {"ok": False, "error": "no tracks"}):
+                return run(src, Options(out=Path(tmp) / "runs", look=False, design=False, path="planar"))
+
+    def test_a_failed_later_step_keeps_the_model(self):
+        s = self.run_with(agent_writes_model=True)
+        self.assertEqual(s["status"], "checks_passed")
+        self.assertTrue(any("physics" in i for i in s["issues"]))
+        steps = {x["name"]: x["status"] for x in s["steps"]}
+        self.assertEqual((steps["agent"], steps["physics"], steps["fallback"]), ("ok", "failed", "skipped"))
+        self.assertEqual([j["name"] for j in s["model"]["joints"]], ["lid_joint", "drawer_joint"])
+
+    def test_no_model_and_no_fallback_fails(self):
+        s = self.run_with(agent_writes_model=False)
+        self.assertEqual(s["status"], "failed")
+        self.assertTrue(s["fallback"]["used"])
+        self.assertIn("no model could be built", s["issues"])
+
+    def test_agent_crash_after_a_model_keeps_it_for_review(self):
+        s = self.run_with(agent_writes_model=True, agent_error="APIConnectionError: gone")
+        self.assertFalse(s["fallback"]["used"])
+        self.assertTrue(any("stopped with an error after building a model" in i for i in s["issues"]))
+
+
 class CheckOnlyRunTest(unittest.TestCase):
     def test_plain_video_check_only(self):
         with tempfile.TemporaryDirectory() as tmp:
