@@ -68,7 +68,7 @@ Spark Open and SAM weights, `--glimmer` on Muse Glimmer 30B served by us.
 | Office drawer, iPhone LiDAR | pulls out 248 mm | hand fit 253 |
 | LED desk lamp, iPhone LiDAR, 2 rods | Spark judged the pole's motion depth noise; refit with it fixed (our step): arm 380 mm, 2..89 deg | video |
 | Shape design, three Meta models per round | lamp: best of three 0.62 / 0.63 per round, Muse Spark alone 0.60 / 0.62 (mask F-score) | measured meshes 0.69 |
-| Robot tasks on the measured models | 7 of the viewer's 8: lids closed and reopened, drawer out 199 mm and back (cabinet collision on), lamp arms swung, mouse and AirPods case carried and turned; none for the microwave door yet (the lid task misses it) | joint values reached in physics |
+| Robot tasks on the measured models | 8 of the viewer's 8: lids closed and reopened, drawer out 199 mm and back (cabinet collision on), microwave door pulled open to 46 deg and pushed shut (body collision on), lamp arms swung, mouse and AirPods case carried and turned | joint values reached in physics |
 | A drawer-opening policy learned on the measured drawer (PPO, trained on Modal) | 99/100 held-out placements; 19/20 unseen starts on the full Panda arm; 98% of the travel made pinching the handle | random actions 0/100 |
 | The unseen back of a microwave in a shelf | front measured (477 x 269 mm), depth bounded by the video (334-387 mm), the rest from Muse Spark (a Samsung 23 L): 477 x 365 x 269 mm with its cavity | measured front, video bound |
 | SAM tracking, 1385 frames, 4 parts | 520 s -> 285 s, masks IoU 0.97-0.995 | previous pipeline |
@@ -135,6 +135,18 @@ Two capture paths:
 | Scale | an ID-1 card (85.6 x 54 mm) in view; use a loyalty card, never a payment card | metric depth, no card |
 | Joint fit | planar: least-squares hinge centre / slide direction from relative poses | 3D: plate planes per frame, hinge = where plate and base planes cross; slides by ICP |
 | Geometry | voted silhouettes extruded to meshes | sizes from depth (lid outline, base thickness, ...) |
+
+How this differs from research on articulated-object models:
+
+- Ditto (CVPR 2022) and PARIS (ICCV 2023) reconstruct an object's parts and joint from
+  observations of two static states.
+- URDFormer (RSS 2024) predicts a URDF's structure from a single image and fills it with template
+  parts. Articulate-Anything (2024) has a vision-language model write the articulation from text,
+  images or video, with part meshes retrieved from a dataset.
+- Video2URDF takes one casual video of the real object being worked. It measures each joint's
+  axis, position and limits in metres from the parts' tracked motion, and replays the model over
+  the same video to check it. It says which numbers were measured and which were estimated. URDF
+  Doctor runs the same measurement against a URDF you already have.
 
 ## Meta models, and what each does
 
@@ -241,8 +253,12 @@ The code changed after seeing them, so these are development results, not blind 
   door's planes alone put it ~10 cm off: the open black glass door returns depth on only 0-10%
   of its mask). Three fresh agent runs all built a door model: hinge 1.3-6.0 deg off vertical
   and within 1-2.5 cm of the real hinge edge in the image, door 361-390 x 255-267 mm, replay
-  82-87% of the door; one `checks_passed`, two `needs_review`. The opening reads 52-57 deg, less
-  than the video seems to show, and the body is modelled only as the control-panel column.
+  82-87% of the door; one `checks_passed`, two `needs_review`. The opening reads 52-57 deg. By eye
+  the door looks wider open, because the phone sat about 35 cm from its free edge with a wide
+  lens. We checked the angle by drawing the model door over the video at every opening from 0 to
+  120 deg: it fits the door's mask best at 51 deg on the held-open frames, and a door at 90 deg
+  would leave the frame. The body is modelled only as the control-panel column (completed
+  afterwards: [The parts the camera never saw](#the-parts-the-camera-never-saw)).
 - The static fit picks a reference frame where depth sees the object: the AirPods case now
   passes, 66.8 x 52.5 x 37 mm, replay 91%.
 - The prompt names the body wall or rim as a lidded bin's base: on one rerun the trash bin's
@@ -470,7 +486,8 @@ uv sync --extra rl
 - **The robot uses the model**: a Franka Panda in MuJoCo physics closes and reopens the laptop
   lid (87 deg), pulls the drawer out by its handle with the cabinet's measured collision on
   (199 mm) and pushes it back, swings the lamp's arm (40 deg), and carries and turns the mouse
-  and the AirPods case. The microwave's door has no robot task yet: the lid task misses it.
+  and the AirPods case. It pinches the microwave door's free edge, pulls it open to 46 deg (85% of
+  the measured range) and pushes it shut, against the completed body's collision.
 - **Speed and scale**: SAM tracking of 1385 frames went from 520 s to 285 s (both passes at
   once, strided on fast video); plain videos get a metric scale from an ID-1 card or from the
   object's usual size.
@@ -509,7 +526,9 @@ estimated and the status. If no joint is found it still writes a rigid model, ma
 `needs_review`. Tried on the laptop, microwave and AirPods-case captures, a side-view MOV, the same
 MOV turned 90 deg and cut to 60 fps, and an RGB-only video: all seven produced a model (six passed
 the checks; the RGB-only laptop came out 321 x 195 mm against LiDAR's 306 x 210 and needs review).
-The simulated robot worked three of the seven (the door and the side-view lids still fail).
+The simulated robot worked three of the seven; the door task was added after this test (on the
+published microwave it pulls the door open to 46 deg and pushes it shut), the side-view lids
+still fail.
 
 The sections below run the steps one at a time.
 
@@ -614,9 +633,9 @@ URDF Doctor and the RBO benchmark: [docs/DETAILS.md](docs/DETAILS.md#more-comman
 - Thin parts make replay IoU harsh; book covers and box lids track poorly (see the benchmark).
 - A 2D side view cannot measure the width across the motion plane; it is assumed or set.
 - Floor levelling removes ARKit drift in height and tilt, not along the floor.
-- Doors on vertical hinges: the hinge is placed within a few cm, but the opening reads small and
-  the body is only the part the camera saw. A lidded bin whose body SAM can't separate from its
-  lid gives no usable model.
+- Doors on vertical hinges: the hinge is placed within a few cm. The body behind a door is only
+  what the camera saw until `complete_body.py` completes it, partly from estimates (labelled).
+  A lidded bin whose body SAM can't separate from its lid gives no usable model.
 - The learned drawer policy is simulation only, run on the arm under Cartesian impedance control.
 
 ## Built on
