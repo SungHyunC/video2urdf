@@ -14,7 +14,9 @@ Usage:
   .venv/bin/python scripts/make_demo.py --voice recorded.m4a  # a recorded track, muxed as it is
 
 --baseline adds "Why not just ask Spark for a URDF?" (data/spark_alone/report.md).
---door-clip PATH adds a robot clip (the Panda opening the microwave door) to the robot scene.
+The robot scene shows the Panda opening and shutting the completed microwave's door at twice
+its speed (data/demo_assets/robot_door.mp4); --door-clip PATH picks another clip, --no-door
+leaves it (and its words) out.
 
 Inputs: the LiDAR runs in data/tracks_agent*, data/tracks_design and data/viewer_new, their
 phone videos, docs/models/microwave_lidar/phone.mp4, and the stills and clips in
@@ -40,7 +42,7 @@ sys.path.insert(0, str(ROOT))
 
 W, H, FPS = 1920, 1080, 30
 WORDS_PER_S = 2.6  # without a voice: a calm voice-over
-LEAD, TAIL = 0.35, 0.3  # s of silence before and after each voiced line (fades take 0.2 s)
+LEAD, TAIL = 0.3, 0.3  # s of silence before and after each voiced line (fades take 0.2 s)
 MAX_SECONDS = 178.0  # the rules cut the demo at 3:00
 FONT = "/System/Library/Fonts/HelveticaNeue.ttc"
 BG = (18, 18, 20)
@@ -53,6 +55,8 @@ LAMP = ROOT / "data" / "tracks_agent2" / "stand_lidar"  # the LiDAR desk lamp (r
 MOUSE = ROOT / "data" / "tracks_agent2" / "mouse_lidar"  # the black mouse (visual hull + SAM 3D)
 MICROWAVE_PHONE = ROOT / "docs" / "models" / "microwave_lidar" / "phone.mp4"  # the viewer tab's (reviewed) frames
 SPARK_ALONE = ROOT / "data" / "spark_alone"
+DOOR_ROBOT = ASSETS / "robot_door.mp4"  # the Panda opening and shutting the completed microwave's door
+NOW = {"scene_s": 0.0, "part_s": 0.0}  # seconds of the scene (and part) being drawn, for clips at a set speed
 
 
 def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
@@ -60,10 +64,14 @@ def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
 
 
 class Clip:
-    """Frames of a video read forward only (scenes play them in order); opened on first use."""
+    """Frames of a video read forward only (scenes play them in order); opened on first use.
+    By default the clip is stretched over its scene (or part); with ``speed`` it plays at that
+    rate instead, ending with its scene (``align="end"``, still on its first frame until then)
+    or starting with it (still on its last frame after)."""
 
-    def __init__(self, path: Path, first: int = 0, last: int | None = None):
-        self.path, self.first, self.last_arg = Path(path), first, last
+    def __init__(self, path: Path, first: int = 0, last: int | None = None, speed: float | None = None,
+                 align: str = "end"):
+        self.path, self.first, self.last_arg, self.speed, self.align = Path(path), first, last, speed, align
         self.cap = None
         self.pos, self.img = -1, None
 
@@ -73,8 +81,15 @@ class Clip:
                 raise SystemExit(f"missing demo input: {self.path}")
             self.cap = cv2.VideoCapture(str(self.path))
             n = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            self.fps = self.cap.get(cv2.CAP_PROP_FPS) or FPS
             self.last = n - 1 if self.last_arg is None else self.last_arg
-        want = self.first + int(round(p * (self.last - self.first)))
+        if self.speed:
+            span = NOW["part_s"] or NOW["scene_s"]
+            plays = (self.last - self.first) / self.fps / self.speed  # seconds on screen
+            t = p * span - (max(0.0, span - plays) if self.align == "end" else 0.0)
+            want = self.first + int(round(min(max(t, 0.0) * self.speed * self.fps, self.last - self.first)))
+        else:
+            want = self.first + int(round(p * (self.last - self.first)))
         while self.pos < want:
             ok, img = self.cap.read()
             if not ok:
@@ -158,6 +173,7 @@ def in_parts(title: str, parts: list[Part], draw: Callable[[float], np.ndarray] 
 
     def by_part(p):
         i = min(int(np.searchsorted(edges, p, side="right")) - 1, len(parts) - 1)
+        NOW["part_s"] = NOW["scene_s"] * (edges[i + 1] - edges[i])
         return parts[i].draw(float(np.clip((p - edges[i]) / (edges[i + 1] - edges[i]), 0, 1)))
 
     caps, starts = [], []
@@ -272,10 +288,10 @@ def before_after(top: Path, bottom: Path, labels: tuple[str, str], active: int):
     return draw
 
 
-def clips_grid(clips: list[tuple[Path, str]]):
-    """Robot clips played together: two side by side; three as one large and two stacked (so a
-    third clip, e.g. the microwave door, slots in without changing the scene)."""
-    cs = [Clip(q) for q, _ in clips]
+def clips_grid(clips: list[tuple]):
+    """Robot clips played together: two side by side; three as one large and two stacked.
+    clips: (path, label) or (path, label, speed) -- see Clip."""
+    cs = [Clip(c[0], speed=c[2] if len(c) > 2 else None) for c in clips]
     grey = (200, 200, 200)
     if len(cs) <= 2:
         boxes = [(40, 110, W // 2 - 60, H - 290), (W // 2 + 20, 110, W // 2 - 60, H - 290)][: len(cs)]
@@ -287,7 +303,7 @@ def clips_grid(clips: list[tuple[Path, str]]):
     def draw(p):
         c = blank()
         items = []
-        for clip, (_, label), box in zip(cs, clips, boxes):
+        for clip, (_, label, *_), box in zip(cs, clips, boxes):
             x, y, w, h = place(c, clip.at(p), box)
             items.append(((x + w // 2, y + h + 10), label, 28 if len(cs) <= 2 else 26, False, grey, "ma"))
         return text_layer(c, items)
@@ -310,16 +326,19 @@ def microwave_scene():
     return draw
 
 
-def scenes(baseline: bool = False, door_clip: Path | None = None) -> list[Scene]:
+def scenes(baseline: bool = False, door_clip: Path | None = DOOR_ROBOT) -> list[Scene]:
     lamp_agent = LAMP / "agent"
     white, grey, blue, red = (240, 240, 240), (170, 170, 175), ACCENT, (255, 140, 120)
     robots = [(DESIGN / "drawer2_lidar" / "robot_policy.mp4", "a learned policy opens the measured drawer")]
     robot_line = ("In MuJoCo, a reinforcement learning policy trained on the measured drawer pinches its handle and "
                   "pulls it open, nineteen times in twenty on the full arm. The Panda also carries the mouse.")
-    if door_clip:
-        robots.append((door_clip, "the Panda opens the measured microwave door"))
+    robot_caps = ["PPO policy trained on Modal on the measured drawer: 99/100 held-out, 19/20 on the arm",
+                  "98% of the drawer's travel made while pinching the handle; simulation only"]
+    if door_clip:  # at twice its speed, ending with the line that names it
+        robots.append((door_clip, "the completed microwave's door, opened and shut (2x)", 2.0))
         robot_line = robot_line.replace("The Panda also carries the mouse.",
-                                        "The Panda also opens the microwave door and carries the mouse.")
+                                        "The Panda also opens and shuts the microwave door and carries the mouse.")
+        robot_caps.append("the Panda pulls the measured door open to 46 deg and pushes it shut, body collision on")
     robots.append((MOUSE / "robot_demo.mp4", "the measured mouse, carried and turned"))
     fits = (ASSETS / "mw_first_fit.jpg", ASSETS / "mw_refit.jpg",
             ("Spark's first fit, drawn over the video", "after Spark re-tracked and fitted again"))
@@ -343,7 +362,7 @@ def scenes(baseline: bool = False, door_clip: Path | None = None) -> list[Scene]
               stills([lamp_agent / "step009.jpg", lamp_agent / "step016.jpg", lamp_agent / "step032.jpg"],
                      ["look", "segment 'silver metal rod'", "fit_chain: the model over the video"])),
         Scene("Measure and verify",
-              "MuJoCo replays the model from the phone's own camera and covers ninety five percent of the lid: three "
+              "MuJoCo replays the model from the phone's camera and covers ninety five percent of the lid: three "
               "oh nine by two oh five millimetres, against a spec of three oh four by two twelve.",
               ["MuJoCo replays the model from the phone's camera pose, every frame",
                "covers 95% of the lid, 94% of the base",
@@ -354,7 +373,7 @@ def scenes(baseline: bool = False, door_clip: Path | None = None) -> list[Scene]
         laptop = SPARK_ALONE / "laptop_lidar" / "run2" / "overlay_max_open.jpg"
         drawer = SPARK_ALONE / "drawer2_lidar" / "travel_still.jpg"
         sc.append(in_parts("Why not just ask Spark?", [
-            Part("Why not just ask Spark for a URDF? Asked plainly, it recalls this MacBook's spec,",
+            Part("Why not just ask Spark for a URDF? Asked plainly, it recalls this MacBook's spec",
                  stills([laptop], ["one plain request, no tools: Muse Spark's URDF on the measured laptop"]),
                  ["asked plainly, no tools: the same Muse Spark recalls the MacBook's spec, 304 x 212 mm: right"]),
             Part("but gives every drawer three sixty to four hundred millimetres of travel where the video shows two "
@@ -404,16 +423,14 @@ def scenes(baseline: bool = False, door_clip: Path | None = None) -> list[Scene]
                "masks from every side: 121 x 75 x 55 mm  (spec 125 x 84 x 51)"],
               video_scene(MOUSE / "compare.mp4")),
         in_parts("The robot uses it", [
-            Part(robot_line, clips_grid(robots),
-                 ["PPO policy trained on Modal on the measured drawer: 99/100 held-out, 19/20 on the arm",
-                  "98% of the drawer's travel made while pinching the handle; simulation only"]),
-            Part("Spark judges masses; joint friction is measured where a part stands on its own.",
+            Part(robot_line, clips_grid(robots), robot_caps),
+            Part("Spark judges masses; joint friction is measured where a part stands alone.",
                  video_scene(RUN / "physics_demo.mp4"),
                  ["friction measured where the lid stands alone: 0.28 N m; let go, it moves 0.1 deg (11.5 without)"]),
         ]),
         Scene("Benchmark",
               "On the RBO motion-capture benchmark, laptops and books get a median hinge axis error under two "
-              "degrees, under three on open weights alone; box lids still fail.",
+              "degrees, under three on open weights; box lids still fail.",
               ["laptops and books, median hinge axis: 1.7 deg (Meta API, 6 of 7), 2.8 deg (open weights, 7 of 7)",
                "box lids still fail: SAM loses the lid at 640 x 480"],
               stills([ASSETS / "rbo_laptop04.jpg"],
@@ -442,7 +459,7 @@ def scenes(baseline: bool = False, door_clip: Path | None = None) -> list[Scene]
               "Everything is in the browser, with URDF downloads and every step the agent took. One video in, "
               "a model a robot can use out.",
               ["sunghyunc.github.io/video2urdf   |   github.com/SungHyunC/video2urdf"],
-              stills([ASSETS / "viewer_trace.jpg"]), numbered=False, hold=1.0),
+              stills([ASSETS / "viewer_trace.jpg"]), numbered=False, hold=0.5),
     ]
     return number(sc)
 
@@ -515,10 +532,12 @@ def main():
     ap.add_argument("--narration-out", type=Path, help="also keep the narration track (.m4a)")
     ap.add_argument("--voice", type=Path, help="a recorded narration of the whole cut to mux in as it is")
     ap.add_argument("--baseline", action="store_true", help="add 'Why not just ask Spark for a URDF?'")
-    ap.add_argument("--door-clip", type=Path, help="a robot clip opening the microwave door, added to the robot scene")
+    ap.add_argument("--door-clip", type=Path, default=DOOR_ROBOT,
+                    help="the robot clip opening and shutting the microwave door (robot scene)")
+    ap.add_argument("--no-door", action="store_true", help="leave the door clip out of the robot scene")
     ap.add_argument("--max-seconds", type=float, default=MAX_SECONDS)
     args = ap.parse_args()
-    sc = scenes(baseline=args.baseline, door_clip=args.door_clip)
+    sc = scenes(baseline=args.baseline, door_clip=None if args.no_door else args.door_clip)
     if args.lines:
         args.lines.write_text(json.dumps([{"section": s.section, "narration": s.narration} for s in sc], indent=1))
         print(f"{len(sc)} lines -> {args.lines}")
@@ -535,7 +554,7 @@ def main():
 
     script_out = args.script_out or (args.out.parent / "demo_script.md" if args.out.parent == ROOT / "docs"
                                      else args.out.with_name(args.out.stem + "_script.md"))
-    pace_note = ("Paced to a synthesized voice: each line starts at its time, after about 0.35 s of silence."
+    pace_note = (f"Paced to a synthesized voice: each line starts at its time, after about {LEAD:.1f} s of silence."
                  if args.voice_dir else "Read at a calm pace; each line starts at its time.")
     script = ["# Demo narration", "", f"Total {total:.0f} s. {pace_note}", ""]
     for s, (f0, _) in zip(sc, frames):
@@ -547,6 +566,7 @@ def main():
         raw = Path(tmp) / "raw.mp4"
         writer = cv2.VideoWriter(str(raw), cv2.VideoWriter_fourcc(*"mp4v"), FPS, (W, H))
         for s, (_, n) in zip(sc, frames):
+            NOW["scene_s"] = NOW["part_s"] = n / FPS
             for i in range(n):
                 p = i / max(n - 1, 1)
                 frame = caption(s.draw(p).copy(), s.section, s.caption_at(p))
