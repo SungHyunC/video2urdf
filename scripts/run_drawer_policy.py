@@ -180,6 +180,7 @@ def main():
     ap.add_argument("--no-video", action="store_true")
     ap.add_argument("--scripted", action="store_true", help="a hand-written pinch-and-pull instead of the policy")
     ap.add_argument("--result", type=Path, help="also write the result JSON here")
+    ap.add_argument("--log", action="store_true", help="print every step")
     ap.add_argument("--control", choices=("cartesian", "joint"), default="cartesian",
                     help="cartesian: torque control as the training mount (default); joint: IK and joint position servos")
     ap.add_argument("--arm-gain", type=float, default=1.0,
@@ -316,6 +317,12 @@ def main():
         step_to(grasp_point() + a[:3] * rl.STEP_M, 0 if a[3] > 0 else 255,
                 "Hand-written pinch and pull (check)" if args.scripted else "PPO policy, trained in sim on the drawer measured from video")
         held = contacts.pinched(d)
+        if args.log:
+            _, what, _, nd, nc = contacts.other_contacts(d)
+            tilt = np.degrees(np.arccos(np.clip((np.trace(d.xmat[hand].reshape(3, 3).T @ rot) - 1) / 2, -1, 1)))
+            print(f"t={t:3d} held={int(held)} drawer={1000 * d.qpos[qadr]:6.1f}mm finger={1000 * contacts.finger_open(d):5.2f} "
+                  f"rel={np.round(1000 * o[7:10]).astype(int)} a={np.round(a, 2)} tilt={tilt:4.1f}deg "
+                  f"net on drawer {np.linalg.norm(nd):6.1f}N cabinet {np.linalg.norm(nc):6.1f}N touching {what}")
         q = float(d.qpos[qadr])
         dq = q - q_prev
         if dq > 0 and held:
