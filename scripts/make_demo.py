@@ -13,7 +13,7 @@ Usage:
       [--out docs/demo.mp4] [--narration-out data/demo_assets/narration_v3_af_heart.m4a]
   .venv/bin/python scripts/make_demo.py --voice recorded.m4a  # a recorded track, muxed as it is
 
---baseline adds "Why not just ask Spark for a URDF?" (data/spark_alone/report.md).
+"Why not just ask an AI?" (data/spark_alone/report.md) is in by default; --no-baseline drops it.
 The robot scene shows the Panda opening and shutting the completed microwave's door at twice
 its speed (data/demo_assets/robot_door.mp4); --door-clip PATH picks another clip, --no-door
 leaves it (and its words) out.
@@ -55,6 +55,7 @@ LAMP = ROOT / "data" / "tracks_agent2" / "stand_lidar"  # the LiDAR desk lamp (r
 MOUSE = ROOT / "data" / "tracks_agent2" / "mouse_lidar"  # the black mouse (visual hull + SAM 3D)
 MICROWAVE_PHONE = ROOT / "docs" / "models" / "microwave_lidar" / "phone.mp4"  # the viewer tab's (reviewed) frames
 SPARK_ALONE = ROOT / "data" / "spark_alone"
+SPARK_URDF = ROOT / "examples" / "spark_alone" / "drawer_lidar_run2.urdf"  # Spark alone's drawer answer (run 2)
 DOOR_ROBOT = ASSETS / "robot_door.mp4"  # the Panda opening and shutting the completed microwave's door
 NOW = {"scene_s": 0.0, "part_s": 0.0}  # seconds of the scene (and part) being drawn, for clips at a set speed
 
@@ -288,6 +289,32 @@ def before_after(top: Path, bottom: Path, labels: tuple[str, str], active: int):
     return draw
 
 
+def urdf_card(urdf: Path):
+    """The prismatic joints of a URDF answer and their limits, as code."""
+    import xml.etree.ElementTree as ET
+    mono = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", 34)
+
+    def draw(p):
+        rows = []
+        for j in ET.parse(urdf).getroot().iter("joint"):
+            if j.get("type") != "prismatic":
+                continue
+            lim = j.find("limit")
+            rows.append((f'<joint name="{j.get("name")}" type="prismatic">', (200, 200, 205)))
+            rows.append((f'    <limit lower="{lim.get("lower")}" upper="{lim.get("upper")}" .../>', (255, 170, 80)))
+        c = blank()
+        im = Image.fromarray(cv2.cvtColor(c, cv2.COLOR_BGR2RGB))
+        d = ImageDraw.Draw(im)
+        d.text((W // 2, 170), "Muse Spark alone, asked for the drawer's URDF (one of its 5 answers)", font=font(44, True),
+               fill=(240, 240, 240), anchor="ma")
+        y = 300
+        for text, rgb in rows:
+            d.text((420, y), text, font=mono, fill=rgb)
+            y += 62 if text.startswith("    ") else 52
+        return cv2.cvtColor(np.array(im), cv2.COLOR_RGB2BGR)
+    return draw
+
+
 def clips_grid(clips: list[tuple]):
     """Robot clips played together: two side by side; three as one large and two stacked.
     clips: (path, label) or (path, label, speed) -- see Clip."""
@@ -326,7 +353,7 @@ def microwave_scene():
     return draw
 
 
-def scenes(baseline: bool = False, door_clip: Path | None = DOOR_ROBOT) -> list[Scene]:
+def scenes(baseline: bool = True, door_clip: Path | None = DOOR_ROBOT) -> list[Scene]:
     lamp_agent = LAMP / "agent"
     white, grey, blue, red = (240, 240, 240), (170, 170, 175), ACCENT, (255, 140, 120)
     robots = [(DESIGN / "drawer2_lidar" / "robot_policy.mp4", "a learned policy opens the measured drawer")]
@@ -371,19 +398,17 @@ def scenes(baseline: bool = False, door_clip: Path | None = DOOR_ROBOT) -> list[
     ]
     if baseline:
         laptop = SPARK_ALONE / "laptop_lidar" / "run2" / "overlay_max_open.jpg"
-        drawer = SPARK_ALONE / "drawer2_lidar" / "travel_still.jpg"
-        sc.append(in_parts("Why not just ask Spark?", [
-            Part("Why not just ask Spark for a URDF? Asked plainly, it recalls this MacBook's spec",
-                 stills([laptop], ["one plain request, no tools: Muse Spark's URDF on the measured laptop"]),
-                 ["asked plainly, no tools: the same Muse Spark recalls the MacBook's spec, 304 x 212 mm: right"]),
-            Part("but gives every drawer three sixty to four hundred millimetres of travel where the video shows two "
-                 "forty eight;",
-                 stills([drawer], ["the measured drawer (left) vs. Spark alone's travel (right)"]),
-                 ["drawer travel 360-400 mm in all 5 answers; the video shows 248 mm"]),
-            Part("nothing says which numbers are right. With tools, it measures them.",
-                 stills([laptop], ["its lid stops at its own 110 deg limit; the video opens it 117 deg"]),
-                 ["joint range shorter than the video's opening in 8 of 19 hinge answers",
-                  "nothing in an answer says which numbers are right; with tools it measures them"]),
+        sc.append(in_parts("Why not just ask an AI?", [
+            Part("Why not just ask an AI? Asked plainly, the same Spark recalls a MacBook's spec,",
+                 stills([laptop], ["one plain request, no tools: Muse Spark's URDF placed on the measured laptop"]),
+                 ["asked plainly, no tools: the same Muse Spark recalls the MacBook's spec, 304 x 212 mm"]),
+            Part("but in eight of nineteen answers its hinge can't open as far as the video shows,",
+                 stills([laptop], ["the lid opens 117 deg in the video; this answer's hinge stops at 110"]),
+                 ["in 8 of 19 hinge answers the joint range is shorter than the opening the video shows"]),
+            Part("and it gives every drawer the same travel. With tools, it measures them.",
+                 urdf_card(SPARK_URDF),
+                 ["each of its 5 drawer answers gives all three drawers the same travel",
+                  "nothing in an answer says which numbers are right; with tools, it measures them"]),
         ]))
     sc += [
         in_parts("It checks itself", [
@@ -531,13 +556,13 @@ def main():
     ap.add_argument("--voice-dir", type=Path, help="NN.wav per line + lines.json: pace the cut to them and mux them")
     ap.add_argument("--narration-out", type=Path, help="also keep the narration track (.m4a)")
     ap.add_argument("--voice", type=Path, help="a recorded narration of the whole cut to mux in as it is")
-    ap.add_argument("--baseline", action="store_true", help="add 'Why not just ask Spark for a URDF?'")
+    ap.add_argument("--no-baseline", action="store_true", help="leave out 'Why not just ask an AI?'")
     ap.add_argument("--door-clip", type=Path, default=DOOR_ROBOT,
                     help="the robot clip opening and shutting the microwave door (robot scene)")
     ap.add_argument("--no-door", action="store_true", help="leave the door clip out of the robot scene")
     ap.add_argument("--max-seconds", type=float, default=MAX_SECONDS)
     args = ap.parse_args()
-    sc = scenes(baseline=args.baseline, door_clip=None if args.no_door else args.door_clip)
+    sc = scenes(baseline=not args.no_baseline, door_clip=None if args.no_door else args.door_clip)
     if args.lines:
         args.lines.write_text(json.dumps([{"section": s.section, "narration": s.narration} for s in sc], indent=1))
         print(f"{len(sc)} lines -> {args.lines}")
