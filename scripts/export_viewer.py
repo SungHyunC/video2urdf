@@ -271,6 +271,8 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
                 replay_experimental = src == experimental_replay
     note = policy_note() if "policy" in videos else None
     video_notes = {"policy": note} if note else {}  # key -> caption shown under that video
+    if (run / "video_notes.json").exists():  # captions written for this run (what its robot clip shows)
+        video_notes.update({k: v for k, v in json.loads((run / "video_notes.json").read_text()).items() if k in videos})
     meta = {}
     for f in ("model3d.json", "hinge.json"):
         if (run / f).exists():
