@@ -58,6 +58,7 @@ Spark Open and SAM weights, `--glimmer` on Muse Glimmer 30B served by us.
 | Shape design, three Meta models per round | lamp: best of three 0.62 / 0.63 per round, Muse Spark alone 0.60 / 0.62 (mask F-score) | measured meshes 0.69 |
 | Robot tasks on the measured models | 6 of 6: lids closed and reopened, drawer out 199 mm and back (cabinet collision on), lamp arms swung, mouse carried and turned | joint values reached in physics |
 | A drawer-opening policy learned on the measured drawer (PPO, trained on Modal) | 99/100 held-out placements; 19/20 unseen starts on the full Panda arm; 98% of the travel made pinching the handle | random actions 0/100 |
+| The unseen back of a microwave in a shelf | front measured (477 x 269 mm), depth bounded by the video (334-387 mm), the rest from Muse Spark (a Samsung 23 L): 477 x 365 x 269 mm with its cavity | measured front, video bound |
 | SAM tracking, 1385 frames, 4 parts | 520 s -> 285 s, masks IoU 0.97-0.995 | previous pipeline |
 | Scale for plain video | card x0.75 (8 frames agree); object's usual size x1.01 | expected 1.0 |
 
@@ -394,6 +395,26 @@ on the LiDAR laptop with URDFs in `examples/doctor/` (bugs injected on purpose):
 The axis's turn *within* the base's top plane is only as sure as the measured base outline
 (a few degrees on this capture); tilts out of that plane, positions, signs, offsets and limits
 are what it checks reliably.
+
+### The parts the camera never saw
+
+A microwave in a shelf can't be filmed from behind, so its fit held only the door and the strip of
+buttons SAM tracked: a door and a floating panel a robot could reach straight through. When a body
+is known to be partial, `scripts/complete_body.py` (`video2urdf/completion.py`) builds the rest:
+measured where the video saw it, bounded by what the video rules out, and estimated otherwise,
+every estimate labelled with its source.
+
+| | Microwave (never seen in development) |
+|---|---|
+| Measured: the front, from LiDAR inside SAM 3.1 masks of the whole object | 477 x 269 mm |
+| Bounded by the video: the depth | 334-387 mm (the cavity's back wall seen through the open door; a wall seen just behind its top) |
+| Estimated by Muse Spark | recognised a Samsung 23 L (MS23K series, ~489 x 275 x 374 mm); depth 365 mm, cavity width and height, walls, 10 kg |
+| Completed body | 477 x 365 x 269 mm with a cavity behind the door; the whole object's masks covered 50% -> 85% |
+| Collision | a probe pushed into the back, the top or the open door stops on the body (it used to pass through) |
+
+When neither the video nor Spark gives a size, a typical size for the category is used and marked
+as such. Bodies the video already measured (the laptop, the drawer, the lamp, the mouse) are left
+untouched. `scripts/complete_body.py RUN --remove` restores the measured-only model.
 
 ### A policy learned on the measured drawer
 
