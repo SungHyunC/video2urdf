@@ -488,7 +488,8 @@ def drop_overclosed(q: np.ndarray, shut, max_over: float = np.deg2rad(10)) -> np
     face read behind the glass outlasts the running-median cleaning). The shut angle is the
     median over ``shut`` frames; angles are compared modulo a full turn."""
     shut = [t for t in shut if t < len(q) and np.isfinite(q[t])]
-    rest = [t for t in range(len(q)) if np.isfinite(q[t]) and t not in set(shut)]
+    known = set(shut)
+    rest = [t for t in range(len(q)) if np.isfinite(q[t]) and t not in known]
     if len(shut) < 5 or len(rest) < 5:
         return q
     closed = np.median(q[shut])
