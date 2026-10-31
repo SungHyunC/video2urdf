@@ -564,7 +564,7 @@ SAM 3.1 / SAM 3 weights in your own Modal workspace. The Meta Model API is not c
 .venv/bin/python scripts/run_agent.py data/real/laptop_lidar --open-weights --out data/tracks_open
 ```
 
-When it works, the run prints `model meta-models/muse-spark-open-1026` first, then each turn
+When it works, the run first names the model it runs (`model meta-models/muse-spark-open-1026`), then each turn
 (`segment`, `track`, `fit_lidar`, `watch`, `set_physics`, `finish`), then `=== report ===`, whose
 first line is the automatic checks' status, then `Shape design: <object>, applied` (or `not
 applied` when the design scores below the measured meshes). The SAM calls show on modal.com under
