@@ -36,6 +36,8 @@ def main():
     ap.add_argument("--scale", type=float, help="multiply the model's metric scale (known length / measured)")
     ap.add_argument("--chunk", type=int, default=pseudo_depth.CHUNK)
     ap.add_argument("--anchors", type=int, default=pseudo_depth.ANCHORS)
+    ap.add_argument("--spread", action="store_true",
+                    help="every chunk spans the whole video (wide baselines): for an object that doesn't move")
     args = ap.parse_args()
     out = args.out or args.video.parent / f"{args.video.stem}_mapanything"
     meta = out / "mapanything.json"
@@ -54,11 +56,12 @@ def main():
             source = "video metadata"
             print(f"focal length {f35:g} mm (35 mm equivalent) recorded in the video: {focal:.0f} px", flush=True)
     rec = pseudo_depth.reconstruct(args.video, args.chunk, args.anchors, focal, args.scale,
-                                   log=lambda message: print(message, flush=True))
+                                   log=lambda message: print(message, flush=True), spread=args.spread)
     pseudo_depth.write_capture(rec, args.video, out)
     meta.write_text(json.dumps({
         "source": str(args.video), "frames": len(rec.depth), "depth_size": list(rec.depth.shape[2:0:-1]),
         "focal_px": float(rec.k[0, 0]), "focal_given": focal is not None, "focal_source": source,
+        "chunks": "spread" if args.spread else "consecutive",
         "scale_applied": args.scale or 1.0, "chunk_scales": rec.chunk_scales}, indent=2))
     print(f"-> {out}")
 
