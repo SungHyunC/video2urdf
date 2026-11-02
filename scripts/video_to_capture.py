@@ -9,8 +9,9 @@ Usage:
 MapAnything's own metric scale can be far off on close-up tabletop scenes (3x on the LiDAR
 laptop), so sizes need one known length: measure the model once, then rerun with
 --scale KNOWN/MEASURED (on an existing capture this only rescales it, no new inference). Give the camera's
-focal length when known (--focal px, or --focal-35mm; an iPhone's 1x camera is ~26 mm):
-the model's own estimate was 35% long on that capture, which distorts angles.
+focal length when known (--focal px, or --focal-35mm; an iPhone's 1x camera is ~25 mm); by default it is
+read from the video's metadata when the phone recorded it (iPhone videos do): the model's own estimate
+was 24-43% long on the LiDAR captures' videos, which distorts angles and sizes.
 """
 
 import argparse
@@ -22,6 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from video2urdf import pseudo_depth  # noqa: E402
+from video2urdf.ingest import camera_focal_35mm  # noqa: E402
 from video2urdf.pipeline import video_info  # noqa: E402
 
 
@@ -44,16 +46,20 @@ def main():
         meta.write_text(json.dumps(info, indent=2))
         print(f"rescaled x{args.scale} (total x{info['scale_applied']:.4f}) -> {out}")
         return
-    focal = args.focal
-    if args.focal_35mm:
-        focal = pseudo_depth.focal_from_35mm(args.focal_35mm, video_info(args.video)[0])
+    focal, source = args.focal, "given" if args.focal or args.focal_35mm else "estimated"
+    f35 = args.focal_35mm or (None if args.focal else camera_focal_35mm(args.video))
+    if f35:
+        focal = pseudo_depth.focal_from_35mm(f35, video_info(args.video)[0])
+        if not args.focal_35mm:
+            source = "video metadata"
+            print(f"focal length {f35:g} mm (35 mm equivalent) recorded in the video: {focal:.0f} px", flush=True)
     rec = pseudo_depth.reconstruct(args.video, args.chunk, args.anchors, focal, args.scale,
                                    log=lambda message: print(message, flush=True))
     pseudo_depth.write_capture(rec, args.video, out)
     meta.write_text(json.dumps({
         "source": str(args.video), "frames": len(rec.depth), "depth_size": list(rec.depth.shape[2:0:-1]),
-        "focal_px": float(rec.k[0, 0]), "focal_given": focal is not None, "scale_applied": args.scale or 1.0,
-        "chunk_scales": rec.chunk_scales}, indent=2))
+        "focal_px": float(rec.k[0, 0]), "focal_given": focal is not None, "focal_source": source,
+        "scale_applied": args.scale or 1.0, "chunk_scales": rec.chunk_scales}, indent=2))
     print(f"-> {out}")
 
 

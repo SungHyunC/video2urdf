@@ -241,7 +241,7 @@ class Run:
         video = Path(ing.video)
         capture = Path(ing.capture) if ing.capture and path == "3d" else None
         if path == "3d" and not ing.has_depth:
-            capture = self.step("depth", self._pseudo_depth, video)
+            capture = self.step("depth", self._pseudo_depth, video, (ing.details or {}).get("focal_35mm"))
             if capture is None:
                 self.summary["issues"].append("MapAnything depth failed: trying the planar path instead")
                 path = "planar"
@@ -319,19 +319,23 @@ class Run:
                  f"camera {look.get('camera')}, up at the {look.get('up')} ({look.get('up_confidence')})")
         return {**look, "_note": f"{look.get('object')}, {look.get('view')} view, up at the {look.get('up')}"}
 
-    def _pseudo_depth(self, video: Path) -> Path:
-        """Plain video -> a capture in the Stray layout with MapAnything depth, at an automatic scale."""
+    def _pseudo_depth(self, video: Path, recorded_35mm: float | None = None) -> Path:
+        """Plain video -> a capture in the Stray layout with MapAnything depth, at an automatic scale.
+        The focal length is --focal-35mm, else the one the phone recorded in the file (iPhones do),
+        else MapAnything's own estimate (25-43% long on the LiDAR captures' videos)."""
         from . import pseudo_depth
         capture = self.dir / "input" / "capture"
-        focal = None
-        if self.opt.focal_35mm:
+        focal, f35 = None, self.opt.focal_35mm or recorded_35mm
+        source = "given" if self.opt.focal_35mm else "video metadata" if recorded_35mm else "estimated"
+        if f35:
             info = ING.video_info(ING.ffprobe(video))
-            focal = pseudo_depth.focal_from_35mm(self.opt.focal_35mm, (info.width, info.height))
+            focal = pseudo_depth.focal_from_35mm(f35, (info.width, info.height))
+            self.log(f"   focal length {f35:g} mm (35 mm equivalent, {source}): {focal:.0f} px")
         self.log("   MapAnything on Modal estimates depth and camera motion (metric scale not guaranteed)")
         rec = pseudo_depth.reconstruct(video, focal=focal, scale=self.opt.scale, log=lambda s: self.log("   " + s))
         pseudo_depth.write_capture(rec, video, capture)
         meta = {"source": str(video), "frames": len(rec.depth), "depth_size": list(rec.depth.shape[2:0:-1]),
-                "focal_px": float(rec.k[0, 0]), "focal_given": focal is not None,
+                "focal_px": float(rec.k[0, 0]), "focal_given": focal is not None, "focal_source": source,
                 "scale_applied": self.opt.scale or 1.0, "chunk_scales": rec.chunk_scales}
         (capture / "mapanything.json").write_text(json.dumps(meta, indent=2))
         if self.opt.scale is None and self.opt.auto_scale:
