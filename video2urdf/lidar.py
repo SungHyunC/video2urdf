@@ -722,6 +722,18 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
     # When the floor is not visible at the reference frame, z_floor is a fallback;
     # a plausible fallback must never be reported as a depth measurement.
     base_measured = floor_c is not None and 0.002 < z_top - z_floor < 0.2
+    base_method = None
+    if getattr(c, "estimated_depth", False):  # its depth can't tell how far the base stands off the floor
+        base_measured, base_method = False, "fallback"
+        found = estimated_base_height(c, roles, log)
+        if found is not None:
+            log(f"base thickness: {1000 * found['height_m']:.1f} mm, from parallax between the reference frame and "
+                f"{len(found['partners'])} frames around it (the estimated depth puts the base's top "
+                f"{1000 * (z_top - z_floor):.0f} mm above the floor; not used)")
+            z_floor, base_measured, base_method = z_top - found["height_m"], True, "parallax"
+        elif floor_c is not None:
+            log(f"base thickness: estimated depth puts the base's top {1000 * (z_top - z_floor):.0f} mm above the floor, "
+                "which it can't measure (it lifts objects off their support by centimetres)")
     if not base_measured:  # a fragmented base mask: keep the model valid and say so
         log(f"base thickness reads {1000 * (z_top - z_floor):.0f} mm: not measured, using "
             f"{1000 * BASE_FALLBACK_M:.0f} mm")
@@ -802,11 +814,29 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
         "hinge_range_deg": [float(np.rad2deg(limits[0])), float(np.rad2deg(limits[1]))],
         "closed_frames_used": len(heights),
     }
+    if base_method is not None:
+        summary["base_thickness_method"] = base_method
     (c.track_dir / "model3d.json").write_text(json.dumps({
         "reference_frame": ref, "camera_to_model": {"rotation": rot.tolist(), "hinge_point": point.tolist(),
                                                     "root_pos": root_pos.tolist()},
         "base_thickness_m": z_top - z_floor, "lid_thickness_m": thick, "hinge_limits_rad": limits, **summary}))
     return replay_hinged(c, roles, rot, point, root_pos, q, summary, log)
+
+
+def estimated_base_height(c: Capture, roles: Roles, log=print) -> dict | None:
+    """The base's top above the floor on an estimated capture, by parallax between frames
+    (parallax.top_height), when the focal length is known (a wrong one skews it: 4 mm instead of
+    11 on the LiDAR laptop's video with the model's own focal, 43% long); else None."""
+    if not roles.floor:
+        return None
+    if not c.focal_known:
+        log("base thickness: not measured by parallax without a known focal length (give --focal-35mm; iPhone "
+            "videos record it)")
+        return None
+    from .parallax import top_height
+    parts = [p for p in (roles.base, roles.plate, roles.plate_closed) if p]
+    moving = [p for p in (roles.plate, roles.plate_closed) if p and p != roles.base]
+    return top_height(c, roles.base, parts, roles.floor, moving, log=log)
 
 
 def read_hinge(track_dir: Path) -> dict:
