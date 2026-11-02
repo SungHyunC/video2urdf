@@ -139,18 +139,19 @@ tabletop shots, and what the 3D path does about it on an estimated capture (`map
   known focal it is a 12 mm placeholder, marked not measured.
 - **Surface tilts** are off by 10-15 deg per frame, differently from frame to frame, so the lid's
   opening on the reference frame was misread and every shut frame read 25-30 deg past closed; the
-  opening is now measured from the frames shown shut (a shut lid lies on its base).
+  opening is now measured from the frames shown shut (a shut lid lies on its base). Likewise a
+  shut drawer read 95-165 mm out of its cabinet; its travel is now measured from its shut reading.
 
 End to end on the laptop (the object's usual size from Spark sets the scale): lid 310 x 188 mm
 (LiDAR fit 311 x 208), base 13 mm (12), hinge axis 1.0 deg off, opening error 6 deg median (19
 before), automatic checks passed; before these changes the base read 76 mm, the axis 5.9 deg off
 and the fit warned the hinge over-closes by 29 deg. At the LiDAR's own scale the mouse's box reads
 121 x 83 x 64 mm (LiDAR 121 x 75 x 55; it read 86 x 64 x 123 before, its length taken for its
-height). Still off: the drawer's travel (283 mm with the model's own focal, 375 with the known one,
-for 248), the lid's depth from its hinge (10-13% short) and the open lid (about 15 deg too open
-with a known focal); the object's usual size reads a rounded object's length about 20% short even
-on LiDAR depth, so the mouse comes out 22-42% large end to end. Use measured depth for reliable
-dimensions. Film obliquely, as for LiDAR: on a
+height). Still off: the drawer's travel (210 mm with the known focal, 188 with the model's own,
+for 248; its axis 19-25 deg off), the lid's depth from its hinge (10-13% short) and the open lid
+(about 15 deg too open with a known focal); the object's usual size reads a rounded object's
+length about 20% short even on LiDAR depth, so the mouse comes out 22-42% large end to end. Use
+measured depth for reliable dimensions. Film obliquely, as for LiDAR: on a
 side view (`notebook_2.MOV`, no LiDAR) the agent put the hinge on the real hinge, but the lid is
 seen edge-on, its plane fits were poor (replay covers 13% of the lid) and Spark said so and
 asked for a reshoot; side views go through the 2D path instead.
