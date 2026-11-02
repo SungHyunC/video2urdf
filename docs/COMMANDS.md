@@ -325,6 +325,14 @@ new geometry is not activated. See `shape_inference.json` for the comparison and
     --joint-log examples/doctor/joint_log_flipped.csv
 ```
 
+Without API keys, on the run `scripts/reproduce.py` writes (about a minute; from a fresh clone on
+11/2 it found all three bugs: axis 7.8 deg off, hinge 17 mm off, the video needs 127 deg where the
+limit is 90):
+
+```bash
+.venv/bin/python scripts/urdf_doctor.py examples/doctor/laptop_buggy.urdf data/reproduce/laptop_lidar
+```
+
 What it found on these files: [RESULTS.md](RESULTS.md#urdf-doctor-checking-an-existing-urdf-against-the-video).
 
 ## The RBO benchmark
