@@ -125,7 +125,7 @@ def levelling_line(fix: dict) -> str:
     return line
 
 
-def fit_lidar_hinge(c, roles, log=print) -> tuple[dict, list[int]]:
+def fit_lidar_hinge(c, roles, log=print, reference: int | None = None) -> tuple[dict, list[int]]:
     """The hinge fit as the agent's fit_lidar runs it on a capture as opened, shared with
     scripts/rbo_eval.py so the benchmark scores exactly what the agent fits. In order: plate
     frames whose mask is plate_closed's are measured from plate_closed instead; plate masks that
@@ -134,7 +134,8 @@ def fit_lidar_hinge(c, roles, log=print) -> tuple[dict, list[int]]:
     base followed (a fixed camera); then fit_hinge, retrying a few open references when the
     reference's angle is rejected, each retry restarting the camera transforms from the capture
     as opened. Returns the fit summary and the references tried; raises ValueError as fit_hinge
-    and ref_with do."""
+    and ref_with do. ``reference`` takes a given frame instead of ref_with's choice (rerunning a
+    saved fit on the frame it used, scripts/reproduce.py); it must show the base and the plate."""
     c.drop_where_same(roles.plate, roles.plate_closed)
     slid = list(getattr(c, "slid_frames", []))  # explained once the fit shows which were raised
     overlapping = c.drop_open_base_overlap(roles)
@@ -142,10 +143,17 @@ def fit_lidar_hinge(c, roles, log=print) -> tuple[dict, list[int]]:
         log(f"WARNING: removed {overlapping} open frames where the plate mask substantially "
             "overlapped the base; these frames have no reliable plate observation.")
     raw_world, raw_ref = c.world.copy(), c.ref
-    ref = c.ref_with(roles.base, roles.plate, roles.plate_closed, roles.open_indicator)
+    if reference is None:
+        ref, why = c.ref_with(roles.base, roles.plate, roles.plate_closed, roles.open_indicator), \
+            "where the plate is seen largest"
+    elif 0 <= reference < c.n and c.has(roles.base, reference) and c.has(roles.plate, reference):
+        ref, why = reference, "given"
+    else:
+        raise ValueError(f"The given reference frame {reference} doesn't show both {roles.base} and {roles.plate} "
+                         f"with usable masks (the video has {c.n} frames).")
     if ref != c.ref:
         c.set_ref(ref)
-        log(f"reference frame {c.ref}: where the plate is seen largest")
+        log(f"reference frame {c.ref}: {why}")
     if c.moving_camera:
         log(levelling_line(c.level_with(roles.floor)))
     else:  # a fixed camera: the object itself may be pushed around, so measure from its base

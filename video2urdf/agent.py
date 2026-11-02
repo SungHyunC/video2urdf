@@ -707,7 +707,9 @@ class Agent:
         return cv2.hconcat(imgs)
 
     def tool_fit_lidar(self, floor: str, base: str, plate: str, plate_closed: str | None = None,
-                       open_indicator: str | None = None, joint: str = "hinge") -> str:
+                       open_indicator: str | None = None, joint: str = "hinge", reference: int | None = None) -> str:
+        """``reference`` (hinge only, not in the tool's schema) pins the reference frame: scripts
+        that rerun a saved fit on the frame it used (scripts/reproduce.py)."""
         if self.capture is None:
             return "fit_lidar needs a LiDAR capture; use fit"
         if not self.tracked:
@@ -735,7 +737,7 @@ class Agent:
             self.last_fit = summary
             return "\n".join(lines) + "\nImage: the replayed model (colored) over the video."
         try:  # the same steps rbo_eval scores (lidar.fit_lidar_hinge)
-            _, references = lidar.fit_lidar_hinge(c, roles, log=lines.append)
+            _, references = lidar.fit_lidar_hinge(c, roles, log=lines.append, reference=reference)
         except ValueError as error:
             if "angle on reference frame" not in str(error):
                 raise
