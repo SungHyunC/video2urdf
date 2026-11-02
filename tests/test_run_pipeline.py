@@ -135,10 +135,15 @@ class RobotResultsTest(unittest.TestCase):
 class StepsTest(unittest.TestCase):
     """The glue after the agent, with the agent and the repo scripts replaced by fakes."""
 
-    def run_with(self, agent_writes_model: bool, agent_error: str | None = None):
+    def run_with(self, agent_writes_model: bool, agent_error: str | None = None, check_rows: list | None = None):
         from unittest import mock
 
         from video2urdf import run as R
+        from video2urdf import validation as V
+        if check_rows is None:
+            check_rows = [{"check": "files", "status": "pass", "detail": ""},
+                          {"check": "mjcf:mujoco", "status": "pass", "detail": ""},
+                          {"check": "urdf:mujoco", "status": "pass", "detail": ""}]
 
         def fake_agent(self, video, capture):
             self.model_dir.mkdir(parents=True, exist_ok=True)
@@ -160,16 +165,36 @@ class StepsTest(unittest.TestCase):
             src = make_video(Path(tmp) / "clip.mp4", frames=60, fps=30, size=(320, 240))
             with mock.patch.object(R.Run, "_agent", fake_agent), mock.patch.object(R.Run, "script", fake_script), \
                     mock.patch.object(R.Run, "_viewer", lambda self, video: {"_note": "skipped in test"}), \
-                    mock.patch.object(R.Run, "_fallback", lambda self, *a: {"ok": False, "error": "no tracks"}):
-                return run(src, Options(out=Path(tmp) / "runs", look=False, design=False, path="planar"))
+                    mock.patch.object(R.Run, "_fallback", lambda self, *a: {"ok": False, "error": "no tracks"}), \
+                    mock.patch.object(V, "run_checker", return_value=(check_rows, None)):
+                s = run(src, Options(out=Path(tmp) / "runs", look=False, design=False, path="planar"))
+                s["_summary_md"] = (Path(s["run_dir"]) / "summary.md").read_text()
+                return s
 
     def test_a_failed_later_step_keeps_the_model(self):
         s = self.run_with(agent_writes_model=True)
         self.assertEqual(s["status"], "checks_passed")
+        self.assertEqual((s["agent_status"], s["artifact_status"]), ("checks_passed", "checks_passed"))
+        self.assertEqual(s["validation"]["state"], "current")
         self.assertTrue(any("physics" in i for i in s["issues"]))
         steps = {x["name"]: x["status"] for x in s["steps"]}
         self.assertEqual((steps["agent"], steps["physics"], steps["fallback"]), ("ok", "failed", "skipped"))
         self.assertEqual([j["name"] for j in s["model"]["joints"]], ["lid_joint", "drawer_joint"])
+
+    def test_a_failing_format_lowers_only_the_artifact_status(self):
+        rows = [{"check": "files", "status": "pass", "detail": ""},
+                {"check": "mjcf:mujoco", "status": "pass", "detail": ""},
+                {"check": "urdf:mujoco", "status": "fail", "detail": "the overlap throws a part"},
+                {"check": "urdf:pybullet", "status": "not_tested", "detail": "pybullet not installed"}]
+        s = self.run_with(agent_writes_model=True, check_rows=rows)
+        self.assertEqual((s["agent_status"], s["artifact_status"], s["status"]),
+                         ("checks_passed", "needs_review", "needs_review"))
+        self.assertIn("downloads: urdf:mujoco failed: the overlap throws a part", s["issues"])
+        self.assertIn("urdf", s["outputs"])  # the model and its other formats stay
+        self.assertIn("mjcf", s["outputs"])
+        self.assertIn("- Agent: checks passed", s["_summary_md"])
+        self.assertIn("  - FAIL urdf:mujoco: the overlap throws a part", s["_summary_md"])
+        self.assertEqual(s["steps"][-1]["name"], "validate")
 
     def test_no_model_and_no_fallback_fails(self):
         s = self.run_with(agent_writes_model=False)

@@ -264,7 +264,10 @@ keep an ID-1 sized card in view (85.6 x 54 mm; a loyalty card, never a payment c
 `INPUT` can be a Stray Scanner zip or folder, any phone video, an RGB-D folder, a photo folder,
 or a zip of any of these; the type is read from the content. The run folder holds the model
 (`model/model.urdf`, `model/model.xml`), the replay over the video, the agent's log, a viewer
-folder and `summary.md`: what was measured, what was estimated, and the status.
+folder and `summary.md`: what was measured, what was estimated, and the status. The status is
+the worse of two verdicts, both shown: the agent's, and whether the final downloads load
+(`validation.json`: the export checks below, run on the model the user downloads, with its
+files' hashes, so a model changed afterwards reads as not re-checked).
 
 <a id="check-the-downloads"></a>Step by step (a 2D video, a LiDAR capture, plain video through
 MapAnything, the robot tasks, the viewer, SAM 3D meshes, URDF Doctor, the RBO benchmark) and how
