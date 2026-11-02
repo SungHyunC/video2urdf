@@ -16,12 +16,17 @@ Steps (each timed and logged; a failing later step never discards the model):
                  when present)
 12. robot        optional: a Panda uses the model in MuJoCo (scripts/robot_tasks.py)
 13. viewer       a standalone web viewer folder (docs/index.html + scripts/export_viewer.py)
+14. validate     the final downloads loaded as a user would (scripts/check_exports.py: MuJoCo,
+                 and PyBullet / yourdfpy / Drake when installed) -> validation.json with the
+                 model files' hashes (video2urdf/validation.py)
 Texture runs before design because design moves the measured meshes into the hidden collision
 group, where texturing no longer sees them; completion runs after design so it can use the
 object's identity, and last, so nothing later overwrites it.
 
 Everything lands in <out>/<name>/: input/ (normalised media), model/ (the model and the
-agent's log), viewer/, logs/, summary.json and summary.md.
+agent's log), viewer/, logs/, validation.json, summary.json and summary.md. The summary keeps two
+verdicts apart: agent_status (the agent's, decided before physics/texture/design/completion
+change the model) and artifact_status (do the final files load); status is the worse of them.
 """
 
 from __future__ import annotations
@@ -304,6 +309,7 @@ class Run:
         else:
             self.skip("robot", "add --robot for a simulated robot using the model")
         self.step("viewer", self._viewer, video)
+        self.step("validate", self._validate)
 
     # ------------------------------------------------------------------ steps
     def _input_facts(self, ing) -> dict:
@@ -410,6 +416,17 @@ class Run:
                                "--out", str(out)])
         return {"_note": str(out)}
 
+    def _validate(self) -> dict:
+        """The export checks on what the user downloads (the viewer's model.zip, else model/)."""
+        from .validation import validate_run
+        v = validate_run(self.dir, self.name, self.model_dir, self.viewer_dir)
+        counts = ", ".join(f"{n} {k}" for k, n in v["counts"].items() if n)
+        self.log(f"   artifacts: {v['artifact_status']} ({counts}) on {v['target']}")
+        for r in v["rows"]:
+            if r["status"] in ("fail", "warn"):
+                self.log(f"   {r['status'].upper()} {r['check']}: {r['detail'][:200]}")
+        return {"_note": f"{v['artifact_status']} on {v['target']}"}
+
     # ------------------------------------------------------------------ summary
     def finish(self):
         from .summary import model_facts, write_summary
@@ -427,6 +444,7 @@ class Run:
             "urdf": self.model_dir / "model.urdf", "mjcf": self.model_dir / "model.xml",
             "agent_report": self.model_dir / "agent" / "report.md",
             "viewer": self.viewer_dir / "index.html", "robot_video": self.model_dir / "robot_demo.mp4",
+            "validation": self.dir / "validation.json",
             "replay": (self.model_dir / "replay3d.mp4") if (self.model_dir / "replay3d.mp4").exists()
             else self.model_dir / "replay.mp4"}.items() if Path(v).exists()}
         write_summary(self.dir, s)
@@ -434,6 +452,9 @@ class Run:
                  f"{self.dir / 'summary.md'}")
 
     def _status(self):
+        """agent_status (the agent's verdict, lowered by a fallback), artifact_status (validation.json,
+        if it is still about the model on disk) and status, the worse of the two."""
+        from .validation import combine, current_artifact_status, problem_rows, read
         s = self.summary
         agent_status = ((s.get("agent") or {}).get("status") or {})
         status = agent_status.get("status") or "needs_review"
@@ -448,7 +469,15 @@ class Run:
         failed = [x.name for x in self.steps if x.status == "failed"]
         if failed:
             issues.append(f"steps that failed (the model stands without them): {', '.join(failed)}")
-        s["status"] = status if status in STATUSES else "needs_review"
+        s["agent_status"] = status if status in STATUSES else "needs_review"
+        artifact, reasons, fresh = current_artifact_status(self.dir)
+        v = read(self.dir) or {}
+        s["artifact_status"] = artifact
+        s["validation"] = {"state": fresh["state"], "changed": fresh["changed"], "target": v.get("target"),
+                           "counts": v.get("counts"),
+                           "problems": problem_rows(v) if fresh["state"] == "current" else []}
+        issues += [f"downloads: {r}" for r in reasons]
+        s["status"] = combine(s["agent_status"], artifact)
         s["issues"] = issues + [i for i in s.get("issues", []) if i not in issues]
 
 

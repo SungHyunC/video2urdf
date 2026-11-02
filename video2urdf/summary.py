@@ -180,13 +180,36 @@ def _fmt(k: str, v) -> str:
     return str(v)
 
 
+def verdict_lines(s: dict) -> list[str]:
+    """The two verdicts behind the status: the agent's, and whether the final downloads load (one
+    line per failing or warning check, so a failing format is named, never hidden)."""
+    v = s.get("validation") or {}
+    words = lambda x: (x or "unknown").replace("_", " ")  # noqa: E731
+    lines = [f"- Agent: {words(s.get('agent_status'))} (decided before physics, texture, design and completion)"]
+    art = f"- Downloads: {words(s.get('artifact_status'))}"
+    if v.get("state") == "current":
+        counts = v.get("counts") or {}
+        art += (f" (`validation.json` on `{v.get('target')}`: " +
+                ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in counts.items() if n) + ")")
+    elif v.get("state") == "stale":
+        art += f" (`validation.json` is stale: {', '.join(v.get('changed') or [])} since it was written)"
+    elif v.get("state") == "missing":
+        art += " (not checked: no `validation.json`)"
+    lines.append(art)
+    lines += [f"  - {p}" for p in v.get("problems") or []]
+    return lines
+
+
 def write_summary(run_dir: Path, s: dict) -> None:
     s["measured_vs_estimated"] = measured_vs_estimated(s) if s.get("model") else []
     (run_dir / "summary.json").write_text(json.dumps(s, indent=2, default=str) + "\n")
     inp = s.get("input") or {}
     lines = [f"# Video2URDF run: {s['name']}", "",
              f"**Status: {s['status'].replace('_', ' ')}**" + (f" ({len(s['issues'])} issues)" if s.get("issues") else ""),
-             "", f"- Input: `{s['source']}`" + (f" -> {inp.get('kind')} (`{inp.get('found')}`)" if inp else "")]
+             ""]
+    if s.get("agent_status") or s.get("artifact_status"):
+        lines += verdict_lines(s) + [""]
+    lines += [f"- Input: `{s['source']}`" + (f" -> {inp.get('kind')} (`{inp.get('found')}`)" if inp else "")]
     if inp.get("usable"):
         lines.append(f"- Normalised: {inp.get('frames')} frames at {inp.get('fps', 0):.2f} fps, "
                      f"{inp['size'][0]}x{inp['size'][1]}" + (f"; {'; '.join(inp['notes'])}" if inp.get("notes") else ""))

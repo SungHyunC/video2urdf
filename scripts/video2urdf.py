@@ -13,7 +13,9 @@ The run: ingest and normalise -> a cheap capture check with reshoot tips -> Muse
 few frames -> the 3D path (depth: LiDAR, or MapAnything on Modal for a moving or oblique camera)
 or the planar path (a still camera facing the motion) -> the agent builds and checks the model
 -> a rigid fallback if it couldn't -> physics, video texture, shape design, completion (when
-available), optional robot tasks -> a viewer folder and summary.json / summary.md.
+available), optional robot tasks -> a viewer folder -> the final downloads loaded as a user would
+(validation.json) -> summary.json / summary.md (status = the worse of the agent's verdict and
+the downloads').
 --check-only stops before anything expensive (only Spark's look is called; --no-look skips it).
 
 Examples:
