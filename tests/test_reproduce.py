@@ -101,9 +101,11 @@ class DownloadTest(unittest.TestCase):
 class OfflineTest(unittest.TestCase):
     def test_network_and_keys_are_off_inside_and_back_after(self):
         before = (socket.socket.connect, socket.getaddrinfo, socket.create_connection)
-        with patch.dict(os.environ, {"MODEL_API_KEY": "secret"}):
+        # clear=True: a developer's real keys (loaded from .env by other tests) must neither change
+        # the outcome nor show up in a failure message
+        with patch.dict(os.environ, {"MODEL_API_KEY": "secret"}, clear=True):
             with R.offline() as set_aside:
-                self.assertEqual(set_aside, {"MODEL_API_KEY": "secret"})
+                self.assertEqual(sorted(set_aside), ["MODEL_API_KEY"])
                 self.assertNotIn("MODEL_API_KEY", os.environ)
                 with self.assertRaises(R.NetworkRefused):
                     socket.create_connection(("api.meta.ai", 443))
