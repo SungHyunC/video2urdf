@@ -1,4 +1,10 @@
 /* The project site: reveals the sections around the viewer (.site-only, hidden by index.html's own styles).
    A run's viewer folder gets a copy of index.html without assets/ (video2urdf/run.py, scripts/video_to_model.py),
-   so there the page shows the viewer alone. All other styles are in index.html. */
+   so there the page shows the viewer alone. Besides that, only the hero's two columns live here: in a run's copy
+   the hero has no clip, so its text keeps the full width. All other styles are in index.html. */
 .site-only { display: revert; }
+@media (min-width: 880px) {
+  .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 32px; align-items: center; }
+  .hero h1 { font-size: 2.05rem; }
+  .hero .lede { font-size: 1.05rem; }
+}

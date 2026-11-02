@@ -54,11 +54,45 @@
 
   /* ---------- header ---------- */
   .page-head { padding: 44px 0 26px; }
-  .lede { font-size: 1.22rem; line-height: 1.5; margin: 0 0 10px; max-width: 46rem; }
-  .byline { color: var(--muted); margin: 0 0 20px; }
+  .eyebrow { margin: 0 0 10px; font-size: .86rem; font-weight: 600; color: var(--muted); }
+  .eyebrow b { color: var(--accent); }
+  .lede { font-size: 1.15rem; line-height: 1.55; margin: 0 0 18px; max-width: 46rem; }
+  .byline { color: var(--muted); margin: 14px 0 0; font-size: .9rem; }
   .links { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; }
-  .toc { margin: 18px 0 0; font-size: .92rem; color: var(--muted); }
-  .toc a { white-space: nowrap; }
+
+  /* ---------- top bar (project site only) ---------- */
+  .topbar { position: sticky; top: 0; z-index: 20; background: rgba(255, 255, 255, .95); border-bottom: 1px solid var(--line);
+            -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  .topbar-in { max-width: 1000px; margin: 0 auto; padding: 0 24px; height: 52px; display: flex; align-items: center; gap: 20px; }
+  @media (max-width: 560px) { .topbar-in { padding: 0 16px; gap: 14px; } }
+  .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: var(--text); text-decoration: none; white-space: nowrap; }
+  .brand:hover { color: var(--text); }
+  .brand svg { width: 22px; height: 22px; flex: none; }
+  .topnav { display: flex; gap: 18px; margin-left: auto; overflow-x: auto; scrollbar-width: none; font-size: .92rem; }
+  .topnav::-webkit-scrollbar { display: none; }
+  .topnav a { color: var(--muted); text-decoration: none; white-space: nowrap; padding: 4px 0; }
+  .topnav a:hover { color: var(--text); }
+  .topnav a.gh { color: var(--accent); font-weight: 600; }
+  [id], .viewer-frame { scroll-margin-top: 64px; }  /* clear the top bar when a link or the viewer's tab scrolls here */
+
+  /* ---------- hero: real run on the right (two columns come from assets/site.css), numbers below ---------- */
+  .hero-media { margin: 0; }
+  .hero-media video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; }
+  .hero-media figcaption { margin-top: 8px; font-size: .86rem; color: var(--muted); line-height: 1.45; }
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 30px 0 0; border: 1px solid var(--line);
+           border-radius: 8px; }
+  .stats > div { padding: 14px 16px; border-left: 1px solid var(--line); min-width: 0; }
+  .stats > div:first-child { border-left: 0; }
+  .stats dt { font-size: 1.7rem; font-weight: 700; line-height: 1.15; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+  .stats dt small { font-size: .62em; font-weight: 600; }
+  .stats dd { margin: 4px 0 0; font-size: .9rem; line-height: 1.4; }
+  .stats dd span { display: block; margin-top: 3px; font-size: .8rem; color: var(--muted); }
+  @media (max-width: 760px) {
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stats > div:nth-child(3) { border-left: 0; }
+    .stats > div:nth-child(n+3) { border-top: 1px solid var(--line); }
+  }
+  @media (max-width: 380px) { .stats dt { font-size: 1.3rem; } .stats > div { padding: 12px 10px; } }
 
   /* ---------- buttons ---------- */
   .btn { display: inline-flex; align-items: center; gap: 7px; padding: 8px 15px; border: 1px solid var(--line-2); border-radius: 6px;
@@ -74,9 +108,18 @@
   .demo { margin: 0; }
   .demo video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: #000; border-radius: 6px; }
   .demo figcaption { margin-top: 8px; font-size: .92rem; color: var(--muted); }
-  ol.steps { padding-left: 1.5em; max-width: 50rem; }
-  ol.steps > li { margin-bottom: 12px; padding-left: 4px; }
-  ol.steps .who { display: block; font-size: .9rem; color: var(--muted); }
+  ol.steps { list-style: none; padding: 0; margin: 18px 0 0; counter-reset: step;
+             display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  ol.steps > li { counter-increment: step; margin: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+                  display: flex; flex-direction: column; font-size: .95rem; line-height: 1.55; }
+  ol.steps img { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; background: var(--soft);
+                 border-bottom: 1px solid var(--line); }
+  ol.steps .body { padding: 12px 14px 14px; }
+  ol.steps strong { display: block; font-size: 1.02rem; margin-bottom: 4px; }
+  ol.steps strong::before { content: counter(step); display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 8px;
+                            border-radius: 50%; background: var(--accent); color: #fff; font-size: .78rem; vertical-align: 2px; }
+  ol.steps .who { display: block; margin-top: 8px; font-size: .86rem; color: var(--muted); }
+  .steps-note { margin: 0; font-size: .9rem; color: var(--muted); }
 
   /* ---------- tables: rows stack on a phone ---------- */
   .table-wrap { overflow-x: auto; margin: 0 0 16px; }
@@ -172,26 +215,47 @@
 <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
+<div class="topbar site-only">
+  <div class="topbar-in">
+    <a class="brand" href="#top"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#1b5fc1"/><path d="M7 23h18M9 23 20 9.5" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><circle cx="9" cy="23" r="3" fill="#fff"/></svg>Video2URDF</a>
+    <nav class="topnav" aria-label="On this page">
+      <a href="#demo">Demo</a>
+      <a href="#what-it-does">How it works</a>
+      <a href="#viewer">Models</a>
+      <a href="#results">Results</a>
+      <a href="#meta-models">Meta models</a>
+      <a href="#run-it">Run it</a>
+      <a class="gh" href="https://github.com/SungHyunC/video2urdf">GitHub</a>
+    </nav>
+  </div>
+</div>
 <div class="page">
 
-<header class="page-head">
-  <h1>Video2URDF</h1>
-  <p class="lede">One short video of a real articulated object in, a measured URDF/MJCF out, and a MuJoCo replay over the video that shows the model moves like the real thing.</p>
-  <p class="byline">Built solo for the Meta Global AI Developer Hackathon 2026 (Indie track), Oct 26 – Nov 4.</p>
-  <p class="links">
-    <span class="site-only"><a class="btn btn-primary" href="#demo" id="playDemo"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.6v10.8a.6.6 0 0 0 .9.5l8.6-5.4a.6.6 0 0 0 0-1L4.9 2.1a.6.6 0 0 0-.9.5Z"/></svg>Demo video (2:55)</a></span>
-    <a class="btn" href="https://github.com/SungHyunC/video2urdf">GitHub repository</a>
-    <a class="btn" href="#viewer">Download a model</a>
-  </p>
-  <nav class="toc site-only" aria-label="On this page">On this page:
-    <a href="#what-it-does">What it does</a> ·
-    <a href="#viewer">The models in 3D</a> ·
-    <a href="#results">Results</a> ·
-    <a href="#meta-models">Meta models</a> ·
-    <a href="#run-it">Run it yourself</a> ·
-    <a href="#limitations">Limitations</a> ·
-    <a href="#built-on">Built on</a>
-  </nav>
+<header class="page-head" id="top">
+  <div class="hero">
+    <div class="hero-text">
+      <p class="eyebrow"><b>Video2URDF</b> · Meta Global AI Developer Hackathon 2026</p>
+      <h1>Film an object opening and closing. Get a URDF that moves like the real thing.</h1>
+      <p class="lede">A Muse Spark agent finds the parts with SAM&nbsp;3.1, measures every joint, writes URDF and MJCF, and replays the model in MuJoCo over the same video to check it before it reports. Then a simulated robot uses it.</p>
+      <p class="links">
+        <span class="site-only"><a class="btn btn-primary" href="#demo" id="playDemo"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.6v10.8a.6.6 0 0 0 .9.5l8.6-5.4a.6.6 0 0 0 0-1L4.9 2.1a.6.6 0 0 0-.9.5Z"/></svg>Demo video (2:55)</a></span>
+        <a class="btn" href="#viewer">Try the models in 3D</a>
+        <a class="btn" href="https://github.com/SungHyunC/video2urdf">GitHub</a>
+      </p>
+      <p class="byline">Built solo (Indie track), Oct 26 – Nov 4 2026. Every model called at runtime is a Meta model; the whole pipeline also runs on open weights.</p>
+    </div>
+    <figure class="hero-media site-only">
+      <video id="heroVideo" muted loop playsinline preload="auto" poster="assets/hero_poster.jpg" src="assets/hero.mp4" width="960" height="540"
+             aria-label="An iPhone LiDAR video of a laptop next to the measured model replayed over the same frames, then a simulated Franka Panda closing the measured laptop"></video>
+      <figcaption>One real run: an iPhone LiDAR video of a 13" laptop, the measured URDF drawn from the phone's own pose on every frame, then a Franka Panda closing it in MuJoCo physics.</figcaption>
+    </figure>
+  </div>
+  <div class="site-only"><dl class="stats">
+    <div><dt>1.7°</dt><dd>hinge axis error against motion capture<span>RBO benchmark, laptops and books, median</span></dd></div>
+    <div><dt>309&nbsp;×&nbsp;205 <small>mm</small></dt><dd>a MacBook lid, from one LiDAR video<span>spec 304 × 212 mm</span></dd></div>
+    <div><dt>95%</dt><dd>of the lid's video masks covered by the replayed model<span>same laptop; base 94%</span></dd></div>
+    <div><dt>8 of 8</dt><dd>measured models a simulated robot works<span>lids, drawer, door, lamp arm, mouse, case</span></dd></div>
+  </dl></div>
 </header>
 
 <main>
@@ -206,21 +270,29 @@
   <h2>What it does</h2>
   <p class="prose">Robotics developers who need a simulation model of a real object (a laptop lid, a desk lamp, a drawer, a microwave door) usually model it by hand: guess the hinge, guess the limits, tweak until it looks right. Video2URDF measures it instead. Film the object being opened and closed; a Muse Spark agent finds the parts with SAM&nbsp;3.1, tracks them, fits each joint by least squares, writes URDF and MJCF, replays the model in MuJoCo from the camera's own viewpoint and checks the overlay, frame by frame, before it reports. A simulated Franka Panda then grasps and works the measured model, and URDF Doctor checks a URDF you already have against a video.</p>
   <p class="prose">Every model called at runtime is a Meta model; <code>--open-weights</code> runs the same pipeline on Muse Spark Open and SAM weights, <code>--glimmer</code> on Muse Glimmer 30B served by us.</p>
+  <p class="steps-note">Every picture below is from one real run: the iPhone LiDAR laptop, first tab of the viewer.</p>
   <ol class="steps">
-    <li><strong>Film it.</strong> Open and close the object in front of a phone: any phone video, or an iPhone LiDAR capture (Stray Scanner) for metric depth. A plain video gets its scale from an ID-1 card in view or from the object's usual size.
-      <span class="who">Meta model: Muse Spark watches the whole video and names the parts.</span></li>
-    <li><strong>SAM&nbsp;3.1 tracks the parts.</strong> Muse Spark writes a noun prompt for each part (“laptop lid”); SAM&nbsp;3.1 finds each part on key frames, then tracks all of them through the video with stable IDs.
-      <span class="who">Meta models: Muse Spark, SAM 3.1.</span></li>
-    <li><strong>The joints are measured.</strong> Hinge or slide: axis, position and limits, by least squares from the parts' relative motion. With depth, a hinge is where the lid's and the base's planes cross; a lamp's rods are 3D lines; an object that never moves is carved from its views.
-      <span class="who">Our code. For a plain video, MapAnything estimates the depth (experimental).</span></li>
-    <li><strong>URDF and MJCF are written.</strong> Each link's shape comes from its silhouettes (2D) or its depth (LiDAR), painted with the video; the measured shapes are the collision geometry.
-      <span class="who">Our code.</span></li>
-    <li><strong>It checks itself against the video.</strong> MuJoCo replays the model from the phone's own camera pose on every frame and scores it against SAM's masks. Muse Spark watches that replay and re-segments, re-tracks and refits; it can't finish over the fit's own warnings without being refused once, and every run ends <code>checks_passed</code>, <code>needs_review</code> or <code>failed</code>. <a href="#notebook" data-open-trace>See it on the side-view laptop</a>: the base was lost on 89 of 408 frames, so it re-segmented, re-tracked and refit.
-      <span class="who">Meta model: Muse Spark.</span></li>
-    <li><strong>Physics and a clean look.</strong> Muse Spark judges each link's material and mass; joint friction is measured where a part stands still with no hand on it, and checked by letting the model go in MuJoCo. Muse Spark and Muse Spark Open each propose a visual built from primitives, scored over the video; SAM 3D Objects makes a realistic mesh, checked against the measured depth.
-      <span class="who">Meta models: Muse Spark, Muse Spark Open, SAM 3D Objects.</span></li>
-    <li><strong>A simulated robot uses it.</strong> A Franka Panda in MuJoCo grasps the measured object and works it: closes and reopens a lid, pulls a drawer out by its handle and pushes it back, swings a lamp's arm, carries a mouse.
-      <span class="who">MuJoCo, with the Panda from MuJoCo Menagerie.</span></li>
+    <li><img src="assets/steps/1-film.jpg" alt="The phone video: a laptop on a wooden floor, filmed from above" width="640" height="480" loading="lazy" decoding="async">
+      <div class="body"><strong>Film it.</strong> Open and close the object in front of a phone: any phone video, or an iPhone LiDAR capture (Stray Scanner) for metric depth. A plain video gets its scale from an ID-1 card in view or from the object's usual size.
+      <span class="who">Meta model: Muse Spark watches the whole video and names the parts.</span></div></li>
+    <li><img src="assets/steps/2-track.jpg" alt="SAM 3.1's mask of the laptop screen on frame 0, prompted with “laptop screen”" width="640" height="480" loading="lazy" decoding="async">
+      <div class="body"><strong>SAM&nbsp;3.1 tracks the parts.</strong> Muse Spark writes a noun prompt for each part (“laptop lid”); SAM&nbsp;3.1 finds each part on key frames, then tracks all of them through the video with stable IDs.
+      <span class="who">Meta models: Muse Spark, SAM 3.1.</span></div></li>
+    <li><img src="assets/steps/3-joint.jpg" alt="The measured lid and its hinge, side view in millimetres" width="640" height="480" loading="lazy" decoding="async">
+      <div class="body"><strong>The joints are measured.</strong> Hinge or slide: axis, position and limits, by least squares from the parts' relative motion. With depth, a hinge is where the lid's and the base's planes cross; a lamp's rods are 3D lines; an object that never moves is carved from its views.
+      <span class="who">Our code. For a plain video, MapAnything estimates the depth (experimental).</span></div></li>
+    <li><img src="assets/steps/4-model.jpg" alt="The measured, video-textured laptop model in MuJoCo" width="640" height="480" loading="lazy" decoding="async">
+      <div class="body"><strong>URDF and MJCF are written.</strong> Each link's shape comes from its silhouettes (2D) or its depth (LiDAR), painted with the video; the measured shapes are the collision geometry.
+      <span class="who">Our code.</span></div></li>
+    <li><img src="assets/steps/5-check.jpg" alt="The measured lid drawn in MuJoCo over the phone video, with the joint angle plotted underneath" width="640" height="480" loading="lazy" decoding="async">
+      <div class="body"><strong>It checks itself against the video.</strong> MuJoCo replays the model from the phone's own camera pose on every frame and scores it against SAM's masks. Muse Spark watches that replay and re-segments, re-tracks and refits; it can't finish over the fit's own warnings without being refused once, and every run ends <code>checks_passed</code>, <code>needs_review</code> or <code>failed</code>. <a href="#notebook" data-open-trace>See it on the side-view laptop</a>: the base was lost on 89 of 408 frames, so it re-segmented, re-tracked and refit.
+      <span class="who">Meta model: Muse Spark.</span></div></li>
+    <li><img src="assets/steps/6-physics.jpg" alt="The model let go in MuJoCo with the measured joint friction, next to the same model without friction" width="640" height="480" loading="lazy" decoding="async">
+      <div class="body"><strong>Physics and a clean look.</strong> Muse Spark judges each link's material and mass; joint friction is measured where a part stands still with no hand on it, and checked by letting the model go in MuJoCo. Muse Spark and Muse Spark Open each propose a visual built from primitives, scored over the video; SAM 3D Objects makes a realistic mesh, checked against the measured depth.
+      <span class="who">Meta models: Muse Spark, Muse Spark Open, SAM 3D Objects.</span></div></li>
+    <li><img src="assets/steps/7-robot.jpg" alt="A simulated Franka Panda closing the measured laptop" width="640" height="480" loading="lazy" decoding="async">
+      <div class="body"><strong>A simulated robot uses it.</strong> A Franka Panda in MuJoCo grasps the measured object and works it: closes and reopens a lid, pulls a drawer out by its handle and pushes it back, swings a lamp's arm, carries a mouse.
+      <span class="who">MuJoCo, with the Panda from MuJoCo Menagerie.</span></div></li>
   </ol>
 </section>
 
@@ -453,8 +525,14 @@ export LOCAL_KEY=none AGENT_API_KEY_ENV=LOCAL_KEY AGENT_BASE_URL=http://localhos
 </div>
 
 <script>
-// Page helpers: the header's demo link plays the video; copy buttons on the command blocks.
+// Page helpers: the hero clip plays (unless reduced motion is asked for); the header's demo link plays the video;
+// copy buttons on the command blocks.
 (() => {
+  const hero = document.getElementById("heroVideo");
+  if (hero && getComputedStyle(hero).display !== "none") {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) hero.controls = true;
+    else hero.play().catch(() => { hero.controls = true; });
+  }
   const demo = document.getElementById("demoVideo");
   document.getElementById("playDemo")?.addEventListener("click", (e) => {
     if (!demo || e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
