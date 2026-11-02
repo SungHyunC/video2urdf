@@ -1144,6 +1144,28 @@ def front_travel(c: Capture, base: str, part: str, window: tuple[int, int], axis
     return {"ref": max(seen, key=lambda t: c.by[part][t].area), "q": q}
 
 
+SHUT_SLACK_M = 0.01  # a shut drawer read this far out is depth noise, not an offset
+
+
+def slide_from_shut(q: np.ndarray, window: tuple[int, int]) -> tuple[np.ndarray, float]:
+    """A drawer's travel per frame measured from its shut state: the window it is operated in
+    starts and ends shut, so its 2nd-percentile reading there is shut. For estimated depth, which
+    can read a shut drawer standing well out of its cabinet (165 mm on the LiDAR drawer's own
+    video with the true focal length, where the travel then read 375 mm for 248). Returns the
+    shifted copy (no negative travel) and the shut reading (0 when it is within SHUT_SLACK_M of
+    shut or nothing was measured)."""
+    t0, t1 = window
+    seen = q[t0: t1 + 1]
+    if not np.isfinite(seen).any():
+        return q, 0.0
+    shut = float(np.nanpercentile(seen, 2))
+    if shut <= SHUT_SLACK_M:
+        return q, 0.0
+    out = q.copy()
+    out[t0: t1 + 1] = np.maximum(seen - shut, 0.0)
+    return out, shut
+
+
 PANEL_M = 0.012  # drawer and carcass panels, where a front view can't measure them
 FRONT_M = 0.018  # drawer front thickness
 GAP_M = 0.003  # between a drawer and its slot
@@ -1213,6 +1235,11 @@ def fit_and_build_slides(c: Capture, base: str, floor: str | None, drawers: list
     for (part, (t0, t1)), m in zip(drawers, trials[sign]):
         m["axis"] = axis
         q = clean_angles(m["q"], max_dev=0.03)  # 3 cm off its neighbours is a bad frame
+        if getattr(c, "estimated_depth", False):
+            q, shut = slide_from_shut(q, (t0, t1))
+            if shut:
+                log(f"estimated depth: {part} read {1000 * shut:.0f} mm out of the cabinet while shut; its travel is "
+                    "measured from there (the window starts and ends shut)")
         hi = float(np.nanpercentile(q, 99))
         full = np.zeros(c.n)  # shut outside its window
         full[t0: t1 + 1] = q[t0: t1 + 1]
