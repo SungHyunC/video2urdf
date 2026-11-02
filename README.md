@@ -149,18 +149,21 @@ account. You need [uv](https://docs.astral.sh/uv/) and ffmpeg.
 published laptop from the saved model decisions (Muse Spark's part choices and physics estimate,
 SAM 3.1's tracks; release `sample-data-v2`) and compare it with the published numbers. Only the
 model calls are skipped; the joint fit, geometry, URDF/MJCF, MuJoCo replay and physics run for
-real. It matches the published model within 0.005 mm and 0.02 deg ([docs/REPRODUCE.md](docs/REPRODUCE.md)).
+real. It matches the published model within 0.005 mm and 0.02 deg; one bookkeeping row (how many
+frames were measured from the shut lid's mask) can differ, and [docs/REPRODUCE.md](docs/REPRODUCE.md)
+says why. The clone takes a few minutes (the demo videos are in the history); `--depth 1` skips that.
 
 ```bash
-git clone https://github.com/SungHyunC/video2urdf && cd video2urdf && uv sync
+git clone --depth 1 https://github.com/SungHyunC/video2urdf && cd video2urdf && uv sync
 .venv/bin/python scripts/reproduce.py   # downloads the sample and the saved tracks, prints published vs reproduced
+.venv/bin/python -m unittest discover -s tests -q   # the unit tests (no keys, about a minute)
 ```
 
 **The whole pipeline**, models included. The sample is the iPhone LiDAR laptop capture behind
 this README's numbers.
 
 ```bash
-git clone https://github.com/SungHyunC/video2urdf && cd video2urdf
+# in the clone from above (or: git clone --depth 1 https://github.com/SungHyunC/video2urdf && cd video2urdf)
 uv sync                         # Python 3.12 (pinned in .python-version) into .venv
 cp .env.example .env            # fill in the keys for the path you run
 curl -L -o laptop_lidar.zip \
@@ -183,7 +186,11 @@ Baseten, SAM weights on Modal, shape design included), gave a lid of 306 x 213 m
 304 x 212), base 10 mm, the replay covering 96% / 93% of the lid's and base's masks, and status
 `needs_review`: the screen track slid onto the lid's back as it shut, which that version of the
 checks flagged; that case has been an informational line since, so a run today can also end
-`checks_passed`. Runs vary; three Meta API runs gave lids of 304 to 316 mm.
+`checks_passed`. It did on 11/2: the same command from a fresh clone, with no Meta API key set,
+ran in 13.5 minutes (10 Spark Open turns) and ended `checks_passed`: lid 305 x 214 mm, base
+12 mm, replay 92% / 92%. Runs vary; three Meta API runs gave lids of 304 to 316 mm, and that
+11/2 run read the opening as 1..142 deg where the published model has 0..117 (Spark's report
+called the extra 25 deg a hyperextension the checks don't catch).
 
 ### Open weights only (for the Open Weight prize check)
 
@@ -257,6 +264,7 @@ handheld is fine. With a plain phone video, use a tripod, face the plane the par
 keep an ID-1 sized card in view (85.6 x 54 mm; a loyalty card, never a payment card).
 
 ```bash
+scripts/fetch_assets.sh                                                    # once, for --robot (the Franka Panda)
 .venv/bin/python scripts/video2urdf.py INPUT [--robot] [--open-weights]   # -> data/runs/<name>/
 .venv/bin/python scripts/video2urdf.py INPUT --check-only                   # what it would do, nothing billed but one look
 ```
@@ -312,15 +320,15 @@ every run ends with a status in `agent/status.json` and the report's first line:
 masses or hidden sides can't loop. Passing the checks means none objected, not that the model
 was verified against the real object.
 
-On the never-seen microwave (10/31) Spark's first fit came out wrong: a door 795 x 506 mm and a
+On the never-seen microwave (10/31, a fresh agent run, not the viewer's microwave) Spark's first fit came out wrong: a door 795 x 506 mm and a
 body 30 mm tall that the replay didn't cover at all. It watched the replay, re-tracked the floor
 and the body, and fitted again: the door on a vertical hinge 1.3 deg off vertical, 361 x 255 mm,
 the replay covering 82% of the door and 89% of the body. A laptop run whose screen mask lay on
 the base on 204 open frames was refused once and finished `needs_review`, saying so. The first
 version of these checks also flagged every laptop (a screen's track is meant to fall onto the shut
 lid's back as it closes); that case is now an informational line, and a WARNING only when the
-plate sits on the closed surface while the object is open: fresh laptop runs pass (lid
-306 x 208 mm, replay 88% / 95%).
+plate sits on the closed surface while the object is open: a fresh open-weights laptop run from
+a clean clone (11/2) passed with no refusal (lid 305 x 214 mm, replay 92% / 92%).
 
 ## Limitations
 

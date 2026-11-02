@@ -412,14 +412,15 @@
 
   <div class="code">
     <div class="code-head"><span>Check the published numbers: no API keys, no GPU, about 3–5 minutes</span><button class="copy" type="button">Copy</button></div>
-<pre><code>git clone https://github.com/SungHyunC/video2urdf &amp;&amp; cd video2urdf &amp;&amp; uv sync
-.venv/bin/python scripts/reproduce.py   # downloads the sample and the saved tracks, prints published vs reproduced</code></pre>
+<pre><code>git clone --depth 1 https://github.com/SungHyunC/video2urdf &amp;&amp; cd video2urdf &amp;&amp; uv sync
+.venv/bin/python scripts/reproduce.py   # downloads the sample and the saved tracks, prints published vs reproduced
+.venv/bin/python -m unittest discover -s tests -q   # the unit tests (no keys, about a minute)</code></pre>
   </div>
   <p class="prose">That reruns the measurement of the published laptop from the saved model decisions (Muse Spark's part choices and physics estimate, SAM 3.1's tracks); only the model calls are skipped, and it matches within 0.005 mm and 0.02° (<a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/REPRODUCE.md">docs/REPRODUCE.md</a>). The whole pipeline, models included:</p>
 
   <div class="code">
     <div class="code-head"><span>Setup and the sample capture, then one run</span><button class="copy" type="button">Copy</button></div>
-<pre><code>git clone https://github.com/SungHyunC/video2urdf &amp;&amp; cd video2urdf
+<pre><code># in the clone from above (or: git clone --depth 1 https://github.com/SungHyunC/video2urdf &amp;&amp; cd video2urdf)
 uv sync                         # Python 3.12 (pinned in .python-version) into .venv
 cp .env.example .env            # fill in the keys for the path you run
 curl -L -o laptop_lidar.zip \
@@ -480,7 +481,8 @@ export LOCAL_KEY=none AGENT_API_KEY_ENV=LOCAL_KEY AGENT_BASE_URL=http://localhos
   <p class="prose">Film the object being opened and closed, slowly. With iPhone LiDAR (<a href="https://apps.apple.com/app/stray-scanner/id1557051662">Stray Scanner</a>) any angle works and handheld is fine. With a plain phone video, use a tripod, face the plane the part moves in and keep an ID-1 sized card in view (85.6 × 54 mm; a loyalty card, never a payment card).</p>
   <div class="code">
     <div class="code-head"><span>One command, any capture</span><button class="copy" type="button">Copy</button></div>
-<pre><code>.venv/bin/python scripts/video2urdf.py INPUT [--robot] [--open-weights]   # -&gt; data/runs/&lt;name&gt;/
+<pre><code>scripts/fetch_assets.sh                                                    # once, for --robot (the Franka Panda)
+.venv/bin/python scripts/video2urdf.py INPUT [--robot] [--open-weights]   # -&gt; data/runs/&lt;name&gt;/
 .venv/bin/python scripts/video2urdf.py INPUT --check-only                   # what it would do, nothing billed but one look</code></pre>
   </div>
   <p class="prose"><code>INPUT</code> can be a Stray Scanner zip or folder, any phone video, an RGB-D folder, a photo folder, or a zip of any of these; the type is read from the content. The run folder holds the model (<code>model/model.urdf</code>, <code>model/model.xml</code>), the replay over the video, the agent's log, a viewer folder and <code>summary.md</code>: what was measured, what was estimated, and the status.</p>

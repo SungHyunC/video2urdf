@@ -264,7 +264,7 @@ on the LiDAR laptop with URDFs in `examples/doctor/` (bugs injected on purpose):
 | URDF under test | Doctor's verdict |
 |---|---|
 | `laptop_spec.urdf`, from the published 13" MacBook Pro dimensions | consistent: axis 2.3 deg / 8 mm from the measured hinge, +q opens, limits cover the 1..117 deg seen |
-| `laptop_buggy.urdf`: hinge moved 25 mm, axis tilted 6 deg, upper limit 90 deg | 3 problems: axis 7.6 deg off, hinge 18 mm off, limits stop at 90 but the video needs 127 |
+| `laptop_buggy.urdf`: hinge moved 25 mm, axis tilted 6 deg, upper limit 90 deg | 3 problems: axis 7.6 deg off, hinge 18 mm off, limits stop at 90 but the video needs 127 (that URDF's own q, which counts from its own zero, not the 1..117 deg opening) |
 | spec + `joint_log_flipped.csv` (encoder sign reversed) | log = -1.00 x expected: sign flip |
 | spec + `joint_log_offset.csv` (12 deg zero offset) | log offset by 11.3 deg |
 
