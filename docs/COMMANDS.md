@@ -99,7 +99,7 @@ the result in the Stray Scanner layout, so the LiDAR path runs on it unchanged:
 
 ```bash
 .venv/bin/modal deploy modal_apps/mapanything_open.py            # once; A10G, scales to zero
-.venv/bin/python scripts/video_to_capture.py my_video.mov --focal-35mm 26   # iPhone 1x is ~26 mm
+.venv/bin/python scripts/video_to_capture.py my_video.mov   # focal from the file (iPhones: 25 mm), else --focal-35mm
 .venv/bin/python scripts/run_agent.py data/real/my_video_mapanything --sam open
 # sizes off? rescale the capture by one known length (no new inference), then fit again:
 .venv/bin/python scripts/video_to_capture.py my_video.mov --scale KNOWN_M/MEASURED_M

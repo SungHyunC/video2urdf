@@ -16,6 +16,7 @@ frame's largest few, that points most toward the image's top (a floor or table i
 
 import csv
 import io
+import json
 import shutil
 import subprocess
 import tempfile
@@ -66,13 +67,20 @@ def read_frames(video: Path, size: tuple[int, int]) -> tuple[list[np.ndarray], t
     return frames, full, fps
 
 
-def plan_chunks(n: int, chunk: int = CHUNK, anchors: int = ANCHORS) -> tuple[list[int], list[list[int]]]:
-    """Anchor frames, and each chunk's frames: the anchors first, then its consecutive frames."""
+def plan_chunks(n: int, chunk: int = CHUNK, anchors: int = ANCHORS,
+                spread: bool = False) -> tuple[list[int], list[list[int]]]:
+    """Anchor frames, and each chunk's frames: the anchors first, then its consecutive frames.
+    ``spread``: chunk i takes every k-th of the other frames instead, starting at the i-th
+    (k = the number of chunks), so every chunk spans the whole video."""
     if n < 1 or chunk < 1 or anchors < 1:
         raise ValueError("video frames, chunk size and anchor count must all be positive")
     anc = sorted({int(round(x)) for x in np.linspace(0, n - 1, min(anchors, n))})
     rest = [t for t in range(n) if t not in anc]
-    chunks = [anc + rest[i:i + chunk] for i in range(0, len(rest), chunk)]
+    if spread:
+        k = -(-len(rest) // chunk)
+        chunks = [anc + rest[i::k] for i in range(k)]
+    else:
+        chunks = [anc + rest[i:i + chunk] for i in range(0, len(rest), chunk)]
     return anc, chunks or [anc]
 
 
@@ -122,7 +130,7 @@ def focal_from_35mm(f35: float, size: tuple[int, int]) -> float:
 
 
 def infer_chunks(video: Path, chunk: int = CHUNK, anchors: int = ANCHORS, focal: float | None = None,
-                 log=print) -> dict:
+                 log=print, spread: bool = False) -> dict:
     """MapAnything on every chunk (on Modal). ``focal`` is in pixels at the video's size."""
     import modal
 
@@ -136,8 +144,9 @@ def infer_chunks(video: Path, chunk: int = CHUNK, anchors: int = ANCHORS, focal:
     size = model_size(w0, h0)
     frames, full, fps = read_frames(video, size)
     n = len(frames)
-    anc, chunks = plan_chunks(n, chunk, anchors)
-    log(f"{n} frames at {size[0]}x{size[1]} in {len(chunks)} chunks of <= {chunk} + {len(anc)} anchors")
+    anc, chunks = plan_chunks(n, chunk, anchors, spread)
+    log(f"{n} frames at {size[0]}x{size[1]} in {len(chunks)} {'spread ' if spread else ''}chunks of <= {chunk} "
+        f"+ {len(anc)} anchors")
     jpegs = [cv2.imencode(".jpg", f, [cv2.IMWRITE_JPEG_QUALITY, 95])[1].tobytes() for f in frames]
     remote = modal.Cls.from_name(APP, CLS)()
     model_focal = focal * size[0] / full[0] if focal else None
@@ -149,12 +158,36 @@ def infer_chunks(video: Path, chunk: int = CHUNK, anchors: int = ANCHORS, focal:
     return {"results": results, "anchors": anc, "chunks": chunks, "size": size, "full": full, "fps": fps}
 
 
+def save_raw(data: dict, folder: Path) -> None:
+    """The model's own per-chunk outputs (infer_chunks), so a capture can be stitched again
+    (``stitch``) without new inference."""
+    folder.mkdir(parents=True, exist_ok=True)
+    for i, r in enumerate(data["results"]):
+        np.savez_compressed(folder / f"chunk_{i:03d}.npz", **r)
+    plan = {k: data[k] for k in ("anchors", "chunks", "size", "full", "fps")}
+    (folder / "plan.json").write_text(json.dumps(plan))
+
+
+def load_raw(folder: Path) -> dict:
+    plan = json.loads((folder / "plan.json").read_text())
+    results = [dict(np.load(folder / f"chunk_{i:03d}.npz")) for i in range(len(plan["chunks"]))]
+    return {**plan, "size": tuple(plan["size"]), "full": tuple(plan["full"]), "results": results}
+
+
 def reconstruct(video: Path, chunk: int = CHUNK, anchors: int = ANCHORS, focal: float | None = None,
-                scale: float | None = None, log=print) -> Reconstruction:
+                scale: float | None = None, log=print, spread: bool = False, raw: Path | None = None) -> Reconstruction:
     """Stitched depth and poses for the whole video. ``focal`` (px at the video's size) is a
     known camera focal length, given to the model and used for the capture; ``scale`` multiplies
-    the model's metric scale (e.g. known length / measured length)."""
-    data = infer_chunks(video, chunk, anchors, focal, log)
+    the model's metric scale (e.g. known length / measured length). ``raw``: also keep the
+    model's per-chunk outputs there (save_raw)."""
+    data = infer_chunks(video, chunk, anchors, focal, log, spread)
+    if raw is not None:
+        save_raw(data, raw)
+    return stitch(data, focal, scale, log)
+
+
+def stitch(data: dict, focal: float | None = None, scale: float | None = None, log=print) -> Reconstruction:
+    """One capture from the per-chunk outputs of infer_chunks (see reconstruct)."""
     results, anc, chunks = data["results"], data["anchors"], data["chunks"]
     size, full, fps = data["size"], data["full"], data["fps"]
     n = sum(len(c) - len(anc) for c in chunks) + len(anc)

@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from video2urdf.pseudo_depth import plan_chunks, rescale_capture
+from video2urdf.pseudo_depth import load_raw, plan_chunks, rescale_capture, save_raw
 from video2urdf.stray import load
 
 
@@ -20,6 +20,30 @@ class ChunkPlanningTest(unittest.TestCase):
             self.assertTrue(all(c[:len(anchors)] == anchors for c in chunks))
             self.assertEqual(set().union(*(set(c) for c in chunks)), set(range(n)))
             self.assertTrue(all(len(c) == len(set(c)) for c in chunks))
+
+    def test_spread_chunks_span_the_video(self):
+        anchors, chunks = plan_chunks(923, chunk=40, anchors=6, spread=True)
+        self.assertEqual(len(chunks), len(plan_chunks(923, chunk=40, anchors=6)[1]))
+        self.assertTrue(all(c[:len(anchors)] == anchors for c in chunks))
+        rest = [t for c in chunks for t in c[len(anchors):]]
+        self.assertEqual(sorted(rest), [t for t in range(923) if t not in anchors])  # every frame once
+        self.assertTrue(all(len(c) - len(anchors) <= 40 for c in chunks))
+        for c in chunks:  # each chunk reaches from the first tenth of the video to the last
+            self.assertLess(min(c[len(anchors):]), 92)
+            self.assertGreater(max(c[len(anchors):]), 830)
+
+    def test_raw_outputs_round_trip(self):
+        rng = np.random.default_rng(0)
+        data = {"anchors": [0, 2], "chunks": [[0, 2, 1]], "size": (28, 14), "full": (56, 28), "fps": 30.0,
+                "results": [{"depth": rng.random((3, 14, 28)).astype(np.float16), "mask": np.ones((3, 14, 28), bool),
+                             "poses": np.tile(np.eye(4), (3, 1, 1))}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            save_raw(data, Path(tmp) / "raw")
+            back = load_raw(Path(tmp) / "raw")
+        self.assertEqual(back["chunks"], data["chunks"])
+        self.assertEqual(back["size"], (28, 14))
+        for key, value in data["results"][0].items():
+            np.testing.assert_array_equal(back["results"][0][key], value)
 
     def test_invalid_plan_is_rejected(self):
         for args in ((0, 2, 2), (2, 0, 2), (2, 2, 0)):

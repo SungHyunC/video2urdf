@@ -185,6 +185,26 @@ def fit_lidar_hinge(c, roles, log=print, reference: int | None = None) -> tuple[
     return summary, references
 
 
+MIN_SHUT_FRAMES = 10  # frames known shut (no open indicator) that zero an estimated capture's opening
+
+
+def openings_from_shut(q: np.ndarray, shut, ref: int) -> dict | None:
+    """Opening per frame in degrees (0 = shut) as the plate's turn from its median angle over the
+    frames known shut, signed so the reference frame reads open; None with fewer than
+    MIN_SHUT_FRAMES of them measured. For estimated depth: it places a part's surfaces
+    centimetres off along the line of sight, differently from frame to frame, so the plate's and
+    base's centroids around the hinge misjudge the reference frame's opening (LiDAR laptop's own
+    video: 104 deg there while the planes turn 135 from it to shut, every shut frame then reading
+    25-30 deg past closed); the planes' turn from shut is consistent."""
+    known = [t for t in shut if 0 <= t < len(q) and np.isfinite(q[t])]
+    if len(known) < MIN_SHUT_FRAMES or ref >= len(q) or not np.isfinite(q[ref]):
+        return None
+    zero = float(np.median(q[known]))
+    sense = 1.0 if q[ref] >= zero else -1.0
+    return {"deg": {t: float(np.rad2deg(sense * (q[t] - zero))) for t in range(len(q)) if np.isfinite(q[t])},
+            "shut_frames": len(known)}
+
+
 def can_use_closed_fallback(c, roles, t: int) -> bool:
     """A visible open base cannot simultaneously stand in for a missing lid."""
     if not roles.open_indicator or not c.has(roles.open_indicator, t):
@@ -231,10 +251,12 @@ class Capture:
 
     @classmethod
     def from_stray(cls, video: Path, capture: Path, track_dir: Path, ref: int = 0) -> "Capture":
-        """An iPhone capture: the scene's motion comes from ARKit odometry."""
+        """An iPhone capture: the scene's motion comes from ARKit odometry. A capture written by
+        pseudo_depth (mapanything.json beside rgb.mp4) has estimated depth and poses instead."""
         cap = stray.load(capture)
         c = cls(video, track_dir, cap, stray.ref_to_frame_poses(capture, len(cap.depth), ref), ref)
         c.source = capture
+        c.estimated_depth = (stray.find_capture(capture) / "mapanything.json").exists()
         return c
 
     @classmethod
@@ -246,11 +268,25 @@ class Capture:
 
     moving_camera = True  # ARKit odometry drifts and gets levelled against the floor
     source: Path | None = None  # the Stray Scanner capture, when there is one
+    estimated_depth = False  # depth and poses estimated from RGB (MapAnything), not measured
 
     @property
     def up(self) -> np.ndarray | None:
-        """Gravity's up in reference-camera coordinates, from ARKit (None without odometry)."""
-        return stray.gravity_up(self.source, self.ref) if self.source is not None else None
+        """Gravity's up in reference-camera coordinates, from ARKit (None without odometry). An
+        estimated capture has no gravity: its world's up is a guess from the first frame's planes
+        (34-166 deg off on the LiDAR captures' own videos), so callers use the floor's plane."""
+        if self.source is None or self.estimated_depth:
+            return None
+        return stray.gravity_up(self.source, self.ref)
+
+    @property
+    def focal_known(self) -> bool:
+        """An estimated capture whose focal length was given (by the user or the video's metadata)
+        rather than estimated by the depth model."""
+        if not self.estimated_depth:
+            return False
+        meta = json.loads((stray.find_capture(self.source) / "mapanything.json").read_text())
+        return bool(meta.get("focal_given"))
 
     def set_ref(self, t: int):
         """Use frame t as the reference: the scene's motion is re-expressed from it."""
@@ -600,6 +636,12 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
     open_deg = {t: float(np.rad2deg(np.arccos(np.clip(radial(m) @ u_base, -1, 1)))) for t, m in hinge.centroids.items()
                 if not np.isnan(hinge.q[t])}
     opening = open_deg[c.ref]
+    zeroed = openings_from_shut(hinge.q, shut, c.ref) if getattr(c, "estimated_depth", False) and shut else None
+    if zeroed is not None:
+        log(f"estimated depth: the opening is measured from the {zeroed['shut_frames']} frames shown shut (a shut lid "
+            f"lies on its base), not from where the plate's and base's centroids sit around the hinge "
+            f"({opening:.0f} deg on the reference frame that way, {zeroed['deg'][c.ref]:.0f} from shut)")
+        open_deg, opening = zeroed["deg"], zeroed["deg"][c.ref]
     q = np.rad2deg(hinge.q[valid])
     along = (plate[c.ref] - hinge.point) @ hinge.axis if c.ref in plate else np.zeros(2)
     summary = {
@@ -612,6 +654,8 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
         "plate_span_along_hinge_mm": float(1000 * np.ptp(along)),
     }
     summary["from_open_object"] = used_open
+    if zeroed is not None:
+        summary["opening_zeroed_on_shut_frames"] = zeroed["shut_frames"]
     log(f"hinge: plate planes on {summary['frames_with_plate']}/{c.n} frames ({used_closed} closed and {used_open} "
         f"half-open from {roles.plate_closed}), "
         f"{summary['outliers_dropped']} outliers dropped; axis {summary['hinge_to_base_plane_deg']:.1f} deg off the "
@@ -686,6 +730,18 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
     # When the floor is not visible at the reference frame, z_floor is a fallback;
     # a plausible fallback must never be reported as a depth measurement.
     base_measured = floor_c is not None and 0.002 < z_top - z_floor < 0.2
+    base_method = None
+    if getattr(c, "estimated_depth", False):  # its depth can't tell how far the base stands off the floor
+        base_measured, base_method = False, "fallback"
+        found = estimated_base_height(c, roles, log)
+        if found is not None:
+            log(f"base thickness: {1000 * found['height_m']:.1f} mm, from parallax between the reference frame and "
+                f"{len(found['partners'])} frames around it (the estimated depth puts the base's top "
+                f"{1000 * (z_top - z_floor):.0f} mm above the floor; not used)")
+            z_floor, base_measured, base_method = z_top - found["height_m"], True, "parallax"
+        elif floor_c is not None:
+            log(f"base thickness: estimated depth puts the base's top {1000 * (z_top - z_floor):.0f} mm above the floor, "
+                "which it can't measure (it lifts objects off their support by centimetres)")
     if not base_measured:  # a fragmented base mask: keep the model valid and say so
         log(f"base thickness reads {1000 * (z_top - z_floor):.0f} mm: not measured, using "
             f"{1000 * BASE_FALLBACK_M:.0f} mm")
@@ -766,11 +822,29 @@ def build_model(c: Capture, roles: Roles, log=print) -> dict:
         "hinge_range_deg": [float(np.rad2deg(limits[0])), float(np.rad2deg(limits[1]))],
         "closed_frames_used": len(heights),
     }
+    if base_method is not None:
+        summary["base_thickness_method"] = base_method
     (c.track_dir / "model3d.json").write_text(json.dumps({
         "reference_frame": ref, "camera_to_model": {"rotation": rot.tolist(), "hinge_point": point.tolist(),
                                                     "root_pos": root_pos.tolist()},
         "base_thickness_m": z_top - z_floor, "lid_thickness_m": thick, "hinge_limits_rad": limits, **summary}))
     return replay_hinged(c, roles, rot, point, root_pos, q, summary, log)
+
+
+def estimated_base_height(c: Capture, roles: Roles, log=print) -> dict | None:
+    """The base's top above the floor on an estimated capture, by parallax between frames
+    (parallax.top_height), when the focal length is known (a wrong one skews it: 4 mm instead of
+    11 on the LiDAR laptop's video with the model's own focal, 43% long); else None."""
+    if not roles.floor:
+        return None
+    if not c.focal_known:
+        log("base thickness: not measured by parallax without a known focal length (give --focal-35mm; iPhone "
+            "videos record it)")
+        return None
+    from .parallax import top_height
+    parts = [p for p in (roles.base, roles.plate, roles.plate_closed) if p]
+    moving = [p for p in (roles.plate, roles.plate_closed) if p and p != roles.base]
+    return top_height(c, roles.base, parts, roles.floor, moving, log=log)
 
 
 def read_hinge(track_dir: Path) -> dict:
@@ -1078,6 +1152,28 @@ def front_travel(c: Capture, base: str, part: str, window: tuple[int, int], axis
     return {"ref": max(seen, key=lambda t: c.by[part][t].area), "q": q}
 
 
+SHUT_SLACK_M = 0.01  # a shut drawer read this far out is depth noise, not an offset
+
+
+def slide_from_shut(q: np.ndarray, window: tuple[int, int]) -> tuple[np.ndarray, float]:
+    """A drawer's travel per frame measured from its shut state: the window it is operated in
+    starts and ends shut, so its 2nd-percentile reading there is shut. For estimated depth, which
+    can read a shut drawer standing well out of its cabinet (165 mm on the LiDAR drawer's own
+    video with the true focal length, where the travel then read 375 mm for 248). Returns the
+    shifted copy (no negative travel) and the shut reading (0 when it is within SHUT_SLACK_M of
+    shut or nothing was measured)."""
+    t0, t1 = window
+    seen = q[t0: t1 + 1]
+    if not np.isfinite(seen).any():
+        return q, 0.0
+    shut = float(np.nanpercentile(seen, 2))
+    if shut <= SHUT_SLACK_M:
+        return q, 0.0
+    out = q.copy()
+    out[t0: t1 + 1] = np.maximum(seen - shut, 0.0)
+    return out, shut
+
+
 PANEL_M = 0.012  # drawer and carcass panels, where a front view can't measure them
 FRONT_M = 0.018  # drawer front thickness
 GAP_M = 0.003  # between a drawer and its slot
@@ -1147,6 +1243,11 @@ def fit_and_build_slides(c: Capture, base: str, floor: str | None, drawers: list
     for (part, (t0, t1)), m in zip(drawers, trials[sign]):
         m["axis"] = axis
         q = clean_angles(m["q"], max_dev=0.03)  # 3 cm off its neighbours is a bad frame
+        if getattr(c, "estimated_depth", False):
+            q, shut = slide_from_shut(q, (t0, t1))
+            if shut:
+                log(f"estimated depth: {part} read {1000 * shut:.0f} mm out of the cabinet while shut; its travel is "
+                    "measured from there (the window starts and ends shut)")
         hi = float(np.nanpercentile(q, 99))
         full = np.zeros(c.n)  # shut outside its window
         full[t0: t1 + 1] = q[t0: t1 + 1]

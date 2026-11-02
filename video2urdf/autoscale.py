@@ -126,17 +126,40 @@ def prior_scale(capture: Path, video: Path, sam, frames: int = 6, log=print) -> 
     if not (0 < lo <= hi):
         return None
     cap = stray.load(capture)
-    extents, depths = [], []
+    masks = {}
     for t in _frames(min(n, len(cap.depth)), frames):
         dets = [d for d in parse(sam.segment_image(read_frame(video, t), prompt)) if (d.confidence or 1.0) >= 0.5]
-        if not dets:
+        if dets:
+            masks[t] = max(dets, key=lambda d: d.area).full_mask(h, w)
+    found = largest_extent(cap, masks, log=log)
+    if found is None:
+        return None
+    measured, views, depth = found
+    typical = (lo * hi) ** 0.5
+    log(f"Spark: {ans['object']}, usually {lo:.0f}-{hi:.0f} mm; measured {measured:.0f} mm in the estimated depth")
+    return {"method": "object_prior", "scale_factor": typical / measured, "object": ans["object"], "prompt": prompt,
+            "typical_mm": [lo, hi], "measured_largest_before_mm": measured, "views": views,
+            "depth_m": depth,
+            "reason": ans.get("reason"),
+            "note": "Scale from the object's usual size (Muse Spark), not a measurement: verify a dimension."}
+
+
+def largest_extent(cap, masks: dict, log=print) -> tuple[float, int, float] | None:
+    """The object's largest dimension in the capture's depth units (mm), from its masks on a few
+    frames (frame -> full-size bool mask): per frame, the spread of its depth points along their
+    main axis, on frames where the object is wholly in view with that axis across the view; the
+    75th percentile over those frames (partial views shrink it). Returns (length, frames used,
+    median depth in m), or None when fewer than two frames qualify."""
+    extents, depths = [], []
+    for t, mask in sorted(masks.items()):
+        h, w = mask.shape
+        ys, xs = np.nonzero(mask)
+        if not len(xs):
             continue
-        d = max(dets, key=lambda d: d.area)
-        x1, y1, x2, y2 = d.box
-        if x1 <= 2 or y1 <= 2 or x2 >= w - 3 or y2 >= h - 3:  # cut off by the frame: its length isn't all there
+        if xs.min() <= 2 or ys.min() <= 2 or xs.max() >= w - 3 or ys.max() >= h - 3:  # cut off by the frame
             log(f"  frame {t}: the object touches the frame's edge; not used")
             continue
-        inner = cv2.erode(d.full_mask(h, w).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+        inner = cv2.erode(mask.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
         p = mask_cloud(inner, cap.depth[t], cap.intrinsics)
         if len(p) < 100:
             continue
@@ -153,14 +176,7 @@ def prior_scale(capture: Path, video: Path, sam, frames: int = 6, log=print) -> 
     if len(extents) < 2:
         log("the object's long axis is never across the view: no size-based scale")
         return None
-    measured = float(np.percentile(extents, 75))  # partial views shrink it; the larger views see more
-    typical = (lo * hi) ** 0.5
-    log(f"Spark: {ans['object']}, usually {lo:.0f}-{hi:.0f} mm; measured {measured:.0f} mm in the estimated depth")
-    return {"method": "object_prior", "scale_factor": typical / measured, "object": ans["object"], "prompt": prompt,
-            "typical_mm": [lo, hi], "measured_largest_before_mm": measured, "views": len(extents),
-            "depth_m": float(np.median(depths)),
-            "reason": ans.get("reason"),
-            "note": "Scale from the object's usual size (Muse Spark), not a measurement: verify a dimension."}
+    return float(np.percentile(extents, 75)), len(extents), float(np.median(depths))
 
 
 def auto_scale(capture: Path, video: Path, sam=None, log=print) -> dict | None:

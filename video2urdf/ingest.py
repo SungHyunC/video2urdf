@@ -546,6 +546,115 @@ def ffmpeg_command(src: Path, dst: Path, plan: VideoPlan) -> list[str]:
     return cmd + [str(dst)]
 
 
+FOCAL_KEY = "com.apple.quicktime.camera.focal_length.35mm_equivalent"
+MAX_MOOV = 64 * 2 ** 20  # bytes; a phone video's moov is a few MB
+_QT_CONTAINERS = {b"moov", b"trak", b"mdia", b"minf", b"udta", b"meta"}
+
+
+def _atoms(buf: bytes, start: int, end: int):
+    """(type, payload start, end) of the QuickTime atoms in buf[start:end]."""
+    import struct
+    i = start
+    while i + 8 <= end:
+        size, kind = struct.unpack(">I4s", buf[i:i + 8])
+        head = 8
+        if size == 1:
+            if i + 16 > end:
+                return
+            size, head = struct.unpack(">Q", buf[i + 8:i + 16])[0], 16
+        elif size == 0:
+            size = end - i
+        if size < head or i + size > end:
+            return
+        yield kind, i + head, i + size
+        i += size
+
+
+def _qt_meta_items(buf: bytes, start: int, end: int) -> dict:
+    """A QuickTime 'meta' atom's keys and their values (strings and numbers only)."""
+    import struct
+    keys, values = [], {}
+    for kind, s, e in _atoms(buf, start, end):
+        if kind == b"keys" and e - s >= 8:
+            j = s + 8
+            for _ in range(struct.unpack(">I", buf[s + 4:s + 8])[0]):
+                if j + 8 > e:
+                    break
+                n = struct.unpack(">I", buf[j:j + 4])[0]
+                if n < 8 or j + n > e:
+                    break
+                keys.append(buf[j + 8:j + n].decode("latin1"))
+                j += n
+        elif kind == b"ilst":
+            for item, s2, e2 in _atoms(buf, s, e):
+                index = struct.unpack(">I", item)[0]
+                for sub, s3, e3 in _atoms(buf, s2, e2):
+                    if sub != b"data" or e3 - s3 < 8:
+                        continue
+                    kind_code, raw = struct.unpack(">I", buf[s3:s3 + 4])[0] & 0xFFFFFF, buf[s3 + 8:e3]
+                    if kind_code == 1:
+                        values[index] = raw.decode("utf8", "replace")
+                    elif kind_code == 23 and len(raw) == 4:
+                        values[index] = struct.unpack(">f", raw)[0]
+                    elif kind_code == 24 and len(raw) == 8:
+                        values[index] = struct.unpack(">d", raw)[0]
+                    elif kind_code in (21, 22) and len(raw) in (1, 2, 4, 8):
+                        code = {1: "b", 2: "h", 4: "i", 8: "q"}[len(raw)]
+                        values[index] = struct.unpack(">" + (code if kind_code == 21 else code.upper()), raw)[0]
+    return {key: values[i] for i, key in enumerate(keys, 1) if i in values}
+
+
+def camera_focal_35mm(path: Path) -> float | None:
+    """The camera's 35 mm-equivalent focal length recorded in a QuickTime/MP4 file's track metadata
+    (iPhones write com.apple.quicktime.camera.focal_length.35mm_equivalent next to the lens model),
+    or None. Reads only the moov atom."""
+    import struct
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, 2)
+            total, pos, moov = fh.tell(), 0, None
+            while pos + 8 <= total:
+                fh.seek(pos)
+                size, kind = struct.unpack(">I4s", fh.read(8))
+                head = 8
+                if size == 1:
+                    size, head = struct.unpack(">Q", fh.read(8))[0], 16
+                elif size == 0:
+                    size = total - pos
+                if size < head:
+                    return None
+                if kind == b"moov":
+                    if size > MAX_MOOV:
+                        return None
+                    fh.seek(pos)
+                    moov = fh.read(size)
+                    break
+                pos += size
+    except (OSError, struct.error):
+        return None
+    if moov is None:
+        return None
+
+    def walk(start: int, end: int):
+        for kind, s, e in _atoms(moov, start, end):
+            if kind == b"meta":
+                items = _qt_meta_items(moov, s if moov[s + 4:s + 8] == b"hdlr" else s + 4, e)
+                if FOCAL_KEY in items:
+                    return items[FOCAL_KEY]
+            if kind in _QT_CONTAINERS:
+                found = walk(s, e)
+                if found is not None:
+                    return found
+        return None
+
+    found = walk(0, len(moov))
+    try:
+        found = float(found)
+    except (TypeError, ValueError):
+        return None
+    return found if 5 <= found <= 1000 else None
+
+
 def count_frames(video: Path) -> int:
     """Frames by decoding (headers are off by one on variable-rate phone video)."""
     import cv2
@@ -576,7 +685,11 @@ def normalise_video(src: Path, dst: Path, turn: int = 0, log=print, **limits) ->
         log(f"  {line}")
     for line in plan.warnings:
         log(f"  WARNING: {line}")
-    return {"source": asdict(info), "plan": asdict(plan), "output": {**asdict(out), "frames": n}}
+    focal = camera_focal_35mm(src)  # read before it is dropped with the rest of the metadata
+    if focal:
+        log(f"  the camera's focal length is in the file: {focal:g} mm (35 mm equivalent)")
+    return {"source": asdict(info), "plan": asdict(plan), "output": {**asdict(out), "frames": n},
+            "focal_35mm": focal}
 
 
 def images_to_video(images: list[Path], dst: Path, fps: float = IMAGE_FPS, log=print) -> dict:
