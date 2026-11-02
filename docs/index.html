@@ -2,666 +2,478 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Video2URDF · one phone video in, a measured URDF out</title>
-<meta name="description" content="Film an articulated object being opened and closed. A Muse Spark agent tracks its parts with SAM 3.1, measures every joint, replays the model in MuJoCo over the video to check it, and writes a URDF/MJCF a simulated robot can use.">
-<meta name="theme-color" content="#05070c">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video2URDF: one phone video in, a measured URDF out</title>
+<meta name="description" content="One short video of a real articulated object in, a measured URDF/MJCF out, and a MuJoCo replay over the video that shows the model moves like the real thing. Built for the Meta Global AI Developer Hackathon 2026.">
+<meta name="theme-color" content="#ffffff">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Video2URDF · one phone video in, a measured URDF out">
-<meta property="og:description" content="A Muse Spark agent measures an object's joints from one phone video, checks the model against that video in MuJoCo, and a simulated Franka Panda uses it.">
+<meta property="og:site_name" content="Video2URDF">
+<meta property="og:title" content="Video2URDF: one phone video in, a measured URDF out">
+<meta property="og:description" content="A Muse Spark agent measures an object's joints from one phone video with SAM 3.1, checks the model against that video in MuJoCo, and a simulated Franka Panda uses it.">
 <meta property="og:url" content="https://sunghyunc.github.io/video2urdf/">
 <meta property="og:image" content="https://sunghyunc.github.io/video2urdf/assets/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Video2URDF: a phone video of a laptop, the measured model replayed over it, and a simulated robot closing the measured laptop">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1020'/%3E%3Cpath d='M7 22h18' stroke='%237fa6ff' stroke-width='2.6' stroke-linecap='round'/%3E%3Cpath d='M9 22 21 9' stroke='%23b694ff' stroke-width='2.6' stroke-linecap='round'/%3E%3Ccircle cx='9' cy='22' r='3.2' fill='%23ffb84d'/%3E%3C/svg%3E">
+<meta name="twitter:title" content="Video2URDF: one phone video in, a measured URDF out">
+<meta name="twitter:description" content="A Muse Spark agent measures an object's joints from one phone video with SAM 3.1, checks the model against that video in MuJoCo, and a simulated Franka Panda uses it.">
+<meta name="twitter:image" content="https://sunghyunc.github.io/video2urdf/assets/og.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231b5fc1'/%3E%3Cpath d='M7 23h18M9 23 20 9.5' stroke='%23fff' stroke-width='2.6' stroke-linecap='round'/%3E%3Ccircle cx='9' cy='23' r='3' fill='%23fff'/%3E%3C/svg%3E">
 <style>
-  /* Design system and the viewer. Landing sections (.site-only) are styled by assets/site.css,
-     which also reveals them: a copy of this page in a run's viewer folder shows just the viewer. */
+  /* One stylesheet for the whole page. The project sections around the viewer are marked .site-only and hidden
+     here; assets/site.css reveals them. A run's viewer folder gets a copy of this file without assets/
+     (video2urdf/run.py, scripts/video_to_model.py), so there it shows the viewer alone. */
   :root {
-    color-scheme: dark;
-    --bg: #05070c; --bg-1: #080b12; --bg-2: #0c111b;
-    --panel: rgba(13, 18, 29, .78); --panel-2: rgba(17, 23, 37, .86); --panel-solid: #0c111b;
-    --line: rgba(150, 172, 235, .12); --line-2: rgba(150, 172, 235, .2); --line-3: rgba(150, 172, 235, .34);
-    --ink: #e9edf7; --ink-2: #b6bfd2; --ink-3: #8a95ad; --ink-4: #5f6a84;
-    --blue: #5b8cff; --blue-2: #8fb0ff; --violet: #9b6dff; --violet-2: #bb9bff; --cyan: #5fd4ff;
-    --amber: #ffb84d; --amber-2: #ffd590; --green: #46dc9e; --red: #ff7385;
-    --grad: linear-gradient(95deg, #8fb0ff 0%, #9b6dff 52%, #d68cff 100%);
-    --grad-btn: linear-gradient(100deg, #4f7dff 0%, #7a5cff 60%, #a35cff 100%);
-    --r-lg: 22px; --r: 16px; --r-sm: 11px;
-    --shadow: 0 30px 80px -32px rgba(0, 0, 0, .8), inset 0 1px 0 rgba(255, 255, 255, .045);
-    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif;
-    --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", Inter, system-ui, sans-serif;
-    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
-    --paper:
-      linear-gradient(rgba(143, 176, 255, .065) 1px, transparent 1px) 0 0 / 40px 40px,
-      linear-gradient(90deg, rgba(143, 176, 255, .065) 1px, transparent 1px) 0 0 / 40px 40px,
-      linear-gradient(rgba(143, 176, 255, .03) 1px, transparent 1px) 0 0 / 8px 8px,
-      linear-gradient(90deg, rgba(143, 176, 255, .03) 1px, transparent 1px) 0 0 / 8px 8px;
-    --wrap: 1220px;
+    color-scheme: light;
+    --text: #1d2125; --muted: #5a6470; --line: #d7dce2; --line-2: #c3cbd4; --soft: #f4f6f8;
+    --accent: #1b5fc1; --accent-dark: #154c9b;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
-  html { scroll-behavior: smooth; scroll-padding-top: 76px; -webkit-text-size-adjust: 100%; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--sans);
-         -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; overflow-x: hidden; }
-  a { color: var(--blue-2); text-decoration: none; }
-  a:hover { color: #fff; }
-  ::selection { background: rgba(155, 109, 255, .45); color: #fff; }
-  :focus-visible { outline: 2px solid var(--blue-2); outline-offset: 3px; border-radius: 6px; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: #fff; color: var(--text); font: 16px/1.6 var(--font); }
+  a { color: var(--accent); text-underline-offset: 2px; }
+  a:hover { color: var(--accent-dark); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   code, pre, kbd { font-family: var(--mono); }
-  .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 24px; }
-  @media (max-width: 640px) { .wrap { padding: 0 16px; } }
-  .grad { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .mono { font-family: var(--mono); }
+  code { font-size: .88em; overflow-wrap: anywhere; }
+  :not(pre) > code { background: var(--soft); border-radius: 4px; padding: .08em .32em; }
+  .page { max-width: 1000px; margin: 0 auto; padding: 0 24px; }
+  @media (max-width: 560px) { .page { padding: 0 16px; } }
+  h1 { font-size: 2.6rem; line-height: 1.12; margin: 0 0 12px; letter-spacing: -.01em; }
+  h2 { font-size: 1.65rem; line-height: 1.25; margin: 0 0 14px; }
+  h3 { font-size: 1.15rem; line-height: 1.35; margin: 28px 0 8px; }
+  p, ul, ol { margin: 0 0 14px; }
+  li { margin-bottom: 6px; }
+  .muted { color: var(--muted); }
+  .prose { max-width: 50rem; }
+  @media (max-width: 560px) { h1 { font-size: 2.1rem; } h2 { font-size: 1.4rem; } }
 
-  /* ---------- top bar ---------- */
-  .topnav { position: sticky; top: 0; z-index: 50; border-bottom: 1px solid var(--line);
-            background: rgba(5, 7, 12, .72); backdrop-filter: blur(18px) saturate(160%);
-            -webkit-backdrop-filter: blur(18px) saturate(160%); }
-  .topnav .wrap { display: flex; align-items: center; gap: 28px; height: 64px; }
-  .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); font: 650 17px/1 var(--display);
-           letter-spacing: -.01em; white-space: nowrap; }
-  .brand:hover { color: #fff; }
-  .brand svg { width: 30px; height: 30px; flex: none; filter: drop-shadow(0 4px 14px rgba(91, 140, 255, .35)); }
-  .brand .ver { font: 500 11px/1 var(--mono); color: var(--ink-3); border: 1px solid var(--line-2); padding: 4px 7px;
-                border-radius: 999px; margin-left: 2px; letter-spacing: 0; }
-  .navlinks { display: flex; gap: 4px; margin-left: 8px; }
-  .navlinks a { color: var(--ink-2); font-size: 14px; padding: 7px 11px; border-radius: 9px; transition: color .15s, background .15s; }
-  .navlinks a:hover { color: #fff; background: rgba(143, 176, 255, .08); }
-  .navright { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-  .navdemo { color: var(--ink-2); font-size: 14px; display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 9px; }
-  .navdemo:hover { background: rgba(143, 176, 255, .08); }
-  .navdemo svg { width: 14px; height: 14px; }
-  .gh { display: inline-flex; align-items: center; gap: 8px; background: #edf1fa; color: #0a0e17; font: 600 14px/1 var(--sans);
-        padding: 9px 14px; border-radius: 10px; box-shadow: 0 6px 24px -8px rgba(143, 176, 255, .55); transition: transform .15s, box-shadow .15s; }
-  .gh:hover { color: #0a0e17; transform: translateY(-1px); box-shadow: 0 10px 30px -8px rgba(143, 176, 255, .7); }
-  .gh svg { width: 17px; height: 17px; }
-  @media (max-width: 1060px) { .navlinks { display: none; } }
-  @media (max-width: 520px) { .navdemo span, .brand .ver { display: none; } .topnav .wrap { gap: 12px; } }
+  /* ---------- header ---------- */
+  .page-head { padding: 44px 0 26px; }
+  .lede { font-size: 1.22rem; line-height: 1.5; margin: 0 0 10px; max-width: 46rem; }
+  .byline { color: var(--muted); margin: 0 0 20px; }
+  .links { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; }
+  .toc { margin: 18px 0 0; font-size: .92rem; color: var(--muted); }
+  .toc a { white-space: nowrap; }
 
-  /* ---------- shared pieces ---------- */
-  .pill { display: inline-flex; align-items: center; gap: 8px; font: 500 12.5px/1 var(--mono); color: var(--ink-2);
-          letter-spacing: .01em; padding: 7px 12px 7px 10px; border-radius: 999px; border: 1px solid var(--line-2);
-          background: linear-gradient(180deg, rgba(91, 140, 255, .11), rgba(155, 109, 255, .06)); }
-  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 0 3px rgba(95, 212, 255, .15), 0 0 12px var(--cyan); }
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; border-radius: 12px; padding: 12px 18px;
-         font: 600 15px/1.15 var(--sans); cursor: pointer; border: 1px solid transparent; transition: transform .15s, box-shadow .2s, background .2s, border-color .2s; text-decoration: none; }
-  .btn svg { width: 17px; height: 17px; flex: none; }
-  .btn-primary { background: var(--grad-btn); color: #fff; box-shadow: 0 14px 40px -14px rgba(122, 92, 255, .9), inset 0 1px 0 rgba(255, 255, 255, .25); }
-  .btn-primary:hover { color: #fff; transform: translateY(-1px); box-shadow: 0 18px 50px -14px rgba(122, 92, 255, 1), inset 0 1px 0 rgba(255, 255, 255, .3); }
-  .btn-ghost { background: rgba(143, 176, 255, .06); color: var(--ink); border-color: var(--line-2); }
-  .btn-ghost:hover { color: #fff; background: rgba(143, 176, 255, .12); border-color: var(--line-3); }
-  .btn-sm { padding: 8px 12px; font-size: 13.5px; border-radius: 10px; }
-  .m { color: var(--amber); font-variant-numeric: tabular-nums; }          /* a measured number */
-  .tag { display: inline-flex; align-items: center; gap: 6px; font: 500 11.5px/1 var(--mono); padding: 5px 8px; border-radius: 7px;
-         color: var(--ink-2); background: rgba(10, 14, 23, .75); border: 1px solid var(--line-2); white-space: nowrap; max-width: 100%; }
-  @media (max-width: 640px) { .tag { white-space: normal; line-height: 1.3; } }
-  .tag-measured { color: var(--amber-2); border-color: rgba(255, 184, 77, .45); background: rgba(255, 184, 77, .1); }
-  .tag-bounded { color: var(--cyan); border-color: rgba(95, 212, 255, .4); background: rgba(95, 212, 255, .08); }
-  .tag-estimated { color: var(--ink-2); border: 1px dashed rgba(182, 191, 210, .45); background: transparent; }
-  .section { position: relative; padding: 112px 0; }
-  .sec-head { max-width: 760px; margin-bottom: 44px; }
-  .sec-head h2 { font: 700 clamp(30px, 4vw, 46px)/1.08 var(--display); letter-spacing: -.03em; margin: 18px 0 14px; text-wrap: balance; }
-  .sec-head p { color: var(--ink-2); font-size: 17.5px; margin: 0; text-wrap: pretty; }
-  @media (max-width: 640px) { .section { padding: 76px 0; } .sec-head p { font-size: 16px; } }
+  /* ---------- buttons ---------- */
+  .btn { display: inline-flex; align-items: center; gap: 7px; padding: 8px 15px; border: 1px solid var(--line-2); border-radius: 6px;
+         background: #fff; color: var(--text); font: 600 15px/1.3 var(--font); text-decoration: none; cursor: pointer; }
+  .btn:hover { background: var(--soft); color: var(--text); }
+  .btn svg { width: 13px; height: 13px; flex: none; }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-dark); border-color: var(--accent-dark); color: #fff; }
 
-  /* ---------- viewer ---------- */
-  .section.viewer-sec { padding: 28px 0 56px; }  /* alone in a run's viewer folder; site.css spaces it on the site */
-  .viewer-frame { position: relative; border: 1px solid var(--line-2); border-radius: 26px; padding: 18px;
-                  background: linear-gradient(180deg, rgba(17, 23, 37, .9), rgba(9, 12, 20, .92)); box-shadow: var(--shadow); }
-  .viewer-frame::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--paper); opacity: .55;
-                          pointer-events: none; -webkit-mask: linear-gradient(180deg, #000, transparent 40%); mask: linear-gradient(180deg, #000, transparent 40%); }
-  .viewer-top { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 10px 18px; flex-wrap: wrap; margin: 2px 2px 14px; }
-  .tagline { color: var(--ink-2); margin: 0; font-size: 14.5px; }
-  .tagline a { font-weight: 600; color: var(--blue-2); border-bottom: 1px dashed rgba(143, 176, 255, .45); }
-  .tagline a:hover { color: #fff; }
-  .live { display: inline-flex; align-items: center; gap: 8px; font: 500 12px/1 var(--mono); color: var(--green); white-space: nowrap; }
-  .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); animation: blink 2.4s infinite; }
-  @keyframes blink { 50% { opacity: .35; } }
-  .tabs { position: relative; display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 14px; scrollbar-width: thin; }
-  .tabs::-webkit-scrollbar { height: 4px; } .tabs::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+  /* ---------- sections ---------- */
+  main > section { border-top: 1px solid var(--line); margin-top: 48px; padding-top: 36px; }
+  main > section.demo-sec { border-top: 0; margin-top: 0; padding-top: 0; }
+  .demo { margin: 0; }
+  .demo video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: #000; border-radius: 6px; }
+  .demo figcaption { margin-top: 8px; font-size: .92rem; color: var(--muted); }
+  ol.steps { padding-left: 1.5em; max-width: 50rem; }
+  ol.steps > li { margin-bottom: 12px; padding-left: 4px; }
+  ol.steps .who { display: block; font-size: .9rem; color: var(--muted); }
+
+  /* ---------- tables: rows stack on a phone ---------- */
+  .table-wrap { overflow-x: auto; margin: 0 0 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: .94rem; line-height: 1.5; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 12px 9px 0; border-top: 1px solid var(--line); }
+  thead th { border-top: 0; border-bottom: 2px solid var(--line-2); font-size: .85rem; color: var(--muted); font-weight: 600; }
+  td.what { font-weight: 600; }
+  td.vs { color: var(--muted); }
+  @media (min-width: 701px) {  /* column widths only while the rows are table rows */
+    table.results td.what { width: 32%; }
+    table.results td.vs { width: 17%; }
+    table.models td.what { width: 30%; }
+    table.models td.where { width: 19%; }
+  }
+  td .ids { display: block; font-weight: 400; font-size: .86rem; color: var(--muted); }
+  td .ids code { white-space: nowrap; overflow-wrap: normal; }
+  @media (max-width: 700px) {
+    table.stack thead { display: none; }
+    table.stack, table.stack tbody, table.stack tr, table.stack td { display: block; width: auto; }
+    table.stack tr { border-top: 1px solid var(--line); padding: 10px 0; }
+    table.stack td { border: 0; padding: 2px 0; }
+    table.stack td[data-label]::before { content: attr(data-label) ": "; font-weight: 600; color: var(--muted); }
+  }
+
+  /* ---------- commands ---------- */
+  .code { border: 1px solid var(--line); border-radius: 6px; margin: 10px 0 18px; background: var(--soft); min-width: 0; }
+  .code-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px 6px 12px;
+               border-bottom: 1px solid var(--line); font-size: .86rem; color: var(--muted); }
+  .copy { font: 500 13px/1.2 var(--font); padding: 4px 10px; border: 1px solid var(--line-2); border-radius: 5px; background: #fff;
+          color: var(--text); cursor: pointer; }
+  .copy:hover { background: var(--soft); }
+  .code pre { margin: 0; padding: 12px; overflow-x: auto; font-size: 12.5px; line-height: 1.55; }
+  .code pre code { font-size: inherit; overflow-wrap: normal; }
+
+  /* ---------- the viewer ---------- */
+  .viewer-frame { margin-top: 6px; }
+  .tagline { margin: 0 0 10px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+  @media (max-width: 700px) { .tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; } }
   .tabs button, .seg button {
-    border: 1px solid var(--line-2); background: rgba(12, 17, 27, .8); color: var(--ink-2); border-radius: 999px;
-    padding: 7px 14px; font: 500 13.5px/1.2 var(--sans); cursor: pointer; white-space: nowrap; transition: all .15s; }
-  .tabs button:hover, .seg button:hover { color: #fff; border-color: var(--line-3); }
-  .tabs button[aria-pressed="true"], .seg button[aria-pressed="true"] {
-    color: #fff; border-color: transparent; background: var(--grad-btn); box-shadow: 0 8px 24px -10px rgba(122, 92, 255, .9); }
-  .stage { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
-  @media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); } }
-  .card { background: var(--panel-solid); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden;
-          display: flex; flex-direction: column; min-width: 0; }
-  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px;
-               border-bottom: 1px solid var(--line); flex-wrap: wrap; background: rgba(255, 255, 255, .015); }
-  .card-head h2 { font: 600 12px/1 var(--mono); margin: 0; color: var(--ink-3); text-transform: uppercase; letter-spacing: .08em; }
-  .seg { display: flex; gap: 6px; flex-wrap: wrap; }
-  .seg button { padding: 5px 11px; font-size: 12.5px; }
+    font: 500 14px/1.3 var(--font); padding: 6px 12px; border: 1px solid var(--line-2); border-radius: 6px; background: #fff;
+    color: var(--text); cursor: pointer; white-space: nowrap; }
+  .tabs button:hover, .seg button:hover { background: var(--soft); }
+  .tabs button[aria-pressed="true"], .seg button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  @media (max-width: 820px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+  .panel { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 7px 8px 7px 12px;
+                border-bottom: 1px solid var(--line); background: var(--soft); }
+  .panel-head h3 { margin: 0; font-size: .95rem; }
+  .seg { display: flex; flex-wrap: wrap; gap: 5px; }
+  .seg button { padding: 4px 9px; font-size: 13px; }
   .media { position: relative; background: #000; aspect-ratio: 4 / 3; }
   .media video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
-  .caption { margin: 0; padding: 9px 12px 11px; font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line); }
-  #view3d { position: relative; aspect-ratio: 4 / 3; touch-action: none;
-            background: radial-gradient(120% 90% at 50% 35%, #16203a 0%, #0b1020 48%, #060910 100%); }
-  #view3d::before { content: ""; position: absolute; inset: 0; background: var(--paper); opacity: .35; pointer-events: none; }
-  #view3d canvas { position: relative; display: block; width: 100%; height: 100%; }
-  .hint { position: absolute; left: 12px; bottom: 10px; font: 12px/1.3 var(--mono); color: var(--ink-3); pointer-events: none; }
-  .under { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 22px; align-items: start; margin-top: 16px; }
-  @media (max-width: 900px) { .under { grid-template-columns: minmax(0, 1fr); } }
-  .controls { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 16px; align-items: center; min-width: 0; }
+  .caption { margin: 0; padding: 8px 12px; font-size: .86rem; color: var(--muted); border-top: 1px solid var(--line); }
+  #view3d { position: relative; aspect-ratio: 4 / 3; background: #eef1f4; touch-action: none; }
+  #view3d canvas { display: block; width: 100%; height: 100%; }
+  .hint { position: absolute; left: 10px; bottom: 8px; font-size: 12px; color: var(--muted); pointer-events: none; }
+  .loading { position: absolute; inset: 0; display: grid; place-items: center; font-size: .92rem; color: var(--muted); pointer-events: none; }
+  .under { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 28px; margin-top: 14px; }
+  .controls { flex: 1 1 300px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 14px; align-items: center; min-width: 0; }
   .controls:empty { display: none; }
-  .controls label { font: 500 12.5px/1.2 var(--mono); color: var(--ink-2); white-space: nowrap; }
-  .controls input[type=range] { flex: 1; min-width: 0; accent-color: var(--violet); }
-  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .controls .row { flex-wrap: nowrap; }
-  .downloads { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-  @media (max-width: 900px) { .downloads { justify-content: flex-start; } }
-  .downloads .btn { padding: 10px 14px; font-size: 14px; }
-  .value { font: 500 13px/1 var(--mono); font-variant-numeric: tabular-nums; min-width: 4.5em; display: inline-block; text-align: right; color: var(--amber); }
-  .factsheet { position: relative; margin-top: 16px; border: 1px solid var(--line); border-radius: var(--r); background: rgba(8, 11, 18, .7); padding: 6px 16px; }
-  .facts { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 14px; margin: 0; padding: 11px 0; color: var(--ink-2); font-size: 14px; line-height: 1.55; }
-  .factsheet .facts:not([hidden]) ~ .facts:not([hidden]) { border-top: 1px solid var(--line); }  /* a rule between shown lines */
-  .facts::before { content: attr(data-label); font: 600 10.5px/1.9 var(--mono); text-transform: uppercase; letter-spacing: .09em; color: var(--blue-2); }
-  #facts::before { color: var(--amber); }
-  #unmeasured::before, #provenance::before { color: var(--ink-3); }
+  .controls label { font-size: .9rem; white-space: nowrap; }
+  .controls input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .value { display: inline-block; min-width: 4.5em; text-align: right; font-variant-numeric: tabular-nums; font-size: .9rem; }
+  .downloads { display: flex; flex-wrap: wrap; gap: 8px; }
+  .factsheet { margin-top: 16px; border-top: 1px solid var(--line); }
+  .facts { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 14px; margin: 0; padding: 10px 0; border-bottom: 1px solid var(--line);
+           font-size: .94rem; line-height: 1.55; }
+  .facts::before { content: attr(data-label); font-weight: 600; color: var(--muted); }
   @media (max-width: 560px) { .facts { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
-  details.panel { position: relative; margin-top: 12px; border: 1px solid var(--line); border-radius: var(--r); background: rgba(8, 11, 18, .7); }
-  details.panel > summary { cursor: pointer; padding: 13px 16px; font: 600 14px/1.3 var(--sans); color: var(--ink); list-style: none; display: flex; align-items: center; gap: 10px; }
-  details.panel > summary::-webkit-details-marker { display: none; }
-  details.panel > summary::before { content: ""; width: 8px; height: 8px; border-right: 2px solid var(--ink-3); border-bottom: 2px solid var(--ink-3);
-                                    transform: rotate(-45deg); transition: transform .2s; margin-right: 2px; }
-  details.panel[open] > summary::before { transform: rotate(45deg); }
-  details.panel > summary .sub { margin-left: auto; font: 500 12px/1 var(--mono); color: var(--ink-3); }
-  details.panel pre { white-space: pre-wrap; font: 12.5px/1.6 var(--mono); color: var(--ink-2); margin: 0 16px 16px;
-                      background: #070a10; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
-  #traceTabs { padding: 0 16px; }
-  .trace { max-height: 680px; overflow-y: auto; padding: 8px 18px 18px; font-size: 14px; line-height: 1.6; color: var(--ink-2); }
-  .trace img { max-width: 100%; max-height: 380px; border-radius: 8px; margin: 8px 0; display: block; border: 1px solid var(--line); }
-  .trace h1 { font-size: 17px; color: var(--ink); }
-  .trace h2 { font: 600 13px/1.4 var(--mono); margin: 22px 0 6px; color: var(--violet-2); }
-  .trace blockquote { margin: 6px 0; padding: 6px 12px; border-left: 2px solid var(--line-3); color: var(--ink-3); white-space: pre-wrap;
-                      background: rgba(255, 255, 255, .02); border-radius: 0 8px 8px 0; font-size: 13px; }
-  .trace code { font-size: 12px; color: var(--blue-2); }
-  .trace pre { overflow-x: auto; }
-  .trace strong { color: var(--cyan); }
+  details.box { margin-top: 12px; border: 1px solid var(--line); border-radius: 6px; }
+  details.box > summary { cursor: pointer; padding: 10px 12px; font-weight: 600; }
+  details.box > summary .sub { font-weight: 400; color: var(--muted); font-size: .88rem; }
+  details.box pre { margin: 0 12px 12px; padding: 12px; white-space: pre-wrap; font-size: 13px; line-height: 1.55; background: var(--soft);
+                    border-radius: 6px; overflow-x: auto; }
+  #traceTabs { padding: 0 12px 4px; }
+  #traceTabs button { white-space: normal; text-align: left; }  /* long log names wrap on a phone */
+  .trace { max-height: 680px; overflow-y: auto; padding: 4px 16px 16px; font-size: .92rem; line-height: 1.6; }
+  .trace h1 { font-size: 1.15rem; margin: 12px 0 8px; }
+  .trace h2 { font-size: 1rem; margin: 20px 0 6px; }
+  .trace h3 { font-size: .95rem; margin: 16px 0 6px; }
+  .trace img { display: block; max-width: 100%; max-height: 380px; margin: 8px 0; border: 1px solid var(--line); border-radius: 4px; }
+  .trace blockquote { margin: 6px 0; padding: 4px 12px; border-left: 3px solid var(--line-2); color: var(--muted); white-space: pre-wrap; }
+  .trace pre { overflow-x: auto; background: var(--soft); padding: 10px; border-radius: 4px; }
 
   /* ---------- footer ---------- */
-  .foot { position: relative; border-top: 1px solid var(--line); padding: 44px 0 56px; color: var(--ink-3); font-size: 14px; background: rgba(5, 7, 12, .85); }
-  .foot-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 28px; }
-  @media (max-width: 820px) { .foot-grid { grid-template-columns: minmax(0, 1fr); } }
-  .foot h4 { font: 600 11.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--ink-2); margin: 4px 0 14px; }
-  .foot ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-  .foot a { color: var(--ink-2); }
-  .foot a:hover { color: #fff; }
-  .foot p { margin: 12px 0 0; max-width: 46ch; }
-  .site-only { display: none; }  /* last, so it wins here; assets/site.css shows these sections */
+  footer { border-top: 1px solid var(--line); margin-top: 56px; padding: 22px 0 40px; font-size: .9rem; color: var(--muted); }
+  footer p { margin: 0 0 6px; }
+  .site-only { display: none; }  /* last, so it wins here; assets/site.css shows these on the project site */
 </style>
 <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
-<div class="backdrop site-only" aria-hidden="true"><canvas id="bg"></canvas></div>
+<div class="page">
 
-<nav class="topnav" aria-label="Site">
-  <div class="wrap">
-    <a class="brand" href="#top" aria-label="Video2URDF home">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8fb0ff"/><stop offset="1" stop-color="#b694ff"/></linearGradient></defs><rect x=".5" y=".5" width="31" height="31" rx="9" fill="#0b1020" stroke="url(#lg)" stroke-opacity=".7"/><path d="M7 22.5h18" stroke="#8fb0ff" stroke-width="2.6" stroke-linecap="round"/><path d="M9 22.5 20.5 9.5" stroke="#bb9bff" stroke-width="2.6" stroke-linecap="round"/><circle cx="9" cy="22.5" r="3.3" fill="#ffb84d"/><circle cx="9" cy="22.5" r="6" fill="none" stroke="#ffb84d" stroke-opacity=".35"/></svg>
-      Video2URDF <span class="ver site-only">Meta hackathon 2026</span>
-    </a>
-    <div class="navlinks site-only">
-      <a href="#showcase">Showcase</a>
-      <a href="#viewer">Viewer</a>
-      <a href="#how">How it works</a>
-      <a href="#results">Results</a>
-      <a href="#open-weights">Open weights</a>
-    </div>
-    <div class="navright">
-      <a class="navdemo" href="demo.mp4" data-demo><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.8v10.4a.6.6 0 0 0 .9.5l8.4-5.2a.6.6 0 0 0 0-1L4.9 2.3a.6.6 0 0 0-.9.5Z"/></svg><span>Demo video</span></a>
-      <a class="gh" href="https://github.com/SungHyunC/video2urdf"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>GitHub</a>
-    </div>
-  </div>
-</nav>
-
-<main id="top">
-<!-- ===================== HERO ===================== -->
-<header class="hero site-only">
-  <div class="wrap hero-grid">
-    <div class="hero-copy">
-      <a class="pill" href="#how"><span class="dot"></span>Muse Spark agent · SAM 3.1 · MuJoCo</a>
-      <h1>One phone video in.<br><span class="grad">A robot‑ready</span> <span class="nw"><span class="grad">URDF</span> out.</span></h1>
-      <p class="lede">Film a laptop lid, a drawer or a microwave door being worked. A Muse Spark agent tracks the parts with SAM&nbsp;3.1, measures every joint in metres, replays the model in MuJoCo over your own video to check it, and hands you a URDF and MJCF that a simulated Franka Panda can use.</p>
-      <div class="cmd" role="group" aria-label="The one command">
-        <span class="cmd-prompt" aria-hidden="true">$</span>
-        <code id="cmdText"><span class="nw">.venv/bin/python</span> <span class="nw">scripts/video2urdf.py</span> <span class="nw">INPUT --robot</span></code>
-        <button class="copy" type="button" data-copy="#cmdText" aria-label="Copy the command">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M11 3.5V3a1.5 1.5 0 0 0-1.5-1.5H3A1.5 1.5 0 0 0 1.5 3v6.5A1.5 1.5 0 0 0 3 11h.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg><span>Copy</span></button>
-      </div>
-      <p class="cmd-note">INPUT: an iPhone LiDAR capture (Stray Scanner), any phone video, or a zip of either. <a href="https://github.com/SungHyunC/video2urdf#run-it">Setup&nbsp;→</a></p>
-      <div class="ctas">
-        <a class="btn btn-primary" href="demo.mp4" data-demo><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.8v10.4a.6.6 0 0 0 .9.5l8.4-5.2a.6.6 0 0 0 0-1L4.9 2.3a.6.6 0 0 0-.9.5Z"/></svg>Watch the 3‑min demo <span class="dur">2:55</span></a>
-        <a class="btn btn-ghost" href="#showcase">Explore the models <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9.5M8.5 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
-      </div>
-      <ul class="hero-meta">
-        <li>Built solo for the Meta Global AI Developer Hackathon</li>
-        <li>Every model it calls is a Meta model</li>
-        <li>Runs on open weights too</li>
-      </ul>
-    </div>
-
-    <figure class="hero-visual">
-      <div class="compare-card">
-        <div class="compare" id="compare" style="--pos: 50%">
-          <video class="cmp-after" muted playsinline preload="auto" poster="assets/compare/laptop_lidar_replay.jpg" src="assets/compare/laptop_lidar_replay.mp4" aria-label="The measured model replayed over the video"></video>
-          <video class="cmp-before" muted playsinline preload="auto" poster="assets/compare/laptop_lidar_phone.jpg" src="assets/compare/laptop_lidar_phone.mp4" aria-label="The phone video"></video>
-          <div class="cmp-scan" aria-hidden="true"></div>
-          <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
-          <div class="cmp-divider" aria-hidden="true"></div>
-          <div class="cmp-handle" role="slider" tabindex="0" aria-label="Compare the phone video with the measured model" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="50% phone video">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 4 12l5 5M15 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </div>
-          <span class="cmp-label left">Phone video</span>
-          <span class="cmp-label right" id="cmpRightLabel">Measured model, drawn from the phone's own pose</span>
-          <button class="cmp-play" type="button" hidden aria-label="Play both videos"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.8v10.4a.6.6 0 0 0 .9.5l8.4-5.2a.6.6 0 0 0 0-1L4.9 2.3a.6.6 0 0 0-.9.5Z"/></svg></button>
-        </div>
-        <div class="compare-bar">
-          <div class="cmp-objects" role="tablist" aria-label="Object">
-            <button role="tab" data-cmp="laptop_lidar" aria-selected="true">Laptop</button>
-            <button role="tab" data-cmp="drawer" aria-selected="false">Drawer</button>
-            <button role="tab" data-cmp="microwave_lidar" aria-selected="false">Microwave</button>
-            <button role="tab" data-cmp="mouse_lidar" aria-selected="false">Mouse</button>
-          </div>
-          <div class="cmp-fact"><span class="tag tag-measured">measured</span><span id="cmpFact">lid <b class="m">309 × 205 mm</b> <span class="muted">spec 304 × 212</span></span></div>
-          <a class="cmp-open" id="cmpOpen" href="#laptop_lidar" data-model="laptop_lidar">Open in viewer →</a>
-        </div>
-      </div>
-      <figcaption>Same frames, same camera: iPhone LiDAR captures, the model replayed in MuJoCo from the phone's pose on every frame. Drag the divider to compare.</figcaption>
-    </figure>
-  </div>
+<header class="page-head">
+  <h1>Video2URDF</h1>
+  <p class="lede">One short video of a real articulated object in, a measured URDF/MJCF out, and a MuJoCo replay over the video that shows the model moves like the real thing.</p>
+  <p class="byline">Built solo for the Meta Global AI Developer Hackathon 2026 (Indie track), Oct 26 – Nov 4.</p>
+  <p class="links">
+    <span class="site-only"><a class="btn btn-primary" href="#demo" id="playDemo"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.6v10.8a.6.6 0 0 0 .9.5l8.6-5.4a.6.6 0 0 0 0-1L4.9 2.1a.6.6 0 0 0-.9.5Z"/></svg>Demo video (2:55)</a></span>
+    <a class="btn" href="https://github.com/SungHyunC/video2urdf">GitHub repository</a>
+    <a class="btn" href="#viewer">Download a model</a>
+  </p>
+  <nav class="toc site-only" aria-label="On this page">On this page:
+    <a href="#what-it-does">What it does</a> ·
+    <a href="#viewer">The models in 3D</a> ·
+    <a href="#results">Results</a> ·
+    <a href="#meta-models">Meta models</a> ·
+    <a href="#run-it">Run it yourself</a> ·
+    <a href="#limitations">Limitations</a> ·
+    <a href="#built-on">Built on</a>
+  </nav>
 </header>
 
-<!-- ===================== 3 STEPS ===================== -->
-<section class="steps site-only" aria-label="Three steps">
-  <div class="wrap steps-grid">
-    <div class="step">
-      <span class="step-n">1</span>
-      <div><h3><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="1.8" width="10" height="16.4" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="6.2" r="1.7" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="12.6" cy="4.4" r=".7" fill="currentColor"/></svg>Film it once</h3>
-        <p>Open and close the object on your phone. iPhone LiDAR gives metric depth; a plain video gets its scale from a card-sized reference or the object's usual size.</p></div>
-    </div>
-    <div class="step">
-      <span class="step-n">2</span>
-      <div><h3><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.2v3M10 14.8v3M2.2 10h3M14.8 10h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="10" cy="10" r="4.6" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="1.4" fill="currentColor"/></svg>The agent measures it</h3>
-        <p>Muse Spark has SAM&nbsp;3.1 track each part, fits every joint by least squares, replays the model over your video in MuJoCo and refits what doesn't line up.</p></div>
-    </div>
-    <div class="step">
-      <span class="step-n">3</span>
-      <div><h3><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5v10M6 8.6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 13.5v2.2A1.8 1.8 0 0 0 4.8 17.5h10.4a1.8 1.8 0 0 0 1.8-1.8v-2.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Download it, use it</h3>
-        <p>URDF + MJCF with measured collision, limits, masses and friction. Loads in MuJoCo, PyBullet, yourdfpy and Drake; a simulated Panda works it.</p></div>
-    </div>
-  </div>
+<main>
+<section id="demo" class="demo-sec site-only" aria-label="Demo video">
+  <figure class="demo">
+    <video id="demoVideo" controls playsinline preload="metadata" poster="assets/demo_poster.jpg" width="1920" height="1080" src="demo.mp4"></video>
+    <figcaption>The demo (2:55, narrated): the pipeline on real objects, start to finish. <a href="demo.mp4">Open the MP4</a> (24 MB).</figcaption>
+  </figure>
 </section>
 
-<!-- ===================== SHOWCASE ===================== -->
-<section class="section site-only" id="showcase">
-  <div class="wrap">
-    <div class="sec-head-row">
-      <div class="sec-head">
-        <span class="pill"><span class="dot"></span>8 real objects · filmed for this project</span>
-        <h2>Measured from the video, <span class="grad">not modelled by hand</span></h2>
-        <p>Every model here came out of one capture of the real thing. Each card plays the model replayed over its video; open one to orbit it, drive its joints and download it.</p>
-      </div>
-      <a class="btn btn-ghost btn-sm" href="#viewer">Open the viewer →</a>
-    </div>
-    <div class="cards">
-      <a class="obj" href="#laptop_lidar" data-model="laptop_lidar">
-        <div class="obj-media"><img src="assets/cards/laptop_lidar.jpg" alt="The measured laptop model drawn over its iPhone LiDAR video" loading="lazy" width="480" height="360"><video muted playsinline loop preload="none" data-src="assets/cards/laptop_lidar.mp4"></video><span class="tag obj-cap">iPhone LiDAR</span><span class="obj-play" aria-hidden="true"></span></div>
-        <div class="obj-body">
-          <div class="obj-title"><h3>MacBook laptop</h3><span class="tag">1 hinge</span></div>
-          <p class="obj-num">lid <b class="m">309 × 205 mm</b>, opens <b class="m">0–117°</b></p>
-          <p class="obj-meta"><span>923 frames · spec 304 × 212</span><span class="go">Open →</span></p>
-        </div>
-      </a>
-      <a class="obj" href="#drawer" data-model="drawer">
-        <div class="obj-media"><img src="assets/cards/drawer.jpg" alt="The measured drawer model drawn over its iPhone LiDAR video" loading="lazy" width="480" height="360"><video muted playsinline loop preload="none" data-src="assets/cards/drawer.mp4"></video><span class="tag obj-cap">iPhone LiDAR</span><span class="obj-play" aria-hidden="true"></span></div>
-        <div class="obj-body">
-          <div class="obj-title"><h3>Office drawer</h3><span class="tag">1 slide</span></div>
-          <p class="obj-num">pulls out <b class="m">248 mm</b></p>
-          <p class="obj-meta"><span>796 frames · hand fit 253 mm</span><span class="go">Open →</span></p>
-        </div>
-      </a>
-      <a class="obj" href="#microwave_lidar" data-model="microwave_lidar">
-        <div class="obj-media"><img src="assets/cards/microwave_lidar.jpg" alt="The measured microwave model drawn over its iPhone LiDAR video" loading="lazy" width="480" height="360"><video muted playsinline loop preload="none" data-src="assets/cards/microwave_lidar.mp4"></video><span class="tag obj-cap">iPhone LiDAR</span><span class="obj-play" aria-hidden="true"></span></div>
-        <div class="obj-body">
-          <div class="obj-title"><h3>Microwave</h3><span class="tag">door hinge</span></div>
-          <p class="obj-num">door <b class="m">386 × 267 mm</b>, vertical hinge</p>
-          <p class="obj-meta"><span>body completed, labelled</span><span class="go">Open →</span></p>
-        </div>
-      </a>
-      <a class="obj" href="#lamp_lidar" data-model="lamp_lidar">
-        <div class="obj-media"><img src="assets/cards/lamp_lidar.jpg" alt="The measured desk lamp model drawn over its iPhone LiDAR video" loading="lazy" width="480" height="360"><video muted playsinline loop preload="none" data-src="assets/cards/lamp_lidar.mp4"></video><span class="tag obj-cap">iPhone LiDAR</span><span class="obj-play" aria-hidden="true"></span></div>
-        <div class="obj-body">
-          <div class="obj-title"><h3>LED desk lamp</h3><span class="tag">2 rods</span></div>
-          <p class="obj-num">arm <b class="m">380 mm</b>, swings <b class="m">2–89°</b></p>
-          <p class="obj-meta"><span>rods fit from raw depth</span><span class="go">Open →</span></p>
-        </div>
-      </a>
-      <a class="obj" href="#mouse_lidar" data-model="mouse_lidar">
-        <div class="obj-media"><img src="assets/cards/mouse_lidar.jpg" alt="The measured mouse model drawn over its iPhone LiDAR video" loading="lazy" width="480" height="360"><video muted playsinline loop preload="none" data-src="assets/cards/mouse_lidar.mp4"></video><span class="tag obj-cap">iPhone LiDAR</span><span class="obj-play" aria-hidden="true"></span></div>
-        <div class="obj-body">
-          <div class="obj-title"><h3>Wireless mouse</h3><span class="tag">rigid</span></div>
-          <p class="obj-num"><b class="m">121 × 75 × 55 mm</b></p>
-          <p class="obj-meta"><span>spec 125 × 84 × 51</span><span class="go">Open →</span></p>
-        </div>
-      </a>
-      <a class="obj" href="#airpods_lidar" data-model="airpods_lidar">
-        <div class="obj-media"><img src="assets/cards/airpods_lidar.jpg" alt="The measured AirPods case model drawn over its iPhone LiDAR video" loading="lazy" width="480" height="360"><video muted playsinline loop preload="none" data-src="assets/cards/airpods_lidar.mp4"></video><span class="tag obj-cap">iPhone LiDAR</span><span class="obj-play" aria-hidden="true"></span></div>
-        <div class="obj-body">
-          <div class="obj-title"><h3>AirPods case</h3><span class="tag">rigid</span></div>
-          <p class="obj-num"><b class="m">66.8 × 52.5 × 37.0 mm</b></p>
-          <p class="obj-meta"><span>never opened: no joint</span><span class="go">Open →</span></p>
-        </div>
-      </a>
-      <a class="obj" href="#notebook" data-model="notebook">
-        <div class="obj-media tall"><img src="assets/cards/notebook.jpg" alt="The measured laptop model drawn over its side-view phone video" loading="lazy" width="270" height="480"><video muted playsinline loop preload="none" data-src="assets/cards/notebook.mp4"></video><span class="tag obj-cap">side view</span><span class="obj-play" aria-hidden="true"></span></div>
-        <div class="obj-body">
-          <div class="obj-title"><h3>Laptop, side view</h3><span class="tag">1 hinge</span></div>
-          <p class="obj-num">hinge range <b class="m">77°</b>, residual <b class="m">1.7 mm</b></p>
-          <p class="obj-meta"><span>agent re-tracked the base</span><span class="go">Open →</span></p>
-        </div>
-      </a>
-      <a class="obj" href="#stand" data-model="stand">
-        <div class="obj-media tall"><img src="assets/cards/stand.jpg" alt="The measured foldable lamp model drawn over its side-view phone video" loading="lazy" width="270" height="480"><video muted playsinline loop preload="none" data-src="assets/cards/stand.mp4"></video><span class="tag obj-cap">side view</span><span class="obj-play" aria-hidden="true"></span></div>
-        <div class="obj-body">
-          <div class="obj-title"><h3>Foldable lamp</h3><span class="tag">2 hinges</span></div>
-          <p class="obj-num">arms <b class="m">0–30°</b> and <b class="m">−81–0°</b></p>
-          <p class="obj-meta"><span>residuals 1.0 / 0.9 mm</span><span class="go">Open →</span></p>
-        </div>
-      </a>
-    </div>
-  </div>
+<section id="what-it-does" class="site-only">
+  <h2>What it does</h2>
+  <p class="prose">Robotics developers who need a simulation model of a real object (a laptop lid, a desk lamp, a drawer, a microwave door) usually model it by hand: guess the hinge, guess the limits, tweak until it looks right. Video2URDF measures it instead. Film the object being opened and closed; a Muse Spark agent finds the parts with SAM&nbsp;3.1, tracks them, fits each joint by least squares, writes URDF and MJCF, replays the model in MuJoCo from the camera's own viewpoint and checks the overlay, frame by frame, before it reports. A simulated Franka Panda then grasps and works the measured model, and URDF Doctor checks a URDF you already have against a video.</p>
+  <p class="prose">Every model called at runtime is a Meta model; <code>--open-weights</code> runs the same pipeline on Muse Spark Open and SAM weights, <code>--glimmer</code> on Muse Glimmer 30B served by us.</p>
+  <ol class="steps">
+    <li><strong>Film it.</strong> Open and close the object in front of a phone: any phone video, or an iPhone LiDAR capture (Stray Scanner) for metric depth. A plain video gets its scale from an ID-1 card in view or from the object's usual size.
+      <span class="who">Meta model: Muse Spark watches the whole video and names the parts.</span></li>
+    <li><strong>SAM&nbsp;3.1 tracks the parts.</strong> Muse Spark writes a noun prompt for each part (“laptop lid”); SAM&nbsp;3.1 finds each part on key frames, then tracks all of them through the video with stable IDs.
+      <span class="who">Meta models: Muse Spark, SAM 3.1.</span></li>
+    <li><strong>The joints are measured.</strong> Hinge or slide: axis, position and limits, by least squares from the parts' relative motion. With depth, a hinge is where the lid's and the base's planes cross; a lamp's rods are 3D lines; an object that never moves is carved from its views.
+      <span class="who">Our code. For a plain video, MapAnything estimates the depth (experimental).</span></li>
+    <li><strong>URDF and MJCF are written.</strong> Each link's shape comes from its silhouettes (2D) or its depth (LiDAR), painted with the video; the measured shapes are the collision geometry.
+      <span class="who">Our code.</span></li>
+    <li><strong>It checks itself against the video.</strong> MuJoCo replays the model from the phone's own camera pose on every frame and scores it against SAM's masks. Muse Spark watches that replay and re-segments, re-tracks and refits; it can't finish over the fit's own warnings without being refused once, and every run ends <code>checks_passed</code>, <code>needs_review</code> or <code>failed</code>. <a href="#notebook" data-open-trace>See it on the side-view laptop</a>: the base was lost on 89 of 408 frames, so it re-segmented, re-tracked and refit.
+      <span class="who">Meta model: Muse Spark.</span></li>
+    <li><strong>Physics and a clean look.</strong> Muse Spark judges each link's material and mass; joint friction is measured where a part stands still with no hand on it, and checked by letting the model go in MuJoCo. Muse Spark and Muse Spark Open each propose a visual built from primitives, scored over the video; SAM 3D Objects makes a realistic mesh, checked against the measured depth.
+      <span class="who">Meta models: Muse Spark, Muse Spark Open, SAM 3D Objects.</span></li>
+    <li><strong>A simulated robot uses it.</strong> A Franka Panda in MuJoCo grasps the measured object and works it: closes and reopens a lid, pulls a drawer out by its handle and pushes it back, swings a lamp's arm, carries a mouse.
+      <span class="who">MuJoCo, with the Panda from MuJoCo Menagerie.</span></li>
+  </ol>
 </section>
 
-<!-- ===================== VIEWER ===================== -->
-<section class="section viewer-sec" id="viewer">
-  <div class="wrap">
-    <div class="sec-head-row site-only">
-      <div class="sec-head">
-        <span class="pill"><span class="dot"></span>Live viewer · the published URDF/MJCF</span>
-        <h2>Open any model. <span class="grad">Drive its joints.</span></h2>
-        <p>The phone video on the left, the measured model in 3D on the right, its joints following the video's clock. Every turn the agent took to build it is under the model.</p>
+<section id="viewer">
+  <h2 class="site-only">The models in 3D</h2>
+  <p class="prose site-only">Eight objects, each measured from one video of the real thing (six iPhone LiDAR captures, two side-view phone videos). The phone video and the measured model play together: the model's joints follow the video. Under the model: the downloads, what was measured and what was estimated, and every turn the Meta models took to build it.</p>
+  <div class="viewer-frame">
+    <p class="tagline">Pick an object, then press <a href="#" data-video="replay">Model over video</a> or <a href="#" data-video="robot">Robot uses it</a>. Drag the 3D view to orbit; each joint has a slider.</p>
+    <nav class="tabs" id="tabs" aria-label="Objects"></nav>
+    <div class="stage">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Video</h3>
+          <div class="seg" id="videoTabs"></div>
+        </div>
+        <div class="media"><video id="video" playsinline muted loop controls preload="metadata"></video></div>
+        <p class="caption" id="videoNote" hidden></p>
       </div>
-    </div>
-    <div class="viewer-frame">
-      <div class="viewer-top">
-        <p class="tagline">Pick an object, then press <a href="#" data-video="replay">Model over video</a> or
-          <a href="#" data-video="robot">Robot uses it</a>.</p>
-        <span class="live"><i></i>three.js · loads the downloads below</span>
-      </div>
-      <nav class="tabs" id="tabs" aria-label="Objects"></nav>
-      <div class="stage">
-        <div class="card">
-          <div class="card-head">
-            <h2>Video</h2>
-            <div class="seg" id="videoTabs"></div>
+      <div class="panel">
+        <div class="panel-head">
+          <h3 id="modelTitle">3D model</h3>
+          <div class="seg">
+            <span class="seg" id="looks" hidden><button data-look="realistic" aria-pressed="true">Realistic</button><button data-look="measured" aria-pressed="false">Measured</button></span>
+            <button id="follow" aria-pressed="true">Follow video</button>
           </div>
-          <div class="media"><video id="video" playsinline muted loop controls preload="metadata"></video></div>
-          <p class="caption" id="videoNote" hidden></p>
         </div>
-        <div class="card">
-          <div class="card-head">
-            <h2 id="modelTitle">3D model</h2>
-            <div class="seg">
-              <span class="seg" id="looks" hidden><button data-look="realistic" aria-pressed="true">Realistic</button><button data-look="measured" aria-pressed="false">Measured</button></span>
-              <button id="follow" aria-pressed="true">Follow video</button>
-            </div>
-          </div>
-          <div id="view3d"><span class="hint">Drag to orbit · pinch or scroll to zoom</span></div>
-        </div>
+        <div id="view3d"><span class="loading" id="loading3d">Loading the model…</span><span class="hint">Drag to orbit · pinch or scroll to zoom</span></div>
       </div>
-      <div class="under">
-        <section class="controls" id="joints" aria-label="Joints"></section>
-        <div class="downloads">
-          <a class="btn btn-primary" id="dlBundle" download hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8v8.4M4.6 7.1 8 10.5l3.4-3.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 11v1.7A1.6 1.6 0 0 0 4.1 14.3h7.8a1.6 1.6 0 0 0 1.6-1.6V11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Download model: URDF + MJCF + meshes (.zip)</a>
-          <a class="btn btn-ghost" id="dlUrdf" download>URDF file only</a>
-          <a class="btn btn-ghost" id="dlMjcf" download>MJCF file only</a>
-        </div>
-      </div>
-      <div class="factsheet">
-        <p class="facts" id="facts" data-label="Measured"></p>
-        <p class="facts" id="unmeasured" data-label="Not measured" hidden></p>
-        <p class="facts" id="appearance" data-label="Look" hidden></p>
-        <p class="facts" id="quality" data-label="Checks" hidden></p>
-        <p class="facts" id="physics" data-label="Physics" hidden></p>
-        <p class="facts" id="provenance" data-label="Provenance" hidden></p>
-      </div>
-      <details class="panel" id="reportBox" hidden><summary>Muse Spark agent report<span class="sub">agent/report.md</span></summary><pre id="report"></pre></details>
-      <details class="panel" id="traceBox" hidden><summary>How the Meta models built this model, turn by turn<span class="sub">every turn and image</span></summary>
-        <div class="seg" id="traceTabs"></div>
-        <div id="trace" class="trace"></div>
-      </details>
     </div>
+    <noscript><p>The viewer needs JavaScript and WebGL.</p></noscript>
+    <div class="under">
+      <section class="controls" id="joints" aria-label="Joints"></section>
+      <div class="downloads">
+        <a class="btn btn-primary" id="dlBundle" download hidden>Download model (.zip): URDF + MJCF + meshes</a>
+        <a class="btn" id="dlUrdf" download>URDF file only</a>
+        <a class="btn" id="dlMjcf" download>MJCF file only</a>
+      </div>
+    </div>
+    <div class="factsheet">
+      <p class="facts" id="facts" data-label="Measured"></p>
+      <p class="facts" id="unmeasured" data-label="Not measured" hidden></p>
+      <p class="facts" id="appearance" data-label="Look" hidden></p>
+      <p class="facts" id="quality" data-label="Checks" hidden></p>
+      <p class="facts" id="physics" data-label="Physics" hidden></p>
+      <p class="facts" id="provenance" data-label="Provenance" hidden></p>
+    </div>
+    <details class="box" id="reportBox" hidden><summary>Muse Spark agent report <span class="sub">agent/report.md</span></summary><pre id="report"></pre></details>
+    <details class="box" id="traceBox" hidden><summary>How the Meta models built this model, turn by turn <span class="sub">every turn and image</span></summary>
+      <div class="seg" id="traceTabs"></div>
+      <div id="trace" class="trace"></div>
+    </details>
   </div>
 </section>
 
-<!-- ===================== HOW IT WORKS ===================== -->
-<section class="section site-only" id="how">
-  <div class="wrap">
-    <div class="sec-head">
-      <span class="pill"><span class="dot"></span>How it works</span>
-      <h2>An agent that <span class="grad">checks its own model</span> against the video</h2>
-      <p>Muse Spark drives the run with tools. It decides what the parts are and what to call; the measurement is least squares on SAM 3.1's tracks, and the replay over the video is the test it has to pass.</p>
-    </div>
-    <div class="how-grid">
-      <ol class="pipeline">
-        <li><span class="pn">01</span><div><h3>Watch</h3><p>Muse Spark watches the whole video and a few frames, and names the object and the parts that move.</p><span class="who">Muse Spark</span></div></li>
-        <li><span class="pn">02</span><div><h3>Segment and track</h3><p>It writes noun prompts ("laptop lid"); SAM&nbsp;3.1 finds each part on key frames, then tracks all of them through the video with stable IDs.</p><span class="who">Muse Spark → SAM 3.1</span></div></li>
-        <li><span class="pn">03</span><div><h3>Fit every joint</h3><p>Hinge, slide, rod chain or rigid: axis, position and limits by least squares from the parts' relative motion, in metres from LiDAR depth or a card.</p><span class="who">least squares</span></div></li>
-        <li class="hot"><span class="pn">04</span><div><h3>Replay over the video, then refit</h3><p>MuJoCo draws the model from the phone's own pose on every frame and scores it against the masks. Spark watches that replay and re-segments, re-tracks and refits; <code>finish</code> refuses once while a fit's warnings are open.</p><span class="who">MuJoCo → Muse Spark</span></div></li>
-        <li><span class="pn">05</span><div><h3>Make it usable</h3><p>Spark judges materials and masses; joint friction is measured where a part holds still with no hand on it; Spark redesigns the visual from primitives, scored over the video. URDF + MJCF out.</p><span class="who">Muse Spark · Spark Open</span></div></li>
-        <li><span class="pn">06</span><div><h3>Use it</h3><p>A simulated Franka Panda grasps the measured object and works it, with its measured collision on.</p><span class="who">MuJoCo · Franka Panda</span></div></li>
-      </ol>
-      <div class="term-wrap">
-        <div class="term" id="term">
-          <div class="term-head">
-            <span class="term-dot"></span>
-            <span class="term-title">agent log · notebook_2.MOV · muse-spark-1.3-contributor</span>
-            <button class="term-replay" type="button" aria-label="Replay the log">↻ replay</button>
-          </div>
-          <div class="term-body" id="termBody" aria-live="off"></div>
-        </div>
-        <p class="term-note">A real run, trimmed (…): the side-view laptop in the showcase. Its first fit lost the base on 89 of 408 frames; Spark looked again, re-segmented, re-tracked and refit. <a href="#notebook" data-model="notebook" data-open-trace>The full log, with every image Spark saw →</a></p>
-      </div>
-    </div>
+<section id="results" class="site-only">
+  <h2>Results</h2>
+  <p class="prose">The headline numbers from the README, each with what it was checked against. An object with a model here links to it in the viewer above; the other rows link to their details in <a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md">docs/RESULTS.md</a>.</p>
+  <div class="table-wrap">
+    <table class="stack results">
+      <thead><tr><th>Measured</th><th>Result</th><th>Checked against</th></tr></thead>
+      <tbody>
+        <tr><td class="what"><a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md#benchmark-rbo-dataset-real-rgb-d-with-motion-capture">RBO benchmark</a>: 13 real RGB-D videos with motion capture, agent from scratch, scored on exactly the agent's fit</td><td data-label="Result">laptops and books 6 of 7: hinge axis 1.7°, position 23 mm, angle 3.3° (medians); box lids 2 of 6, angle 42°; the other 5 refused by the fit's own checks</td><td class="vs" data-label="Against">motion capture</td></tr>
+        <tr><td class="what"><a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md#rods-on-hinges-in-3d-and-objects-the-phone-walked-around">Desk lamp seen obliquely, 2 hinges</a> (synthetic, <code>fit_chain</code>)</td><td data-label="Result">axis 0.4 / 4.8°, angle 0.06 / 1.1° mean</td><td class="vs" data-label="Against">ground truth</td></tr>
+        <tr><td class="what"><a href="#laptop_lidar">13" MacBook Pro</a>, iPhone LiDAR</td><td data-label="Result">lid 309 × 205 mm; the model covers 95% / 94% of the video's masks</td><td class="vs" data-label="Against">spec 304 × 212</td></tr>
+        <tr><td class="what"><a href="#mouse_lidar">Black mouse</a>, phone circling it</td><td data-label="Result">121 × 75 × 55 mm; the depth points seen on one frame lie 0.5 mm (median) from the SAM 3D mesh</td><td class="vs" data-label="Against">spec 125 × 84 × 51</td></tr>
+        <tr><td class="what"><a href="#drawer">Office drawer</a>, iPhone LiDAR</td><td data-label="Result">pulls out 248 mm</td><td class="vs" data-label="Against">hand fit 253</td></tr>
+        <tr><td class="what"><a href="#lamp_lidar">LED desk lamp</a>, iPhone LiDAR, 2 rods</td><td data-label="Result">Spark judged the pole's motion depth noise; refit with it fixed (our step): arm 380 mm, 2–89°</td><td class="vs" data-label="Against">video</td></tr>
+        <tr><td class="what"><a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md#the-model-looks-like-the-object-spark-designs-it-the-video-checks-it">Shape design</a>, three Meta models per round</td><td data-label="Result">lamp: best of three 0.62 / 0.63 per round, Muse Spark alone 0.60 / 0.62 (mask F-score)</td><td class="vs" data-label="Against">measured meshes 0.69</td></tr>
+        <tr><td class="what"><a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md#the-robot-works-the-object-grasp-open-close-carry">Robot tasks</a> on the measured models</td><td data-label="Result">8 of the viewer's 8: lids closed and reopened, drawer out 199 mm and back (cabinet collision on), microwave door pulled open to 46° and pushed shut (body collision on), lamp arms swung, mouse and AirPods case carried and turned</td><td class="vs" data-label="Against">joint values reached in physics</td></tr>
+        <tr><td class="what"><a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md#a-policy-learned-on-the-measured-drawer">A drawer-opening policy</a> learned on the measured drawer (PPO, trained on Modal)</td><td data-label="Result">99/100 held-out placements; 19/20 unseen starts on the full Panda arm; 98% of the travel made pinching the handle</td><td class="vs" data-label="Against">random actions 0/100</td></tr>
+        <tr><td class="what">The unseen back of a <a href="#microwave_lidar">microwave</a> in a shelf</td><td data-label="Result">front measured (477 × 269 mm), depth bounded by the video (334–387 mm), the rest from Muse Spark (a Samsung 23 L): 477 × 365 × 269 mm with its cavity</td><td class="vs" data-label="Against">measured front, video bound</td></tr>
+        <tr><td class="what"><a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md#faster-tracking-and-scale-without-a-reference">SAM tracking</a>, 1385 frames, 4 parts</td><td data-label="Result">520 s → 285 s, masks IoU 0.97–0.995</td><td class="vs" data-label="Against">previous pipeline</td></tr>
+        <tr><td class="what"><a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md#the-downloads-loaded-outside-our-scripts">The downloads</a>, loaded outside our own scripts (<code>scripts/check_exports.py</code>)</td><td data-label="Result">all 8 models' zips: the MJCF in MuJoCo, the URDF in PyBullet, yourdfpy and Drake, joints and limits equal to the fit's; MuJoCo's own URDF import runs 7 (the side-view laptop's lid overlaps its base 13 mm at the hinge, which only the MJCF can exclude)</td><td class="vs" data-label="Against">the fit's records</td></tr>
+        <tr><td class="what"><a href="https://github.com/SungHyunC/video2urdf#why-not-just-ask-an-ai-for-the-urdf">The same Muse Spark asked plainly</a> for a URDF of each video, no tools (5 answers per object)</td><td data-label="Result">recalls the MacBook's spec (304 × 212 mm, 5 of 5); in 8 of 19 hinge answers the joint can't open as far as the video shows; every drawer gets the same 360–400 mm; 1 of 25 doesn't load</td><td class="vs" data-label="Against">the measured model, motion capture</td></tr>
+        <tr><td class="what"><a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md#faster-tracking-and-scale-without-a-reference">Scale for plain video</a> (MapAnything depth)</td><td data-label="Result">an ID-1 card: ×0.75 on the side-view laptop, steady over 8 frames; the object's usual size: ×1.01 on the laptop's RGB, already at LiDAR scale</td><td class="vs" data-label="Against">1.0 expected on the latter</td></tr>
+      </tbody>
+    </table>
   </div>
+  <p class="prose">Everything else (synthetic ground truth, repeat runs, objects it had never seen and failed on, physics, open weights only) is in <a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md">docs/RESULTS.md</a>: for example the <a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md#benchmark-rbo-dataset-real-rgb-d-with-motion-capture">RBO benchmark per sequence</a>, <a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md#five-fresh-runs-per-object-and-three-objects-it-had-never-seen">five fresh runs per object and three objects it had never seen</a> and <a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md#urdf-doctor-checking-an-existing-urdf-against-the-video">URDF Doctor</a> (checking an existing URDF against a video). The plain-Spark baseline with all 30 answers: <a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/spark_alone.md">docs/spark_alone.md</a>.</p>
 </section>
 
-<!-- ===================== MEASURED, NOT GUESSED ===================== -->
-<section class="section site-only measured-sec" id="measured">
-  <div class="wrap measured-grid">
-    <div class="scan-card" id="scanCard">
-      <div class="scan-head"><span class="tag tag-measured">measured</span><span class="scan-title">13" MacBook Pro · iPhone LiDAR · the published model</span></div>
-      <div class="scan-stage" id="scanStage">
-        <canvas id="scanCanvas" aria-label="The measured laptop model, its lid driven by the angle measured on each frame of the video"></canvas>
-        <div class="dim" id="dimW"><span>309 mm</span></div>
-        <div class="dim" id="dimD"><span>205 mm</span></div>
-        <div class="dim axis" id="dimAxis"><span>hinge axis</span></div>
-        <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
-      </div>
-      <div class="scan-foot">
-        <div class="scan-read"><span class="k">lid_joint</span><b class="m" id="scanQ">—</b><span class="k">frame</span><b id="scanF">—</b></div>
-        <svg class="spark" id="scanSpark" viewBox="0 0 300 40" preserveAspectRatio="none" aria-hidden="true"><path id="scanPath" d="" fill="none" stroke="#ffb84d" stroke-width="1.6" vector-effect="non-scaling-stroke"/><line id="scanCursor" x1="0" x2="0" y1="0" y2="40" stroke="#8fb0ff" stroke-width="1" vector-effect="non-scaling-stroke"/></svg>
-      </div>
-    </div>
-    <div class="measured-copy">
-      <span class="pill"><span class="dot"></span>Measured, bounded or estimated</span>
-      <h2>Every number says <span class="grad">where it came from</span></h2>
-      <p>LiDAR depth inside SAM&nbsp;3.1's masks gives the lid's outline, the base's thickness, and the hinge where the lid's planes cross the base's. The lid on the left follows the joint angle measured from the video, frame by frame.</p>
-      <ul class="legend">
-        <li><span class="tag tag-measured">measured</span><p>From the video itself: the laptop's lid <b class="m">309 × 205 mm</b> (spec 304 × 212), base <b class="m">14 mm</b>, hinge range <b class="m">116°</b>; joint friction where a part held still with no hand on it.</p></li>
-        <li><span class="tag tag-bounded">bounded</span><p>What the video rules out: the microwave's depth is at least <b>334 mm</b> (its cavity's back wall, seen through the open door) and at most <b>387 mm</b>.</p></li>
-        <li><span class="tag tag-estimated">estimated</span><p>Said so in the model: masses (Muse Spark: base 0.90 kg, lid 0.50 kg), the microwave's unseen depth (<b>365 mm</b>, a Samsung 23 L by Spark's read), a door's thickness.</p></li>
-      </ul>
-    </div>
+<section id="meta-models" class="site-only">
+  <h2>How the Meta models are used</h2>
+  <p class="prose">Every model called at runtime is a Meta model. Switching between the Meta Model API and open weights is one flag.</p>
+  <div class="table-wrap">
+    <table class="stack models">
+      <thead><tr><th>Model</th><th>Runs on</th><th>What it decides</th></tr></thead>
+      <tbody>
+        <tr><td class="what">Muse Spark<span class="ids"><code>muse-spark-1.3-contributor</code></span></td><td class="where" data-label="Runs on">Meta Model API</td><td data-label="Decides">Runs the pipeline as an agent (below); judges each link's material and mass; names the object and designs its clean visual; estimates the sizes of a body the camera never saw</td></tr>
+        <tr><td class="what">SAM 3.1<span class="ids"><code>sam-3.1</code></span></td><td class="where" data-label="Runs on">Meta Model API</td><td data-label="Decides">Where each part is on every frame, from Spark's noun prompts</td></tr>
+        <tr><td class="what">Muse Spark Open<span class="ids">open weights</span></td><td class="where" data-label="Runs on">Baseten, Fireworks</td><td data-label="Decides">The same agent with <code>--open-weights</code>; in every shape-design round it proposes alongside Muse Spark</td></tr>
+        <tr><td class="what">Muse Glimmer 30B<span class="ids">open weights <code>meta-models/Muse-Glimmer-30B</code></span></td><td class="where" data-label="Runs on">our own Modal endpoint (SGLang)</td><td data-label="Decides">The same agent with <code>--glimmer</code>, served by us; it works from frames (the endpoint drops video)</td></tr>
+        <tr><td class="what">SAM 3.1 / SAM 3<span class="ids">open weights <code>facebook/sam3.1</code>, <code>facebook/sam3</code></span></td><td class="where" data-label="Runs on">a Modal GPU</td><td data-label="Decides">Segmentation (SAM 3.1 concept prompts) and box tracking (SAM 3's tracker) on open weights, in the hosted API's wire format</td></tr>
+        <tr><td class="what">SAM 3D Objects<span class="ids">open weights <code>facebook/sam-3d-objects</code></span></td><td class="where" data-label="Runs on">a Modal GPU</td><td data-label="Decides">A realistic mesh of a link from one frame, its mask and our depth; kept as the visual only if it agrees with the measured depth and the video</td></tr>
+        <tr><td class="what">MapAnything<span class="ids">open weights <code>facebook/map-anything-apache</code></span></td><td class="where" data-label="Runs on">a Modal GPU</td><td data-label="Decides">Depth, intrinsics and camera poses for a plain video without LiDAR (experimental)</td></tr>
+      </tbody>
+    </table>
   </div>
+  <h3>What Muse Spark decides in a run</h3>
+  <p class="prose">Muse Spark runs the pipeline as a tool-calling agent (<code>video2urdf/agent.py</code>; Chat Completions with tool calls, images, video and structured output): 14 tools and a budget of 22 turns. It gets the whole video first, then frames spread over it.</p>
+  <ul class="prose">
+    <li><strong>What to look for</strong>: the noun prompts for SAM 3.1, and the frames to find each part on.</li>
+    <li><strong>What each part is</strong>: which tracked part is the fixed base, the moving part, the shut lid's back, the floor.</li>
+    <li><strong>Which fit</strong>: a hinged plate or door, drawers, a rod chain, a rigid object, or the 2D fit for a side view.</li>
+    <li><strong>Whether the fit is right</strong>: it watches the model replayed over the video, then re-segments, re-tracks or refits.</li>
+    <li><strong>Physics</strong>: each link's material and mass, and when a part stood still with no hand on it; those spans are where joint friction is measured.</li>
+    <li><strong>The report</strong>: which numbers were measured and which were estimated.</li>
+    <li><strong>The look</strong>: after the fit it names the object and rebuilds each link from primitives, scored over the video and revised for up to 3 rounds.</li>
+    <li><strong>What the camera never saw</strong>: the hidden sizes of a partly seen body, inside the bound the video gives.</li>
+  </ul>
+  <p class="prose">Every turn and every image it saw is in the viewer's turn-by-turn log for each model. Its tools and its finish gate: <a href="https://github.com/SungHyunC/video2urdf#the-agent">README › The agent</a>. The same table with the code behind each model: <a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/HOW_IT_WORKS.md#which-meta-model-decides-what">docs/HOW_IT_WORKS.md</a>.</p>
 </section>
 
-<!-- ===================== RESULTS ===================== -->
-<section class="section site-only" id="results">
-  <div class="wrap">
-    <div class="sec-head">
-      <span class="pill"><span class="dot"></span>Results</span>
-      <h2>Checked against <span class="grad">motion capture, specs and reruns</span></h2>
-      <p>Where it holds up, and where it doesn't. Every number below is in the repository with the command that produced it.</p>
-    </div>
-    <div class="bento">
-      <article class="rc rc-wide">
-        <span class="tag">RBO dataset · 13 real RGB‑D videos · motion capture</span>
-        <h3>Scored against motion capture</h3>
-        <p>On TU Berlin's videos of people opening laptops, books and boxes, the agent runs from scratch and its own fit is scored against motion-captured truth. Laptops and books: <b>6 of 7</b> fitted, with median errors of <b class="m">1.7°</b> in the hinge axis, <b class="m">23 mm</b> in its position and <b class="m">3.3°</b> in the opening angle. Box lids are where it fails: <b>2 of 6</b> fitted, <b>42°</b> off; the fit's own checks refused the other 5 rather than guess.</p>
-        <div class="dots" role="img" aria-label="13 sequences: 6 laptops and books fitted, 2 box lids fitted poorly, 5 refused">
-          <span class="d ok" title="laptop01: axis 1.8°, 25 mm, angle 1.9°"></span><span class="d ok" title="laptop02: axis 2.1°, 32 mm, angle 3.5°"></span><span class="d ok" title="laptop04: axis 0.9°, 15 mm, angle 2.3°"></span><span class="d ok" title="laptop05: axis 0.9°, 20 mm, angle 3.1°"></span><span class="d ok" title="book03: axis 1.5°, 17 mm, angle 3.7°"></span><span class="d ok" title="book05: axis 2.2°, 52 mm, angle 9.6°"></span><span class="d bad" title="cardboardbox02: angle 67.8°"></span><span class="d bad" title="treasurebox02: angle 16.4°"></span><span class="d no" title="book13: refused"></span><span class="d no" title="cardboardbox03: refused"></span><span class="d no" title="cardboardbox06: refused"></span><span class="d no" title="treasurebox03: refused"></span><span class="d no" title="treasurebox05: refused"></span>
-          <span class="dots-key"><i class="d ok"></i>laptops, books <i class="d bad"></i>box lids, poor <i class="d no"></i>refused</span>
-        </div>
-        <a class="more" href="https://github.com/SungHyunC/video2urdf#benchmark-rbo-dataset-real-rgb-d-with-motion-capture">Per-sequence table →</a>
-      </article>
-      <article class="rc">
-        <span class="tag">5 fresh runs per capture</span>
-        <h3>Run it again, get the same lid</h3>
-        <p>Every iPhone LiDAR capture, from scratch, five times: the MacBook's lid came out <b class="m">304–306 × 208–212 mm</b> every time (spec 304 × 212), the mouse <b class="m">121–122 × 75 × 55 mm</b>. The drawer pulled out <b class="m">242–244 mm</b> in four runs; the fifth took the wrong front (20 mm), and its checks said <code>needs_review</code>, not passed.</p>
-        <a class="more" href="https://github.com/SungHyunC/video2urdf#five-fresh-runs-per-object-and-three-objects-it-had-never-seen">All four objects →</a>
-      </article>
-      <article class="rc rc-media">
-        <div class="rc-img"><img src="media/spark_alone_laptop.jpg" alt="Left: the measured model over the video, the lid open 117 degrees. Right: Muse Spark's own URDF placed where it fits best, stopped at its 110 degree limit" loading="lazy"></div>
-        <span class="tag">baseline · same model, no tools</span>
-        <h3>Why not just ask an AI?</h3>
-        <p>Asked plainly for a URDF of each video, the same Muse Spark recalls the MacBook's spec (304 × 212 mm, 5 of 5), but in <b>8 of 19</b> hinge answers the joint can't open as far as the video shows, every drawer gets the same 360–400 mm, and 1 of 25 doesn't load.</p>
-        <a class="more" href="https://github.com/SungHyunC/video2urdf/blob/master/docs/spark_alone.md">All 30 answers →</a>
-      </article>
-      <article class="rc rc-media">
-        <div class="rc-img vid"><video muted playsinline loop preload="none" data-src="models/microwave_lidar/robot.mp4" poster="assets/cards/robot_microwave.jpg"></video></div>
-        <span class="tag">8 of 8 models</span>
-        <h3>The robot uses it</h3>
-        <p>A simulated Franka Panda closes and reopens the lids, pulls the drawer out <b class="m">199 mm</b> and back with the cabinet's collision on, pulls the microwave door open to <b class="m">46°</b> and pushes it shut, swings the lamp's arm, and carries the mouse and the AirPods case.</p>
-      </article>
-      <article class="rc rc-media">
-        <div class="rc-img vid"><video muted playsinline loop preload="none" data-src="models/drawer/policy.mp4" poster="assets/cards/policy_drawer.jpg"></video></div>
-        <span class="tag">PPO · trained on Modal</span>
-        <h3>A policy learned on the measured drawer</h3>
-        <p>Trained in MuJoCo on the drawer and cabinet measured from video, it opens the drawer on <b>99 of 100</b> held-out placements and <b>19 of 20</b> unseen starts on the full Panda arm, pinching the handle for 98% of the travel. Simulation only.</p>
-      </article>
-      <article class="rc rc-wide2">
-        <span class="tag">downloads, loaded outside our scripts</span>
-        <h3>Loads where you work</h3>
-        <p>Each model's zip (URDF + MJCF + meshes) was loaded the way a user would: the MJCF in MuJoCo; the URDF in PyBullet, yourdfpy and Drake, joints and limits equal to the fit's, all 8 models. MuJoCo's own URDF import loads 7: the side-view laptop's lid overlaps its base 13 mm at the hinge, which only the MJCF can exclude.</p>
-        <div class="loaders"><span>MuJoCo</span><span>PyBullet</span><span>yourdfpy</span><span>Drake</span></div>
-        <a class="more" href="https://github.com/SungHyunC/video2urdf#check-the-downloads">How to check them →</a>
-      </article>
-    </div>
-  </div>
-</section>
+<section id="run-it" class="site-only">
+  <h2>Run it yourself</h2>
+  <p class="prose">Mac or Linux, no local GPU: the heavy models run on the Meta Model API or on your own Modal account. You need <a href="https://docs.astral.sh/uv/">uv</a> and ffmpeg. The sample is the iPhone LiDAR laptop capture behind the README's numbers; the commands are the README's.</p>
 
-<!-- ===================== META MODELS ===================== -->
-<section class="section site-only" id="models">
-  <div class="wrap">
-    <div class="sec-head">
-      <span class="pill"><span class="dot"></span>Meta models, and what each decides</span>
-      <h2>Every model it calls <span class="grad">is a Meta model</span></h2>
-      <p>Hosted on the Meta Model API, or open weights on hardware we rent. Switching between them is one flag.</p>
-    </div>
-    <div class="mgrid">
-      <article class="mc"><div class="mc-top"><span class="mc-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1-5.1-1.9 5.1-1.9z"/><path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg></span><h3>Muse Spark</h3><span class="tag">Meta Model API</span></div><p class="mc-role">The agent</p><p>Watches the video, names the parts, writes SAM's prompts, calls track and fit, watches the replay to judge the fit, refits; then judges materials and masses and designs the clean visual.</p><code>muse-spark-1.3-contributor</code></article>
-      <article class="mc"><div class="mc-top"><span class="mc-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8.5C6 6 8 5 10 5h4c2.5 0 4 1.5 4 3.5v7c0 2-1.5 3.5-4 3.5h-4c-2 0-4-1-4-3.5z" stroke-dasharray="2.2 2.2"/><circle cx="12" cy="12" r="2.2"/></svg></span><h3>SAM 3.1</h3><span class="tag">API or open weights</span></div><p class="mc-role">Finds and tracks every part</p><p>Noun prompts find each part on key frames; one box-anchored video request tracks all parts through the video with stable IDs.</p><code>sam-3.1 · facebook/sam3.1</code></article>
-      <article class="mc"><div class="mc-top"><span class="mc-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2.2"/><path d="M8.5 11V8a3.5 3.5 0 0 1 6.8-1.2"/><circle cx="12" cy="15.5" r="1.2"/></svg></span><h3>Muse Spark Open</h3><span class="tag">open weights</span></div><p class="mc-role">The same agent, open weights</p><p>The same agent on open weights, served on Baseten (it takes video too); on Baseten and Fireworks it also proposes shape designs each round, next to Muse Spark.</p><code>muse-spark-open</code></article>
-      <article class="mc"><div class="mc-top"><span class="mc-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="1.6"/><path d="M10 3.5V7M14 3.5V7M10 17v3.5M14 17v3.5M3.5 10H7M3.5 14H7M17 10h3.5M17 14h3.5"/></svg></span><h3>Muse Glimmer 30B</h3><span class="tag">open weights</span></div><p class="mc-role">The agent on our own GPU</p><p>A 30B dense model on our Modal endpoint (SGLang), driving the LiDAR laptop end to end through physics from frames and tool calls.</p><code>meta-models/Muse-Glimmer-30B</code></article>
-      <article class="mc"><div class="mc-top"><span class="mc-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l7.8 4.4v8.8L12 20.8l-7.8-4.4V7.6z"/><path d="M12 12l7.8-4.4M12 12v8.8M12 12L4.2 7.6"/></svg></span><h3>SAM 3D Objects</h3><span class="tag">open weights</span></div><p class="mc-role">A realistic mesh per link</p><p>One frame, its SAM 3.1 mask and the LiDAR depth give a coloured mesh in metres, checked against the measured depth points before it is used.</p><code>facebook/sam-3d-objects</code></article>
-      <article class="mc"><div class="mc-top"><span class="mc-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l8.5 4-8.5 4-8.5-4z"/><path d="M3.5 12l8.5 4 8.5-4"/><path d="M3.5 16.5l8.5 4 8.5-4"/></svg></span><h3>MapAnything</h3><span class="tag">open weights</span></div><p class="mc-role">Depth for plain video</p><p>Metric depth, intrinsics and camera poses from an RGB video, so the 3D path runs without LiDAR (experimental; scale from a card or the object's usual size).</p><code>facebook/map-anything-apache</code></article>
-    </div>
-  </div>
-</section>
+  <div class="code">
+    <div class="code-head"><span>Setup and the sample capture, then one run</span><button class="copy" type="button">Copy</button></div>
+<pre><code>git clone https://github.com/SungHyunC/video2urdf &amp;&amp; cd video2urdf
+uv sync                         # Python 3.12 (pinned in .python-version) into .venv
+cp .env.example .env            # fill in the keys for the path you run
+curl -L -o laptop_lidar.zip \
+  https://github.com/SungHyunC/video2urdf/releases/download/sample-data-v1/laptop_lidar_stray.zip
+shasum -a 256 laptop_lidar.zip  # 0ee98f444e7287a00cf9a70355312cb4b5e6e494d9aeba9d4630b6b77d008996
+mkdir -p data/real/laptop_lidar &amp;&amp; unzip -q laptop_lidar.zip -d data/real/laptop_lidar
 
-<!-- ===================== OPEN WEIGHTS ===================== -->
-<section class="section site-only" id="open-weights">
-  <div class="wrap ow-grid">
-    <div class="ow-copy">
-      <span class="pill"><span class="dot"></span>Open weights only</span>
-      <h2>The whole pipeline, <span class="grad">on open weights</span></h2>
-      <p>With <code>--open-weights</code> every model call goes to open weights: Muse Spark Open for the agent, its physics judgement and the shape design, and SAM 3.1 / SAM 3 weights on your own Modal account. The Meta Model API is never called.</p>
-      <ul class="ow-results">
-        <li><b>Muse Spark Open + SAM weights</b>, the LiDAR laptop from scratch, 18 turns: lid <b class="m">305 × 209 mm</b> (spec 304 × 212), opening 3–122° following the video.</li>
-        <li><b>Muse Glimmer 30B, served by us</b>, through to physics: lid <b class="m">307 × 201 mm</b>, opening 0–108°, hinge friction <b class="m">0.164 N·m</b> measured with no hand on the lid.</li>
-        <li><b>RBO on open weights only</b>: laptops and books 7 of 7, hinge axis <b class="m">2.8°</b>, position <b class="m">33 mm</b>, angle <b class="m">2.8°</b> (medians).</li>
-      </ul>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/SungHyunC/video2urdf#open-weights-only-for-the-open-weight-prize-check">Every step from a fresh clone →</a>
-    </div>
-    <div class="code-card">
-      <div class="code-tabs" role="tablist" aria-label="Open-weights setups">
-        <button role="tab" aria-selected="true" data-code="ow1">Spark Open + SAM</button>
-        <button role="tab" aria-selected="false" data-code="ow2">Glimmer 30B</button>
-        <button role="tab" aria-selected="false" data-code="ow3">Own server</button>
-      </div>
-<pre class="code" id="ow1"><span class="c"># Muse Spark Open (BASETEN_API_KEY in .env); SAM weights on your Modal</span>
-.venv/bin/modal setup
-.venv/bin/modal secret create huggingface HF_TOKEN=hf_...
-.venv/bin/modal deploy modal_apps/sam3_open.py
-.venv/bin/python scripts/run_agent.py data/real/laptop_lidar \
-    --open-weights --out data/tracks_open</pre>
-<pre class="code" id="ow2" hidden><span class="c"># Muse Glimmer 30B on your own Modal GPU (bills while up)</span>
-.venv/bin/modal endpoint create --name glimmer \
-    --model meta-models/Muse-Glimmer-30B
-.venv/bin/modal endpoint info glimmer   <span class="c"># State: live -> GLIMMER_URL</span>
-.venv/bin/python scripts/run_agent.py data/real/laptop_lidar \
-    --open-weights --glimmer --out data/tracks_glimmer
-.venv/bin/modal endpoint stop glimmer --yes</pre>
-<pre class="code" id="ow3" hidden><span class="c"># Glimmer under vLLM, SGLang, llama.cpp or LM Studio (24 GB+)</span>
-export LOCAL_KEY=none AGENT_API_KEY_ENV=LOCAL_KEY \
-       AGENT_BASE_URL=http://localhost:8000/v1 \
+# Meta Model API (MODEL_API_KEY): Muse Spark + SAM 3.1
+.venv/bin/python scripts/run_agent.py data/real/laptop_lidar --out data/tracks_agent
+# Open weights only (BASETEN_API_KEY, and SAM deployed on your Modal: see "Open weights only" below)
+.venv/bin/python scripts/run_agent.py data/real/laptop_lidar --open-weights --out data/tracks_open</code></pre>
+  </div>
+  <p class="prose">Each run writes <code>&lt;out&gt;/laptop_lidar/</code>: <code>model.urdf</code>, <code>model.xml</code>, <code>replay3d.mp4</code> (the model drawn from the phone's own camera over the video), <code>agent/report.md</code> (its first line is the automatic checks' status), <code>agent/log.md</code> (every turn and image the model saw).</p>
+
+  <h3>Open weights only</h3>
+  <p class="prose">With <code>--open-weights</code> every model call goes to open weights: Muse Spark Open on Baseten (the agent, its physics judgement and the shape design; also on Fireworks when <code>FIREWORKS_API_KEY</code> is set) and SAM 3.1 / SAM 3 weights in your own Modal workspace. The Meta Model API is not called, so <code>MODEL_API_KEY</code> can stay empty.</p>
+  <div class="code">
+    <div class="code-head"><span>Muse Spark Open + SAM weights on your Modal</span><button class="copy" type="button">Copy</button></div>
+<pre><code># 0. The sample capture in data/real/laptop_lidar (see "Reproduce it" above).
+# 1. Muse Spark Open: BASETEN_API_KEY in .env. A Baseten workspace that lists the model as
+#    meta-models/muse-spark-open (not ...-1026) also needs BASETEN_MODEL=meta-models/muse-spark-open.
+.venv/bin/python scripts/smoke_test.py   # look for "[PASS] baseten chat"; lines for keys you don't have fail, fine here
+# 2. SAM weights on your Modal account. On Hugging Face, request access to facebook/sam3.1 and
+#    facebook/sam3 (SAM License), wait until both are granted, and make a read token.
+.venv/bin/modal setup                                       # browser login; token in ~/.modal.toml
+.venv/bin/modal secret create huggingface HF_TOKEN=hf_...   # the secret the Modal app reads
+.venv/bin/modal deploy modal_apps/sam3_open.py              # the first build takes minutes; ends with "App deployed"
+# 3. Everything on open weights. The first SAM call downloads the 3.5 GB checkpoint into the
+#    sam3-weights volume (once).
+.venv/bin/python scripts/run_agent.py data/real/laptop_lidar --open-weights --out data/tracks_open</code></pre>
+  </div>
+  <p class="prose">When it works, the run first names the model it runs (<code>model meta-models/muse-spark-open-1026</code>), then each turn (<code>segment</code>, <code>track</code>, <code>fit_lidar</code>, <code>watch</code>, <code>set_physics</code>, <code>finish</code>), then <code>=== report ===</code>, whose first line is the automatic checks' status, then <code>Shape design: &lt;object&gt;, applied</code> (or <code>not applied</code> when the design scores below the measured meshes). The SAM calls show on modal.com under the app <code>video2urdf-sam3-open</code>.</p>
+  <p class="prose">What to expect: the open-weights command, run from a fresh clone on 10/31 (Muse Spark Open on Baseten, SAM weights on Modal, shape design included), gave a lid of 306 × 213 mm (spec 304 × 212), base 10 mm, the replay covering 96% / 93% of the lid's and base's masks, and status <code>needs_review</code>: the screen track slid onto the lid's back as it shut, which that version of the checks flagged; that case has been an informational line since, so a run today can also end <code>checks_passed</code>. Runs vary; three Meta API runs gave lids of 304 to 316 mm.</p>
+
+  <h3>Muse Glimmer 30B on your own GPU</h3>
+  <p class="prose">Instead of Baseten (a Modal Dedicated Endpoint bills while it is up; stop it when done):</p>
+  <div class="code">
+    <div class="code-head"><span>Muse Glimmer 30B on a Modal Dedicated Endpoint</span><button class="copy" type="button">Copy</button></div>
+<pre><code>.venv/bin/modal workspace proxy-tokens create --name video2urdf --json
+#   -&gt; MODAL_PROXY_TOKEN_ID (Modal-Key) and MODAL_PROXY_TOKEN_SECRET (Modal-Secret) in .env
+.venv/bin/modal endpoint create --name glimmer --model meta-models/Muse-Glimmer-30B
+.venv/bin/modal endpoint info glimmer            # wait for State: live; put its URL in .env as GLIMMER_URL
+.venv/bin/python scripts/run_agent.py data/real/laptop_lidar --open-weights --glimmer --out data/tracks_glimmer
+.venv/bin/modal endpoint stop glimmer --yes</code></pre>
+  </div>
+  <p class="prose">Any other OpenAI-compatible server works the same way: Glimmer under vLLM, SGLang, llama.cpp's <code>llama-server</code> (<code>meta-models/Muse-Glimmer-30B-GGUF</code>) or LM Studio, with 24 GB+ of VRAM. Point the agent at it without <code>--open-weights</code> (that flag selects Baseten) and keep SAM on your Modal app:</p>
+  <div class="code">
+    <div class="code-head"><span>Your own OpenAI-compatible server</span><button class="copy" type="button">Copy</button></div>
+<pre><code># AGENT_MODEL: the name your server serves the model under; LOCAL_KEY: any value unless the server checks keys
+export LOCAL_KEY=none AGENT_API_KEY_ENV=LOCAL_KEY AGENT_BASE_URL=http://localhost:8000/v1 \
        AGENT_MODEL=muse-glimmer-30b AGENT_VIDEO=0 AGENT_MAX_IMAGES=8
-.venv/bin/python scripts/run_agent.py data/real/laptop_lidar \
-    --sam open --out data/tracks_local</pre>
-      <button class="copy code-copy" type="button" data-copy-visible aria-label="Copy these commands"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M11 3.5V3a1.5 1.5 0 0 0-1.5-1.5H3A1.5 1.5 0 0 0 1.5 3v6.5A1.5 1.5 0 0 0 3 11h.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg><span>Copy</span></button>
-    </div>
+.venv/bin/python scripts/run_agent.py data/real/laptop_lidar --sam open --out data/tracks_local</code></pre>
   </div>
+  <p class="prose"><code>AGENT_VIDEO=0</code> sends frames instead of mp4 video, for servers that drop video (our Glimmer endpoint does). With <code>BASETEN_API_KEY</code> or <code>FIREWORKS_API_KEY</code> set, the shape design (here and with <code>--glimmer</code>) also asks Spark Open there; add <code>--no-design</code> to keep every call on your own server.</p>
+  <p class="prose">What these runs gave (from a fresh clone, from scratch on the new captures, Glimmer through to physics, the RBO benchmark): <a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md#open-weights-only">docs/RESULTS.md › Open weights only</a>.</p>
+
+  <h3>Your own capture</h3>
+  <p class="prose">Film the object being opened and closed, slowly. With iPhone LiDAR (<a href="https://apps.apple.com/app/stray-scanner/id1557051662">Stray Scanner</a>) any angle works and handheld is fine. With a plain phone video, use a tripod, face the plane the part moves in and keep an ID-1 sized card in view (85.6 × 54 mm; a loyalty card, never a payment card).</p>
+  <div class="code">
+    <div class="code-head"><span>One command, any capture</span><button class="copy" type="button">Copy</button></div>
+<pre><code>.venv/bin/python scripts/video2urdf.py INPUT [--robot] [--open-weights]   # -&gt; data/runs/&lt;name&gt;/
+.venv/bin/python scripts/video2urdf.py INPUT --check-only                   # what it would do, nothing billed but one look</code></pre>
+  </div>
+  <p class="prose"><code>INPUT</code> can be a Stray Scanner zip or folder, any phone video, an RGB-D folder, a photo folder, or a zip of any of these; the type is read from the content. The run folder holds the model (<code>model/model.urdf</code>, <code>model/model.xml</code>), the replay over the video, the agent's log, a viewer folder and <code>summary.md</code>: what was measured, what was estimated, and the status.</p>
+  <p class="prose">Step by step (a 2D video, a LiDAR capture, plain video through MapAnything, the robot tasks, the viewer, SAM 3D meshes, URDF Doctor, the RBO benchmark) and how to check the downloads in MuJoCo, PyBullet, yourdfpy and Drake: <a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/COMMANDS.md">docs/COMMANDS.md</a>.</p>
 </section>
 
-<!-- ===================== CTA ===================== -->
-<section class="site-only cta-sec">
-  <div class="wrap">
-    <div class="cta">
-      <div>
-        <h2>Have something with a hinge or a slide? <span class="grad">Film it.</span></h2>
-        <p>One command takes the capture to a checked URDF and MJCF, with a summary of what was measured, what was estimated, and whether the checks passed.</p>
-      </div>
-      <div class="cta-btns">
-        <a class="btn btn-primary" href="https://github.com/SungHyunC/video2urdf#run-it">Run it on your video</a>
-        <a class="btn btn-ghost" href="demo.mp4" data-demo>Watch the demo · 2:55</a>
-      </div>
-    </div>
-  </div>
+<section id="limitations" class="site-only">
+  <h2>Limitations</h2>
+  <ul class="prose">
+    <li><strong>Small scope.</strong> v1 handles 1–3 joints. The 3D path (<code>fit_lidar</code>) handles one hinged plate or one slide; drawers (<code>fit_drawers</code>) and rod chains (<code>fit_chain</code>) have their own fits. A joint that turns about two axes (a swivel plus a hinge) and parallelogram arms are not modelled.</li>
+    <li><strong>Box lids and thin parts.</strong> Thin parts make replay IoU harsh; book covers and box lids track poorly (<a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md#benchmark-rbo-dataset-real-rgb-d-with-motion-capture">the benchmark</a>: in its 640 × 480 videos SAM loses box lids on most frames; 2 of 6 boxes got a fit).</li>
+    <li><strong>Plain video without LiDAR is experimental.</strong> MapAnything's depth needs a scale (a card, the object's usual size or one known length), local depth errors remain and the base thickness is not measurable (the laptop's RGB alone gave a lid of 321 × 195 mm against LiDAR's 306 × 210).</li>
+    <li><strong>What the camera can't see.</strong> A 2D side view cannot measure the width across the motion plane; it is assumed or set. Doors on vertical hinges: the hinge is placed within a few cm, and the body behind a door is only what the camera saw until <code>complete_body.py</code> completes it, partly from estimates (labelled). A lidded bin whose body SAM can't separate from its lid gives no usable model.</li>
+    <li><strong>New objects can fail.</strong> Three captures filmed after the code was fixed (a microwave, a step trash bin, an AirPods case) gave no usable model on their first run, and all three ended <code>needs_review</code> rather than passing. The fixes that followed were made after seeing them, so the reruns are development results, not blind tests (<a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/RESULTS.md#five-fresh-runs-per-object-and-three-objects-it-had-never-seen">details</a>).</li>
+    <li><strong>Estimates.</strong> Masses are Muse Spark's estimates. Joint friction is measured only where a part stood still with no hand on it; damping is not measured. SAM 3D Objects inflates the unseen side of flat, thin parts: on the laptop and the drawer its meshes were rejected and the measured visuals stay.</li>
+    <li><strong>Passing the checks is not a verification.</strong> <code>checks_passed</code> means none of the automatic checks objected, not that the model was verified against the real object. Runs vary: which part the agent takes as the base still varies between runs.</li>
+    <li><strong>The robot.</strong> The robot tasks fail on fresh side-view lid models (the lid starts at its limit and the hand never reaches it). The learned drawer policy is simulation only, run on the arm under Cartesian impedance control.</li>
+    <li>Floor levelling removes ARKit drift in height and tilt, not along the floor.</li>
+  </ul>
+</section>
+
+<section id="built-on" class="site-only">
+  <h2>Built during the hackathon, and what it builds on</h2>
+  <p class="prose">All code in this repository was written solo during the Meta Global AI Developer Hackathon (Oct 26 – Nov 4 2026), in small commits.</p>
+  <p class="prose"><strong>What we built on top:</strong> the agent and its tools, the SAM tracking strategy (key-frame concept prompts, then multi-anchor box tracking forward and over a reversed clip, both passes at once, strided on fast video), the 2D and 3D joint fits (plates, slides, drawers, rods on hinges from raw depth, visual hulls for static objects), link geometry, URDF/MJCF emission, the camera-pose MuJoCo replay and its scoring, Spark's shape design loop judged over the video with three Meta models per round, SAM 3D placement and checks, automatic scale for plain video, physics from still spans, the robot tasks (grasp planning on the measured geometry), URDF Doctor, the viewer with its turn-by-turn logs, and the RBO benchmark harness.</p>
+  <p class="prose"><strong>What it uses:</strong></p>
+  <ul class="prose">
+    <li>Meta models: Muse Spark, Muse Spark Open, Muse Glimmer, SAM 3.1, SAM 3, SAM 3D Objects (with DINOv2 inside it), MapAnything.</li>
+    <li><a href="https://github.com/google-deepmind/mujoco">MuJoCo</a> for simulation and the replay, and the Franka Panda from <a href="https://github.com/google-deepmind/mujoco_menagerie">MuJoCo Menagerie</a> (both Apache-2.0).</li>
+    <li><a href="https://github.com/facebookresearch/sam3">facebookresearch/sam3</a> and <a href="https://github.com/facebookresearch/sam-3d-objects">sam-3d-objects</a> (SAM License) and <a href="https://github.com/facebookresearch/map-anything">MapAnything</a> (Apache-2.0), run on Modal; <a href="https://pypi.org/project/meta-sam-parser/">meta-sam-parser</a> (SAM License) for the SAM API's output.</li>
+    <li>The <a href="https://zenodo.org/records/1036660">RBO dataset</a> for the benchmark (CC BY 4.0; downloaded, not redistributed): R. Martín-Martín, C. Eppner, O. Brock, “The RBO Dataset of Articulated Objects and Interactions”, IJRR 2019.</li>
+    <li>This page: <a href="https://threejs.org">three.js</a> and <a href="https://github.com/markedjs/marked">marked</a> (MIT), loaded from a CDN.</li>
+  </ul>
+  <p class="prose">Every project used, with its license: <a href="https://github.com/SungHyunC/video2urdf#built-on">README › Built on</a>.</p>
 </section>
 </main>
 
-<footer class="foot">
-  <div class="wrap foot-grid">
-    <div>
-      <a class="brand" href="#top">
-        <svg viewBox="0 0 32 32" aria-hidden="true"><rect x=".5" y=".5" width="31" height="31" rx="9" fill="#0b1020" stroke="#8fb0ff" stroke-opacity=".5"/><path d="M7 22.5h18" stroke="#8fb0ff" stroke-width="2.6" stroke-linecap="round"/><path d="M9 22.5 20.5 9.5" stroke="#bb9bff" stroke-width="2.6" stroke-linecap="round"/><circle cx="9" cy="22.5" r="3.3" fill="#ffb84d"/></svg>
-        Video2URDF</a>
-      <p>Built solo during the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026). One phone video of a real articulated object in, a measured URDF/MJCF out, checked against that video.</p>
-    </div>
-    <div>
-      <h4>Project</h4>
-      <ul>
-        <li><a href="https://github.com/SungHyunC/video2urdf">Code on GitHub</a></li>
-        <li><a href="demo.mp4">Demo video (2:55)</a></li>
-        <li><a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/DETAILS.md">Details and commands</a></li>
-        <li><a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/spark_alone.md">Why not just ask an AI?</a></li>
-      </ul>
-    </div>
-    <div>
-      <h4>Credits</h4>
-      <p style="margin-top:0">This page: <a href="https://threejs.org">three.js</a> (MIT) and <a href="https://github.com/markedjs/marked">marked</a> (MIT), from a CDN. Simulation: <a href="https://github.com/google-deepmind/mujoco">MuJoCo</a>; the Franka Panda from <a href="https://github.com/google-deepmind/mujoco_menagerie">MuJoCo Menagerie</a> (Apache-2.0). Benchmark: the <a href="https://zenodo.org/records/1036660">RBO dataset</a> (CC BY 4.0). Full list in the <a href="https://github.com/SungHyunC/video2urdf#built-on">README</a>.</p>
-    </div>
-  </div>
+<footer>
+  <p>Video2URDF · built solo for the Meta Global AI Developer Hackathon 2026 · <a href="https://github.com/SungHyunC/video2urdf">github.com/SungHyunC/video2urdf</a></p>
+  <p>The 3D viewer uses three.js and marked (MIT) from a CDN.</p>
 </footer>
+</div>
 
-<dialog class="demo-dialog site-only" id="demoDialog" aria-label="Demo video">
-  <button class="dlg-close" type="button" aria-label="Close">✕</button>
-  <video id="demoVideo" controls playsinline preload="none"></video>
-</dialog>
+<script>
+// Page helpers: the header's demo link plays the video; copy buttons on the command blocks.
+(() => {
+  const demo = document.getElementById("demoVideo");
+  document.getElementById("playDemo")?.addEventListener("click", (e) => {
+    if (!demo || e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+    e.preventDefault();
+    history.replaceState(null, "", "#demo");
+    demo.scrollIntoView({ block: "center" });
+    demo.play().catch(() => {});
+  });
+  for (const button of document.querySelectorAll(".code .copy")) {
+    button.addEventListener("click", async () => {
+      const code = button.closest(".code").querySelector("pre code");
+      try {
+        await navigator.clipboard.writeText(code.textContent);
+        button.textContent = "Copied";
+      } catch {  // no clipboard access (plain http): select the text instead
+        const range = document.createRange();
+        range.selectNodeContents(code);
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        button.textContent = "Selected";
+      }
+      setTimeout(() => { button.textContent = "Copy"; }, 1600);
+    });
+  }
+})();
+</script>
 
 <script type="importmap">
 { "imports": {
@@ -679,23 +491,21 @@ import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 const $ = (id) => document.getElementById(id);
 const video = $("video");
 const holder = $("view3d");
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });  // the background is #view3d's
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 holder.prepend(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 4 / 3, 0.005, 20);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-scene.add(new THREE.HemisphereLight(0xffffff, 0x5a6278, 1.6));
+scene.add(new THREE.HemisphereLight(0xffffff, 0x6b7280, 1.6));
 const sun = new THREE.DirectionalLight(0xffffff, 1.8);
 sun.position.set(1, 2, 1.5);
 scene.add(sun);
-const rim = new THREE.DirectionalLight(0x9b8cff, 0.7);  // a violet rim light from behind
-rim.position.set(-1.5, 1, -2);
-scene.add(rim);
-const grid = new THREE.GridHelper(2, 40, 0x4a5f96, 0x24304d);
-grid.material.transparent = true;
-grid.material.opacity = 0.55;
+const back = new THREE.DirectionalLight(0xffffff, 0.6);  // fill from behind
+back.position.set(-1.5, 1, -2);
+scene.add(back);
+const grid = new THREE.GridHelper(2, 40, 0xb0b8c1, 0xd3d9df);
 scene.add(grid);
 
 const stl = new STLLoader();
@@ -851,6 +661,19 @@ function frameCamera(root) {
 let loading = 0;  // the newest tab asked for: an older load that finishes later is dropped
 async function load(entry) {
   const ticket = ++loading;
+  const note = $("loading3d");
+  note.textContent = "Loading the model…";
+  note.hidden = false;
+  try {
+    await show(entry, ticket);
+    if (ticket === loading) note.hidden = true;
+  } catch (error) {
+    if (ticket === loading) note.textContent = "Could not load this model.";
+    throw error;
+  }
+}
+
+async function show(entry, ticket) {
   const next = await (await fetch(entry.path)).json();
   if (ticket !== loading) return;
   spec = next;
@@ -905,7 +728,6 @@ async function load(entry) {
   $("dlMjcf").download = `${spec.name}.xml`;
   $("dlBundle").hidden = !spec.bundle;  // the zip loads anywhere; a lone URDF/MJCF still needs its meshes
   $("dlUrdf").classList.toggle("btn-primary", !spec.bundle);
-  $("dlUrdf").classList.toggle("btn-ghost", !!spec.bundle);
   $("dlUrdf").textContent = spec.bundle ? "URDF file only" : "Download URDF";
   $("dlMjcf").textContent = spec.bundle ? "MJCF file only" : "Download MJCF";
   $("dlBundle").href = base + "model.zip";
@@ -1040,12 +862,12 @@ function setFollow(on) {
   $("follow").setAttribute("aria-pressed", String(on));
 }
 $("follow").onclick = () => setFollow(!follow);
-for (const a of document.querySelectorAll("[data-video]")) a.onclick = (e) => {  // the header's links press a video tab
+for (const a of document.querySelectorAll("[data-video]")) a.onclick = (e) => {  // the tagline's links press a video tab
   e.preventDefault();
   $("videoTabs").querySelector(`[data-key="${a.dataset.video}"]`)?.click();
 };
 
-// Render and play only while the viewer is on screen: the page around it has its own animations.
+// Render and play only while the viewer is on screen.
 let onScreen = true;
 video.addEventListener("pause", () => { if (onScreen) wantPlay = false; });  // a pause on screen is the user's
 video.addEventListener("play", () => { wantPlay = true; });
@@ -1078,7 +900,8 @@ function choose(entry, { scroll = false, trace = false } = {}) {
   for (const x of tabs.children) {
     const on = x.dataset.name === entry.name;
     x.setAttribute("aria-pressed", String(on));
-    if (on) tabs.scrollTo({ left: x.offsetLeft - tabs.clientWidth / 2 + x.offsetWidth / 2, behavior: "smooth" });  // keep the pressed tab in view
+    if (on && tabs.scrollWidth > tabs.clientWidth)  // a phone's one-line tab row: keep the pressed tab in view
+      tabs.scrollTo({ left: x.offsetLeft - tabs.clientWidth / 2 + x.offsetWidth / 2, behavior: "smooth" });
   }
   if (scroll) frame.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   if (chosen === entry.name && !trace) return Promise.resolve();
@@ -1094,7 +917,7 @@ for (const entry of index) {
   tabs.append(b);
 }
 const named = (hash) => index.find((e) => e.name === decodeURIComponent(hash.replace(/^#/, "")));
-// Links to a model (#notebook, the showcase cards) open its tab and bring the viewer into view.
+// Links to a model (#notebook, the results table) open its tab and bring the viewer into view.
 document.addEventListener("click", (e) => {
   const a = e.target.closest("a[href^='#']");
   const entry = a && named(a.getAttribute("href"));
@@ -1115,10 +938,9 @@ if (fromHash) {
   await choose(first);
 } else {
   // Load the first model when the viewer comes near the screen, so the page above it loads first.
-  const near = new IntersectionObserver(([e]) => { if (e.isIntersecting) { near.disconnect(); if (!chosen) choose(first); } }, { rootMargin: "1200px 0px" });
+  const near = new IntersectionObserver(([e]) => { if (e.isIntersecting) { near.disconnect(); if (!chosen) choose(first); } }, { rootMargin: "600px 0px" });
   near.observe($("viewer"));
 }
 </script>
-<script type="module" src="assets/site.js"></script>
 </body>
 </html>

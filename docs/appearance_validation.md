@@ -1,5 +1,11 @@
 # Object-aware appearance: validation on the existing captures
 
+> A development log, written on 10/30 while the experimental appearance-completion path
+> (`scripts/video_to_model.py`, `scripts/infer_appearance.py`, `scripts/transfer_sam3d_texture.py`)
+> was built. Each number describes one experiment on that day's code. None of the published
+> viewer models use this path. Current results: [RESULTS.md](RESULTS.md); commands:
+> [COMMANDS.md](COMMANDS.md#experimental-object-aware-appearance-completion).
+
 These are development results on the existing phone captures, not a general accuracy claim.
 The measured skeleton, collisions and physics remain the output of the original fitting
 pipeline; inferred geometry and textures are visual hypotheses.

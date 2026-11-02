@@ -86,7 +86,7 @@ Spark's answers, placed where it fits best; its joint limit stops it at 110 deg.
     couldn't be placed on it; its five answers read 55-89 deg off, an artefact of the placement.
     They are in the files below, unscored.
   - RBO laptop04, book03 and book05: their measured base or lid can't place another model. Their
-    hinges are in the README's RBO table.
+    hinges are in the [RBO table](RESULTS.md#benchmark-rbo-dataset-real-rgb-d-with-motion-capture).
 
 ## Files
 

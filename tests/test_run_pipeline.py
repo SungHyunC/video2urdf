@@ -98,7 +98,38 @@ class RobotResultsTest(unittest.TestCase):
             self.assertEqual(r["kind"], "plate (obj_lid_joint)")
             self.assertEqual(r["tasks"], [{"task": "Close the lid", "ended": "-85.7 deg"},
                                           {"task": "Open it again", "ended": "+14.5 deg"}])
+            self.assertNotIn("notes", r)
             self.assertIsNone(robot_results(Path(tmp) / "missing.log"))
+
+    def test_notes_contacts_and_doors(self):
+        from video2urdf.run import robot_results
+        from video2urdf.summary import write_summary
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "robot.log"
+            log.write_text(
+                "plate (obj_lid_joint); IK error max 0 mm; video -> a.mp4\n"
+                "  lid: shut at +74.5 deg, open end -3.9 deg (measured range 78 deg); starts at -3.9 deg (not the "
+                "reference pose +0.0 deg: it rests here, not there). Left alone 4.5 s ...\n"
+                "  lid: closed to +61.7 deg from its start, not to within 7 deg of shut (+78.4 deg): ...\n"
+                "  deepest hand contact per part (a handle being held aside; the held part includes the squeeze): "
+                "base 0.0 mm, lid 1.1 mm\n"
+                "  after 'Close the lid': +61.0 deg\n  after 'Open it again': -0.0 deg\n")
+            r = robot_results(log)
+            self.assertEqual(len(r["notes"]), 2)
+            self.assertTrue(r["notes"][0].startswith("lid: shut at +74.5 deg"))
+            self.assertEqual(r["deepest_hand_contact"], "base 0.0 mm, lid 1.1 mm")
+            write_summary(Path(tmp), {"name": "x", "source": "x.mov", "status": "checks_passed", "robot": r,
+                                      "steps": [], "seconds": 1})
+            md = (Path(tmp) / "summary.md").read_text()
+            self.assertIn("Close the lid -> +61.0 deg; Open it again -> -0.0 deg", md)
+            self.assertIn("- lid: closed to +61.7 deg", md)
+            self.assertIn("base 0.0 mm, lid 1.1 mm", md)
+            log.write_text("door (obj_lid_joint); IK error max 49 mm; video -> a.mp4\n"
+                           "  door: shut at +12.2 deg, open end -42.0 deg (measured range 54 deg) ...\n"
+                           "  after 'Pull the door open': -31.3 deg (door open 46.3 deg)\n")
+            r = robot_results(log)
+            self.assertEqual(r["kind"], "door (obj_lid_joint)")
+            self.assertEqual(r["notes"], ["door: shut at +12.2 deg, open end -42.0 deg (measured range 54 deg) ..."])
 
 
 class StepsTest(unittest.TestCase):

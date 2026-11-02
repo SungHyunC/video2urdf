@@ -2,12 +2,14 @@
 
 Command-line entry points, grouped by what you'd use them for. Each script's docstring has its
 usage. Run them with the project's environment: `.venv/bin/python scripts/<name>.py ...`.
+The commands by task, with examples: [docs/COMMANDS.md](../docs/COMMANDS.md).
 
 ## Build a model from a video
 | Script | What it does |
 |---|---|
+| `video2urdf.py` | One command for whatever was filmed (a Stray Scanner capture or zip, any phone video, an RGB-D folder, a photo folder): capture check, routing to the 3D or planar path, the agent, physics, texture, shape design, completing an unseen body, robot tasks (`--robot`), a viewer folder and `summary.md` |
 | `run_agent.py` | The Muse Spark agent: a video or an iPhone LiDAR / RGB-D capture in, a measured URDF + MJCF out (then Spark's shape design). `--open-weights`, `--glimmer` |
-| `video_to_model.py` | One command for an RGB-D capture or a plain phone video (MapAnything depth + automatic scale), through to a viewer folder |
+| `video_to_model.py` | One command for an RGB-D capture or a plain phone video (MapAnything depth + automatic scale), through to a viewer folder, with the experimental object-aware appearance completion |
 | `video_to_capture.py` | A plain phone video -> an RGB-D capture in the Stray Scanner layout (MapAnything on Modal) |
 | `calibrate_capture.py` | A calibrated copy of a MapAnything capture from one known length |
 
@@ -18,6 +20,7 @@ usage. Run them with the project's environment: `.venv/bin/python scripts/<name>
 | `add_physics.py` | Masses, inertia and joint friction (Spark judges materials; friction from still spans) |
 | `texture_model.py` | Paints each face with the video frame that saw it best |
 | `sam3d_meshes.py` | Realistic link meshes from SAM 3D Objects, checked against the LiDAR depth |
+| `complete_body.py` | Completes the hidden body of a partly seen object (a microwave in a shelf): measured where seen, bounded by the video, estimated by Muse Spark otherwise; `--remove` restores the measured-only model |
 | `infer_appearance.py`, `resume_appearance.py`, `transfer_sam3d_texture.py` | Appearance completion for hidden faces (experimental) |
 
 ## Use the model
@@ -33,7 +36,7 @@ usage. Run them with the project's environment: `.venv/bin/python scripts/<name>
 | Script | What it does |
 |---|---|
 | `rbo_download.py`, `rbo_bench.py`, `rbo_eval.py` | The RBO motion-capture benchmark: download, run the agent, score exactly the agent's fit |
-| `refit_lidar.py` | Re-run the agent's LiDAR fit on saved tracks, in a copy (regression checks) |
+| `refit_lidar.py`, `refit_chain.py` | Re-run the agent's LiDAR hinge fit or rod-chain fit on saved tracks, in a copy (regression checks) |
 | `spark_alone.py` | The "just ask an AI" baseline: the same Muse Spark asked plainly for a URDF of each video, no tools; scored by URDF Doctor and motion capture |
 | `make_synth.py`, `eval_tracks.py`, `fit3d.py` | Synthetic videos with known joints, and scoring against them |
 | `eval_pseudo_depth.py`, `compare_hinges.py` | MapAnything depth and hinge fits against the LiDAR capture |
@@ -46,7 +49,7 @@ usage. Run them with the project's environment: `.venv/bin/python scripts/<name>
 | `export_viewer.py` | Exports runs to the web viewer in `docs/` (GitHub Pages); `--repack` only makes a published model's downloads portable |
 | `make_demo.py` | Cuts the demo video from the project's outputs (`docs/demo.mp4`, `docs/demo_script.md`) |
 | `make_hero.py` | The README's hero GIF (`docs/media/hero.gif`) from one viewer model's published videos |
-| `make_site_media.py` | The landing page's before/after pairs and showcase loops (`docs/assets/`), cut from the published viewer videos |
+| `render_completion_demo.py` | The demo clip of a completed body: measured parts, the estimated boxes in orange, a probe stopping on the back |
 | `make_reel.py`, `make_viewer.py` | A single run's reel; a local review page |
 
 ## Lower-level steps (used by the agent; handy for debugging)
