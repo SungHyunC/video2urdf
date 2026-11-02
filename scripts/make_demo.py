@@ -54,6 +54,7 @@ DESIGN = ROOT / "data" / "tracks_design"  # runs with Spark's shape design appli
 LAMP = ROOT / "data" / "tracks_agent2" / "stand_lidar"  # the LiDAR desk lamp (rods on hinges)
 MOUSE = ROOT / "data" / "tracks_agent2" / "mouse_lidar"  # the black mouse (visual hull + SAM 3D)
 MICROWAVE_PHONE = ROOT / "docs" / "models" / "microwave_lidar" / "phone.mp4"  # the viewer tab's (reviewed) frames
+OPEN_FULL = ROOT / "data" / "archive" / "tracks_open_full" / "laptop_lidar"  # Spark Open + SAM weights, from scratch
 SPARK_ALONE = ROOT / "data" / "spark_alone"
 SPARK_URDF = ROOT / "examples" / "spark_alone" / "drawer_lidar_run2.urdf"  # Spark alone's drawer answer (run 2)
 DOOR_ROBOT = ASSETS / "robot_door.mp4"  # the Panda opening and shutting the completed microwave's door
@@ -207,6 +208,32 @@ def card(lines: list[tuple[str, int, bool, tuple]], top: int = 260) -> Callable[
             items.append(((W // 2, y), text, size, bold, rgb, "ma"))
             y += int(size * (1.5 + text.count("\n") * 1.35))
         return text_layer(blank(), items)
+    return draw
+
+
+def footage_card(path: Path, label: str, lines: list[tuple[str, int, bool, tuple]],
+                 code: list[str] | None = None, code_after: int = 2) -> Callable[[float], np.ndarray]:
+    """Real footage on the left, what it shows on the right (no text-only cards: the rules say
+    no slides). ``code`` lines (monospace) go after the first ``code_after`` text lines."""
+    clip = Clip(path)
+    mono = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", 25)
+
+    def draw(p):
+        c = blank()
+        x, y, w, h = place(c, clip.at(p), (40, 100, 1000, 690))
+        c = text_layer(c, [((x + w // 2, y + h + 12), label, 26, False, (200, 200, 200), "ma")])
+        im = Image.fromarray(cv2.cvtColor(c, cv2.COLOR_BGR2RGB))
+        d = ImageDraw.Draw(im)
+        ty = 130
+        for i, (text, size, bold, rgb) in enumerate(lines):
+            if code and i == code_after:
+                for row in code:
+                    d.text((1100, ty), row, font=mono, fill=(255, 170, 80))
+                    ty += 40
+                ty += 22
+            d.multiline_text((1100, ty), text, font=font(size, bold), fill=rgb, spacing=int(size * 0.3))
+            ty += int(size * 1.45 * (1 + text.count("\n"))) + 14
+        return cv2.cvtColor(np.array(im), cv2.COLOR_RGB2BGR)
     return draw
 
 
@@ -464,22 +491,29 @@ def scenes(baseline: bool = True, door_clip: Path | None = DOOR_ROBOT) -> list[S
               "URDF Doctor checks the models you already have against a video. Three injected bugs and a joint "
               "log with its sign flipped: all found.",
               ["URDF Doctor: an existing URDF vs. the motion in the video"],
-              card([("URDF Doctor", 64, True, white),
-                    ("laptop_buggy.urdf (hinge +25 mm, axis tilted 6 deg, limit 90 deg)", 40, True, grey),
-                    ("axis 7.6 deg off   |   hinge 18 mm off   |   video needs 127 deg, limit is 90", 38, False, red),
-                    ("joint log with the sign reversed:  log = -1.00 x expected", 38, False, red)],
-                   top=300)),
+              footage_card(PHONE, "the video it checks the URDF against",
+                           [("URDF Doctor", 52, True, white),
+                            ("examples/doctor/laptop_buggy.urdf\nbugs put in: hinge +25 mm, axis tilted 6 deg,\nlimit 90 deg",
+                             30, False, grey),
+                            ("found: axis 7.6 deg off", 34, False, red),
+                            ("found: hinge 18 mm off", 34, False, red),
+                            ("found: the video needs 127 deg,\nthe limit is 90", 34, False, red),
+                            ("a joint log with its sign reversed:\nlog = -1.00 x expected", 34, False, red)],
+                           code=['<origin xyz="-0.0812 0 0.0105"/>', '<axis xyz="0 -0.99452 0.10453"/>',
+                                 '<limit lower="0" upper="1.5708"/>'])),
         Scene("Open weights",
               "Every model it calls is a Meta model, and it runs end to end on open weights, Muse Spark Open or "
               "Muse Glimmer on our own GPU, reproduced from a fresh clone.",
               ["--open-weights: Muse Spark Open + SAM 3.1 / SAM 3 weights  |  --glimmer: Muse Glimmer 30B"],
-              card([("Open weights, end to end", 64, True, white),
-                    ("run_agent.py --open-weights [--glimmer]", 44, False, blue),
-                    ("Muse Spark Open (Baseten) or Muse Glimmer 30B (our Modal endpoint)", 40, False, grey),
-                    ("+ SAM 3.1 / SAM 3 weights on a Modal GPU", 40, False, grey),
-                    ("same laptop: lid 305 x 209 mm (Spark Open), 307 x 201 mm (Glimmer)", 36, False, grey),
-                    ("fresh clone, README commands: lid 306 x 213 mm, replay 96% / 93%", 36, False, grey)],
-                   top=310)),
+              footage_card(OPEN_FULL / "replay3d.mp4",
+                           "open weights only: Muse Spark Open + SAM weights, the laptop from scratch",
+                           [("Open weights, end to end", 52, True, white),
+                            ("run_agent.py --open-weights [--glimmer]", 34, False, blue),
+                            ("Muse Spark Open (Baseten), or Muse Glimmer 30B\non our own Modal endpoint", 32, False, grey),
+                            ("+ SAM 3.1 / SAM 3 weights on a Modal GPU", 32, False, grey),
+                            ("this run (Spark Open): lid 305 x 209 mm\nGlimmer: lid 307 x 201 mm", 32, False, white),
+                            ("from a fresh clone, the README's commands:\nlid 306 x 213 mm, replay 96% / 93%", 32, False, grey)],
+                           code_after=99)),
         Scene("Try it",
               "Everything is in the browser, with URDF downloads and every step the agent took. One video in, "
               "a model a robot can use out.",
