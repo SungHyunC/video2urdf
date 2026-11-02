@@ -326,9 +326,9 @@ plate sits on the closed surface while the object is open: fresh laptop runs pas
 - `checks_passed` means none of the automatic checks objected, not that the model was verified
   against the real object. Runs vary: which part the agent takes as the base still varies
   between runs.
-- The robot tasks fail on fresh side-view lid models (the lid starts at its limit and the hand
-  never reaches it). The learned drawer policy is simulation only, run on the arm under Cartesian
-  impedance control.
+- The robot works every published model and the side-view lids from the one command, but not the
+  side-view lamp from that test: its tall arm stands where the hand starts. Everything the robot
+  does is in simulation; the learned drawer policy runs on the arm under Cartesian impedance control.
 - SAM 3D Objects inflates the unseen side of flat, thin parts: on the laptop and the drawer its
   meshes were rejected and the measured visuals stay.
 

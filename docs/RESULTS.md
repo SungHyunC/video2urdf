@@ -485,9 +485,17 @@ See [validation details](appearance_validation.md) before relying on RGB-only di
 laptop, microwave and AirPods-case captures, a side-view MOV, the same
 MOV turned 90 deg and cut to 60 fps, and an RGB-only video: all seven produced a model (six passed
 the checks; the RGB-only laptop came out 321 x 195 mm against LiDAR's 306 x 210 and needs review).
-The simulated robot worked three of the seven; the door task was added after this test (on the
-published microwave it pulls the door open to 46 deg and pushes it shut), the side-view lids
-still fail.
+The simulated robot worked three of the seven at the time; the door task was added after this
+test (on the published microwave it pulls the door open to 46 deg and pushes it shut). The two
+side-view lids failed because their measured hinge friction was too small to hold the lid at the
+video's reference pose: it fell to its limit before the hand arrived. Now a lid starts at a pose
+where it rests (left alone for 4.5 s in simulation, it moves less than 1 deg), the gripper eases
+shut and open on plates, and the closing stops before the hand would touch the base or the
+pedestal. On the same two runs the robot now closes the lid 61 and 62 deg (of a 78 and 77 deg
+range) and opens it back to 0 deg. On the published LiDAR laptop the lid no longer springs 10 deg
+open when it is let go (reopened to +0.3 deg; the fingers press 0.4 mm into the lid, was 6.3 mm).
+The side-view lamp from the transposed MOV still fails: its tall arm stands where the hand starts,
+and the first move knocks it down 26 deg.
 
 ## The downloads, loaded outside our scripts
 
