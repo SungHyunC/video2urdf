@@ -177,6 +177,26 @@ def fit_lidar_hinge(c, roles, log=print) -> tuple[dict, list[int]]:
     return summary, references
 
 
+MIN_SHUT_FRAMES = 10  # frames known shut (no open indicator) that zero an estimated capture's opening
+
+
+def openings_from_shut(q: np.ndarray, shut, ref: int) -> dict | None:
+    """Opening per frame in degrees (0 = shut) as the plate's turn from its median angle over the
+    frames known shut, signed so the reference frame reads open; None with fewer than
+    MIN_SHUT_FRAMES of them measured. For estimated depth: it places a part's surfaces
+    centimetres off along the line of sight, differently from frame to frame, so the plate's and
+    base's centroids around the hinge misjudge the reference frame's opening (LiDAR laptop's own
+    video: 104 deg there while the planes turn 135 from it to shut, every shut frame then reading
+    25-30 deg past closed); the planes' turn from shut is consistent."""
+    known = [t for t in shut if 0 <= t < len(q) and np.isfinite(q[t])]
+    if len(known) < MIN_SHUT_FRAMES or ref >= len(q) or not np.isfinite(q[ref]):
+        return None
+    zero = float(np.median(q[known]))
+    sense = 1.0 if q[ref] >= zero else -1.0
+    return {"deg": {t: float(np.rad2deg(sense * (q[t] - zero))) for t in range(len(q)) if np.isfinite(q[t])},
+            "shut_frames": len(known)}
+
+
 def can_use_closed_fallback(c, roles, t: int) -> bool:
     """A visible open base cannot simultaneously stand in for a missing lid."""
     if not roles.open_indicator or not c.has(roles.open_indicator, t):
@@ -608,6 +628,12 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
     open_deg = {t: float(np.rad2deg(np.arccos(np.clip(radial(m) @ u_base, -1, 1)))) for t, m in hinge.centroids.items()
                 if not np.isnan(hinge.q[t])}
     opening = open_deg[c.ref]
+    zeroed = openings_from_shut(hinge.q, shut, c.ref) if getattr(c, "estimated_depth", False) and shut else None
+    if zeroed is not None:
+        log(f"estimated depth: the opening is measured from the {zeroed['shut_frames']} frames shown shut (a shut lid "
+            f"lies on its base), not from where the plate's and base's centroids sit around the hinge "
+            f"({opening:.0f} deg on the reference frame that way, {zeroed['deg'][c.ref]:.0f} from shut)")
+        open_deg, opening = zeroed["deg"], zeroed["deg"][c.ref]
     q = np.rad2deg(hinge.q[valid])
     along = (plate[c.ref] - hinge.point) @ hinge.axis if c.ref in plate else np.zeros(2)
     summary = {
@@ -620,6 +646,8 @@ def fit_hinge(c: Capture, roles: Roles, log=print) -> dict:
         "plate_span_along_hinge_mm": float(1000 * np.ptp(along)),
     }
     summary["from_open_object"] = used_open
+    if zeroed is not None:
+        summary["opening_zeroed_on_shut_frames"] = zeroed["shut_frames"]
     log(f"hinge: plate planes on {summary['frames_with_plate']}/{c.n} frames ({used_closed} closed and {used_open} "
         f"half-open from {roles.plate_closed}), "
         f"{summary['outliers_dropped']} outliers dropped; axis {summary['hinge_to_base_plane_deg']:.1f} deg off the "

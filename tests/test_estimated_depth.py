@@ -1,5 +1,5 @@
-"""Estimated-depth (MapAnything) captures: no gravity, focal source, and the floor's plane
-as up for rod chains."""
+"""Estimated-depth (MapAnything) captures: no gravity, focal source, opening zeroed on shut frames,
+and the floor's plane as up for rod chains."""
 
 import json
 import tempfile
@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 from video2urdf.chain3d import floor_plane
-from video2urdf.lidar import Capture
+from video2urdf.lidar import Capture, openings_from_shut
 
 
 def stray_folder(root: Path, mapanything: dict | None) -> Path:
@@ -51,6 +51,22 @@ class EstimatedCaptureTest(unittest.TestCase):
             self.assertTrue(c.focal_known)
         with tempfile.TemporaryDirectory() as tmp:
             self.assertFalse(self.capture(stray_folder(Path(tmp), {"focal_given": False})).focal_known)
+
+
+class ShutZeroTest(unittest.TestCase):
+    def test_opening_measured_from_the_shut_frames(self):
+        q = np.full(100, np.nan)
+        q[:40] = 0.0  # the reference pose (open), q = 0 there
+        q[50:90] = np.deg2rad(-130) + np.deg2rad(np.linspace(-2, 2, 40))  # shut, 130 deg away
+        out = openings_from_shut(q, set(range(50, 90)), ref=0)
+        self.assertEqual(out["shut_frames"], 40)
+        self.assertAlmostEqual(out["deg"][0], 130, delta=0.1)  # the reference reads open, positive
+        self.assertAlmostEqual(np.median([out["deg"][t] for t in range(50, 90)]), 0, delta=0.1)
+        self.assertNotIn(45, out["deg"])  # frames without an angle stay without one
+
+    def test_too_few_shut_frames(self):
+        q = np.zeros(30)
+        self.assertIsNone(openings_from_shut(q, {1, 2, 3}, ref=0))
 
 
 class FloorPlaneTest(unittest.TestCase):
