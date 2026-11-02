@@ -123,7 +123,8 @@ def top_height(c, top: str, around: list[str], floor: str, exclude: list[str], l
     partners = sorted({far[int(i)] for i in np.linspace(0, len(far) - 1, min(PARTNERS, len(far)))})
     need = range(min(partners + [ref]), max(partners + [ref]) + 1)
     grays, cap = {}, cv2.VideoCapture(str(c.video))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, need.start)
+    for _ in range(need.start):  # decode in order: seeking is unreliable on variable-rate phone video
+        cap.grab()
     for t in need:
         ok, img = cap.read()
         if not ok:
