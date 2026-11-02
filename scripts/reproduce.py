@@ -159,6 +159,7 @@ def main():
     ap.add_argument("--published", type=Path, default=ROOT / "docs" / "models" / R.CASE / "model.json",
                     help="the published model.json to compare with")
     args = ap.parse_args()
+    sys.stdout.reconfigure(line_buffering=True)  # progress and the final stop message in order in a log
     try:
         sys.exit(run(args))
     except R.ReproduceError as error:

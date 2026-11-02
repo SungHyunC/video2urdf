@@ -18,6 +18,7 @@ import os
 import re
 import shutil
 import socket
+import ssl
 import urllib.error
 import urllib.request
 import zipfile
@@ -73,13 +74,23 @@ def sha256(path: Path) -> str:
 
 # ----------------------------------------------------------------------------- downloads
 
+def ssl_context() -> ssl.SSLContext:
+    """Certificate authorities from certifi (installed with the openai client): the python.org
+    macOS build has none of its own until its 'Install Certificates' step is run."""
+    try:
+        import certifi
+    except ImportError:
+        return ssl.create_default_context()
+    return ssl.create_default_context(cafile=certifi.where())
+
+
 def download(url: str, dest: Path, log=print) -> Path:
     """``url`` into ``dest`` (through a .part file); raises DownloadError with the HTTP status."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
     request = urllib.request.Request(url, headers={"User-Agent": "video2urdf-reproduce"})
     try:
-        with urllib.request.urlopen(request, timeout=60) as response, open(part, "wb") as f:
+        with urllib.request.urlopen(request, timeout=60, context=ssl_context()) as response, open(part, "wb") as f:
             total, done, shown = int(response.headers.get("Content-Length") or 0), 0, 0
             for block in iter(lambda: response.read(1 << 20), b""):
                 f.write(block)
