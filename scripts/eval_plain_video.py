@@ -63,6 +63,28 @@ def axis_in_ref_camera(test: dict, ref_frame: int, lidar: Path | None):
     return inv[:3, :3] @ axis, inv[:3, :3] @ point + inv[:3, 3]
 
 
+def stl_vertices(path: Path) -> np.ndarray:
+    """Vertices of a binary STL (shape.write_stl's output)."""
+    data = path.read_bytes()
+    n = int(np.frombuffer(data[80:84], "<u4")[0])
+    tri = np.frombuffer(data[84:84 + 50 * n], np.dtype([("n", "<f4", 3), ("v", "<f4", (3, 3)), ("a", "<u2")]))
+    return tri["v"].reshape(-1, 3).astype(float)
+
+
+def hinge_on_base(run: Path) -> tuple[float, float] | None:
+    """Where the hinge sits on the base, in the model frame (hinge on the x axis, z up off the
+    base): its distance in from the base's nearest edge across the hinge, and its height above
+    the base's top (mm). Independent of where the object stands along the line of sight, which
+    estimated depth gets wrong as a whole."""
+    path = run / "meshes" / "base.stl"
+    if not path.exists():
+        return None
+    v = stl_vertices(path)
+    y0, y1 = v[:, 1].min(), v[:, 1].max()
+    inset = min(abs(y0), abs(y1)) if y0 <= 0 <= y1 else -min(abs(y0), abs(y1))  # negative: outside the base
+    return 1000 * float(inset), -1000 * float(v[:, 2].max())
+
+
 def score_hinge(ref: Path, test: Path, lidar: Path | None) -> dict:
     hr, ht = (json.loads((p / "hinge.json").read_text()) for p in (ref, test))
     mr, mt = (json.loads((p / "model3d.json").read_text()) for p in (ref, test))
@@ -83,6 +105,11 @@ def score_hinge(ref: Path, test: Path, lidar: Path | None) -> dict:
         out["axis_err_deg"] = round(float(np.rad2deg(np.arccos(np.clip(abs(ua @ ub), 0, 1)))), 2)
         d = point - np.array(hr["point"])
         out["axis_offset_mm"] = round(1000 * float(np.linalg.norm(d - (d @ ub) * ub)), 1)
+    on_base, on_base_ref = hinge_on_base(test), hinge_on_base(ref)
+    if on_base and on_base_ref:
+        out["hinge_on_base_mm"] = [round(x, 1) for x in on_base]  # in from the base's edge, above its top
+        out["hinge_on_base_ref_mm"] = [round(x, 1) for x in on_base_ref]
+        out["hinge_on_base_err_mm"] = round(float(np.hypot(on_base[0] - on_base_ref[0], on_base[1] - on_base_ref[1])), 1)
     oa, ob = absolute_opening(ht), absolute_opening(hr)
     k = min(len(oa), len(ob))
     diff = np.abs(oa[:k] - ob[:k])
@@ -142,7 +169,8 @@ def row(case: dict, s: dict) -> str:
         cov = " / ".join(f"{100 * v:.0f}%" for v in s["mask_coverage"].values())
         return (f"| {name} | {s['plate_mm'][0]:.0f} x {s['plate_mm'][1]:.0f} ({s['plate_err_pct'][0]:+.0f}% / "
                 f"{s['plate_err_pct'][1]:+.0f}%) | {s['base_thickness_mm']:.0f} | {s.get('axis_err_deg', 'n/a')} | "
-                f"{s.get('axis_offset_mm', 'n/a')} | {s['opening_range_deg'][0]:.0f}..{s['opening_range_deg'][1]:.0f} | "
+                f"{s.get('axis_offset_mm', 'n/a')} / {s.get('hinge_on_base_err_mm', 'n/a')} | "
+                f"{s['opening_range_deg'][0]:.0f}..{s['opening_range_deg'][1]:.0f} | "
                 f"{s['opening_err_deg_median']} / {s['opening_err_deg_p90']} | {cov} |")
     if s["kind"] == "static":
         b = " x ".join(f"{x:.0f}" for x in s["box_mm"])
@@ -155,8 +183,9 @@ def row(case: dict, s: dict) -> str:
             f"{(s.get('axis_err_deg') or ['n/a'])[0]} | | | | {cov} |")
 
 
-HEADER = ("| object | variant | lid / box / travel (vs LiDAR) | base thickness mm | axis err deg | axis offset mm | "
-          "opening range deg | opening err median / p90 deg | replay coverage |\n|---|---|---|---|---|---|---|---|---|")
+HEADER = ("| object | variant | lid / box / travel (vs LiDAR) | base thickness mm | axis err deg | "
+          "axis offset in the camera / on the base, mm | opening range deg | opening err median / p90 deg | "
+          "replay coverage |\n|---|---|---|---|---|---|---|---|---|")
 
 
 def main():
