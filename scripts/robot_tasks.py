@@ -5,8 +5,10 @@ What the robot does depends on what was measured:
   video's reference frame had it if it rests there on its own; a side-view fit often measures the
   hinge friction only where the lid stood near balance, too little to hold it anywhere else, so
   otherwise it starts at the most open pose of its measured range where it does rest (against its
-  open limit, or held by that friction) and doesn't fall shut before the hand gets there. The
-  fingers close on it and let go of it gradually;
+  open limit, or held by that friction) and doesn't fall shut before the hand gets there. It is
+  closed only as far as the robot holding its free edge clears the rest of the object and the
+  pedestal (near shut the inner finger is caught between the lid and its base); the fingers close on
+  it and let go of it gradually;
 - a door (a plate on a vertical hinge: a microwave's): the robot stands in front of it; pinch the free
   edge at mid-height (fingers closing across the door), pull it open along its arc to most of its
   measured range, let go, then push it shut with the fingertips on its outer face. A model without a
@@ -59,6 +61,8 @@ DOOR_REACH_X = 0.58  # where the middle of the door's working arc is placed in f
 REST_SECONDS = 4.5  # a lid must stay put this long on its own: the hand takes 3.8 s to reach it and close
 REST_TOL_DEG = 1.0  # ... moving less than this
 LID_START_STEP_DEG = 2.5  # start poses tried from a lid's open end towards the middle of its range
+LID_CLEAR_STEP_DEG = 2.5  # a lid's closing is checked in these steps for the hand meeting the rest of the object
+LID_CLEAR_TOL = 0.001  # m: ... which it may touch this deep
 HOLD_FRICTION = 20.0  # N m: a joint held where it is (one not being worked; a lid until the fingers close)
 DESIGN_NAMES: dict[str, str] = {}
 DEBUG = False  # filled from the run's design.json
@@ -463,6 +467,16 @@ def easing_open(u: float) -> float:
     return OPEN * smooth(u)
 
 
+def grip_width(model, data, grasp: Grasp, reach: float = 0.03) -> float:
+    """How far apart the finger pads stand closed on the object at the grasp: the extent along the fingers' axis
+    of the held body's collision points within ``reach`` of the grasp point along the approach (all its points if
+    fewer than two are that close)."""
+    b = model.body(grasp.body).id
+    rel = (collision_points(model, data, b) - data.xpos[b]) @ data.xmat[b].reshape(3, 3) - grasp.pos  # body frame
+    near = rel[np.abs(rel @ (grasp.approach / np.linalg.norm(grasp.approach))) < reach]
+    return float(np.ptp((near if len(near) >= 2 else rel) @ (grasp.fingers / np.linalg.norm(grasp.fingers))))
+
+
 def lid_ends(model, data, joint: str, grasp: Grasp) -> tuple[float, float]:
     """A lid's shut end of its range (where the grasp point on its free edge sits lowest) and its open end."""
     lo, hi = (float(v) for v in model.jnt_range[model.joint(joint).id])
@@ -676,7 +690,42 @@ def main():
 
     robot_bodies = {i for i in range(model.nbody) if model.body(i).name not in ("world", "object")
                     and not model.body(i).name.startswith("obj_")}
-    start_note = ""
+    start_note = close_note = ""
+
+    def lid_close(q_from: float, q_to: float):
+        """How far to close a lid: the most closed joint value on the way from q_from to q_to (in
+        LID_CLEAR_STEP_DEG steps, the arm's IK followed from step to step as it moves) where the robot, its
+        fingers closed on the lid's free edge, touches the rest of the object and the pedestal less than
+        LID_CLEAR_TOL and reaches the grasp point within 5 mm. Returns (q, None) if that is q_to, else (q, (the
+        first q that fails, its deepest contact, what it touches, the IK error))."""
+        gap = min(0.08, grip_width(model, data, grasp))
+        n = max(1, int(np.ceil(abs(np.rad2deg(q_to - q_from)) / LID_CLEAR_STEP_DEG)))
+        arm = ik.solve(HOME.copy(), *grasp_pose(q_from))
+        chk = mujoco.MjData(model)
+        last = q_from
+        for q in np.linspace(q_from, q_to, n + 1)[1:]:
+            arm = ik.solve(arm, *grasp_pose(q))
+            chk.qpos[:] = data.qpos
+            chk.joint(joint).qpos[0] = q
+            chk.qpos[ik.qadr] = arm
+            for f in ("finger_joint1", "finger_joint2"):
+                chk.joint(f).qpos[0] = gap / 2
+            mujoco.mj_forward(model, chk)
+            deep, part = 0.0, None
+            for c in chk.contact[:chk.ncon]:
+                for mine, theirs in ((c.geom1, c.geom2), (c.geom2, c.geom1)):
+                    if model.geom_bodyid[mine] not in robot_bodies or -c.dist <= deep:
+                        continue
+                    other = model.geom_bodyid[theirs]
+                    if model.geom(theirs).name == "pedestal":
+                        deep, part = -c.dist, f"pedestal ({model.body(model.geom_bodyid[mine]).name})"
+                    elif other != b and model.body(other).name.startswith("obj_"):
+                        deep, part = -c.dist, f"{model.body(other).name[4:]} ({model.body(model.geom_bodyid[mine]).name})"
+            if deep > LID_CLEAR_TOL or ik.error > 0.005:
+                return float(last), (float(q), deep, part, ik.error)
+            last = q
+        return float(q_to), None
+
     if kind == "door":
         jid = model.joint(joint).id
         plan.qpos[:] = data.qpos
@@ -793,9 +842,18 @@ def main():
         if kind == "drawer":
             ends = [("Pull the drawer out", q_start + 0.8 * (hi - q_start)), ("Push it back in", q_start + 0.02 * (hi - lo))]
         elif kind == "plate":
-            # shut: the end of its range where the plate sits lowest (lid_ends)
-            ends = [("Close the lid", shut + 0.12 * np.sign(q_start - shut)),
-                    ("Open it again", q_start)]
+            # shut: the end of its range where the plate sits lowest (lid_ends). Closed to within 0.12 rad of
+            # it, or only as far as the hand holding the free edge clears the rest of the object: near shut the
+            # inner finger is caught between the lid and its base.
+            q_close, blocked = lid_close(q_start, shut + 0.12 * np.sign(q_start - shut))
+            if blocked:
+                q_b, deep, part, err = blocked
+                close_note = (f"lid: closed to {np.rad2deg(q_close - q_start):+.1f} deg from its start, not to within "
+                              f"{np.rad2deg(0.12):.0f} deg of shut ({np.rad2deg(shut - q_start):+.1f} deg): at "
+                              f"{np.rad2deg(q_b - q_start):+.1f} deg the hand holding its free edge would "
+                              + (f"press {1000 * deep:.1f} mm into the {part}" if deep > LID_CLEAR_TOL else
+                                 f"miss the grasp point by {1000 * err:.0f} mm (IK)"))
+            ends = [("Close the lid", q_close), ("Open it again", q_start)]
         else:
             floor_z = min(pts_now[:, 2])
 
@@ -917,8 +975,9 @@ def main():
     print(f"{kind} ({joint or 'free body'}); IK error max {1000 * max(ik_err):.0f} mm; video -> {out}")
     if start_note:
         print("  " + start_note)
-    if lid_note:
-        print("  " + lid_note)
+    for note in (lid_note, close_note):
+        if note:
+            print("  " + note)
     print("  deepest hand contact per part (a handle being held aside; the held part includes the squeeze): "
           + (", ".join(f"{k} {1000 * v:.1f} mm" for k, v in sorted(deepest.items())) or "none"))
     for title, v in log:

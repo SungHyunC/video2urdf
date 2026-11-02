@@ -5,7 +5,8 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from scripts.robot_tasks import (left_alone, lid_ends, lid_start, lid_start_candidates, plan_grasp, rest_model)
+from scripts.robot_tasks import (grip_width, left_alone, lid_ends, lid_start, lid_start_candidates, plan_grasp,
+                                 rest_model)
 
 # A laptop seen from the side: a 16 cm base whose back edge (the hinge) is at x = 0, and a 15 cm lid on a
 # hinge along -y, so a positive q tips its top over the base (towards -x). Range -10..80 deg: 80 is shut.
@@ -57,6 +58,16 @@ class RobotLidTest(unittest.TestCase):
         shut, open_end = lid_ends(model, data, "obj_lid_joint", plan_grasp(model, data, "plate", "obj_lid_joint"))
         self.assertAlmostEqual(shut, 1.3963, places=4)
         self.assertAlmostEqual(open_end, -0.1745, places=4)
+
+    def test_grip_width_is_the_lid_thickness_at_its_free_edge(self):
+        model, _ = lid_model(0.03, 0.004)
+        data = mujoco.MjData(model)
+        mujoco.mj_kinematics(model, data)
+        grasp = plan_grasp(model, data, "plate", "obj_lid_joint")
+        self.assertAlmostEqual(grip_width(model, data, grasp), 0.008, places=6)  # the 8 mm lid, not its 15 cm
+        data.joint("obj_lid_joint").qpos[0] = 1.0  # the same in the lid's frame at any opening
+        mujoco.mj_kinematics(model, data)
+        self.assertAlmostEqual(grip_width(model, data, grasp), 0.008, places=6)
 
     def test_a_lid_that_falls_from_the_reference_pose_starts_against_its_open_limit(self):
         # friction 0.005 N m can't hold the lid's 0.02 N m at q = 0; at -10 deg it leans back onto its limit
