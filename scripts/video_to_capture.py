@@ -37,7 +37,11 @@ def main():
     ap.add_argument("--chunk", type=int, default=pseudo_depth.CHUNK)
     ap.add_argument("--anchors", type=int, default=pseudo_depth.ANCHORS)
     ap.add_argument("--spread", action="store_true",
-                    help="every chunk spans the whole video (wide baselines): for an object that doesn't move")
+                    help="experimental: every chunk spans the whole video (wide baselines, chunk scales agree), but a "
+                         "part that moves during the video misleads it")
+    ap.add_argument("--keep-raw", action="store_true",
+                    help="also keep MapAnything's per-chunk outputs in OUT/raw (pseudo_depth.load_raw + stitch "
+                         "re-stitch them without new GPU time)")
     args = ap.parse_args()
     out = args.out or args.video.parent / f"{args.video.stem}_mapanything"
     meta = out / "mapanything.json"
@@ -56,7 +60,8 @@ def main():
             source = "video metadata"
             print(f"focal length {f35:g} mm (35 mm equivalent) recorded in the video: {focal:.0f} px", flush=True)
     rec = pseudo_depth.reconstruct(args.video, args.chunk, args.anchors, focal, args.scale,
-                                   log=lambda message: print(message, flush=True), spread=args.spread)
+                                   log=lambda message: print(message, flush=True), spread=args.spread,
+                                   raw=out / "raw" if args.keep_raw else None)
     pseudo_depth.write_capture(rec, args.video, out)
     meta.write_text(json.dumps({
         "source": str(args.video), "frames": len(rec.depth), "depth_size": list(rec.depth.shape[2:0:-1]),
