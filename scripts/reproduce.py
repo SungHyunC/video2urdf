@@ -74,7 +74,7 @@ def versions() -> dict:
     try:
         v["commit"] = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"], capture_output=True,
                                      text=True, timeout=10).stdout.strip() or None
-    except OSError:
+    except (OSError, subprocess.SubprocessError):
         v["commit"] = None
     return v
 

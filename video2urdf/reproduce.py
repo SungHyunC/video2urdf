@@ -322,7 +322,10 @@ def rerun(bundle: Path, capture: Path, out: Path, reference: int | None, log=pri
     roles = {k: v for k, v in json.loads((out / "roles.json").read_text()).items() if v}
     agent = Agent(video, out, capture=capture, client=NoModel("Muse Spark"), sam=NoModel("SAM 3.1"))
     agent.tracked = True  # the bundle's tracks stand in for the agent's track tool
-    fit_text = agent.tool_fit_lidar(**roles, reference=reference)
+    try:
+        fit_text = agent.tool_fit_lidar(**roles, reference=reference)
+    except ValueError as error:  # the fit's own refusals (e.g. a given reference frame it can't use)
+        raise ReproduceError(f"fit_lidar stopped: {error}") from error
     (out / "fit_lidar.txt").write_text(fit_text + "\n")
     if not (out / "model.xml").is_file():
         raise ReproduceError(f"fit_lidar wrote no model:\n{fit_text}")
