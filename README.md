@@ -30,6 +30,8 @@ the measured model, and URDF Doctor checks a URDF you already have against a vid
 - **The agent correcting itself**: [the side-view laptop's turn log](https://sunghyunc.github.io/video2urdf/#notebook)
   (base lost on 89 of 408 frames: re-segmented, re-tracked, refit) and [the finish gate](#the-agent-cant-finish-over-its-own-warnings).
 - **Results**: [at a glance](#at-a-glance) · [RBO motion-capture benchmark](docs/RESULTS.md#benchmark-rbo-dataset-real-rgb-d-with-motion-capture) · [five fresh runs per object](docs/RESULTS.md#five-fresh-runs-per-object-and-three-objects-it-had-never-seen) · [all results](docs/RESULTS.md)
+- **Check the numbers yourself, no API keys**: [`scripts/reproduce.py`](#reproduce-it) reruns the published laptop's
+  measurement from the saved model decisions in a few minutes and prints published vs reproduced.
 - **Open weights only**: [the exact commands](#open-weights-only-for-the-open-weight-prize-check) and [what they gave](docs/RESULTS.md#open-weights-only).
 - **Why not just ask an AI?** [The same Muse Spark asked plainly for a URDF](#why-not-just-ask-an-ai-for-the-urdf), no tools.
 - **URDF Doctor**: [checking an existing URDF against a video](docs/RESULTS.md#urdf-doctor-checking-an-existing-urdf-against-the-video).
@@ -143,7 +145,19 @@ account. You need [uv](https://docs.astral.sh/uv/) and ffmpeg.
 
 ### Reproduce it
 
-The sample is the iPhone LiDAR laptop capture behind this README's numbers.
+**Without API keys or a GPU (about 3-5 minutes on a laptop):** rerun the measurement of the
+published laptop from the saved model decisions (Muse Spark's part choices and physics estimate,
+SAM 3.1's tracks; release `sample-data-v2`) and compare it with the published numbers. Only the
+model calls are skipped; the joint fit, geometry, URDF/MJCF, MuJoCo replay and physics run for
+real. It matches the published model within 0.005 mm and 0.02 deg ([docs/REPRODUCE.md](docs/REPRODUCE.md)).
+
+```bash
+git clone https://github.com/SungHyunC/video2urdf && cd video2urdf && uv sync
+.venv/bin/python scripts/reproduce.py   # downloads the sample and the saved tracks, prints published vs reproduced
+```
+
+**The whole pipeline**, models included. The sample is the iPhone LiDAR laptop capture behind
+this README's numbers.
 
 ```bash
 git clone https://github.com/SungHyunC/video2urdf && cd video2urdf
@@ -395,8 +409,8 @@ committed. Which module does what: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#c
 
 ## License
 
-No license has been chosen yet for this repository's own code. `video2urdf/fast_mask.py` is a
-numba port of meta-sam-parser's decoder and is under the SAM License
-([LICENSES/SAM_LICENSE](LICENSES/SAM_LICENSE)). The models, libraries and data it uses keep their
+This repository's own code is under the MIT License ([LICENSE](LICENSE)), except
+`video2urdf/fast_mask.py`, a numba port of meta-sam-parser's decoder, which is under the SAM
+License ([LICENSES/SAM_LICENSE](LICENSES/SAM_LICENSE)). The models, libraries and data it uses keep their
 own licenses ([Built on](#built-on)); the Franka Panda and the RBO sequences are downloaded by
 scripts, not redistributed.

@@ -339,6 +339,13 @@
   <p class="prose">Mac or Linux, no local GPU: the heavy models run on the Meta Model API or on your own Modal account. You need <a href="https://docs.astral.sh/uv/">uv</a> and ffmpeg. The sample is the iPhone LiDAR laptop capture behind the README's numbers; the commands are the README's.</p>
 
   <div class="code">
+    <div class="code-head"><span>Check the published numbers: no API keys, no GPU, about 3–5 minutes</span><button class="copy" type="button">Copy</button></div>
+<pre><code>git clone https://github.com/SungHyunC/video2urdf &amp;&amp; cd video2urdf &amp;&amp; uv sync
+.venv/bin/python scripts/reproduce.py   # downloads the sample and the saved tracks, prints published vs reproduced</code></pre>
+  </div>
+  <p class="prose">That reruns the measurement of the published laptop from the saved model decisions (Muse Spark's part choices and physics estimate, SAM 3.1's tracks); only the model calls are skipped, and it matches within 0.005 mm and 0.02° (<a href="https://github.com/SungHyunC/video2urdf/blob/master/docs/REPRODUCE.md">docs/REPRODUCE.md</a>). The whole pipeline, models included:</p>
+
+  <div class="code">
     <div class="code-head"><span>Setup and the sample capture, then one run</span><button class="copy" type="button">Copy</button></div>
 <pre><code>git clone https://github.com/SungHyunC/video2urdf &amp;&amp; cd video2urdf
 uv sync                         # Python 3.12 (pinned in .python-version) into .venv
@@ -435,7 +442,7 @@ export LOCAL_KEY=none AGENT_API_KEY_ENV=LOCAL_KEY AGENT_BASE_URL=http://localhos
     <li>The <a href="https://zenodo.org/records/1036660">RBO dataset</a> for the benchmark (CC BY 4.0; downloaded, not redistributed): R. Martín-Martín, C. Eppner, O. Brock, “The RBO Dataset of Articulated Objects and Interactions”, IJRR 2019.</li>
     <li>This page: <a href="https://threejs.org">three.js</a> and <a href="https://github.com/markedjs/marked">marked</a> (MIT), loaded from a CDN.</li>
   </ul>
-  <p class="prose">Every project used, with its license: <a href="https://github.com/SungHyunC/video2urdf#built-on">README › Built on</a>.</p>
+  <p class="prose">Every project used, with its license: <a href="https://github.com/SungHyunC/video2urdf#built-on">README › Built on</a>. Our code is under the <a href="https://github.com/SungHyunC/video2urdf/blob/master/LICENSE">MIT License</a>, except <code>video2urdf/fast_mask.py</code> (SAM License).</p>
 </section>
 </main>
 
