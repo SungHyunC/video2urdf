@@ -49,7 +49,6 @@ The commands by task, with examples: [docs/COMMANDS.md](../docs/COMMANDS.md).
 | `export_viewer.py` | Exports runs to the web viewer in `docs/` (GitHub Pages); `--repack` only makes a published model's downloads portable |
 | `make_demo.py` | Cuts the demo video from the project's outputs (`docs/demo.mp4`, `docs/demo_script.md`) |
 | `make_hero.py` | The README's hero GIF (`docs/media/hero.gif`) from one viewer model's published videos |
-| `make_site_media.py` | The landing page's before/after pairs and showcase loops (`docs/assets/`), cut from the published viewer videos |
 | `render_completion_demo.py` | The demo clip of a completed body: measured parts, the estimated boxes in orange, a probe stopping on the back |
 | `make_reel.py`, `make_viewer.py` | A single run's reel; a local review page |
 
