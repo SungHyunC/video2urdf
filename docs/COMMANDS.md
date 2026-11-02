@@ -52,6 +52,16 @@ tasks (`--robot`) and a viewer folder, with `summary.md` saying what was measure
 estimated and the status. If no joint is found it still writes a rigid model, marked
 `needs_review`. What it gave on seven test inputs: [RESULTS.md](RESULTS.md#one-command-on-seven-inputs).
 
+The last step loads the final downloads (the viewer's `model.zip`) as a user would, with
+`scripts/check_exports.py` (MuJoCo; PyBullet, yourdfpy and Drake when installed, else
+`not_tested`), and writes `validation.json` with a row per check and the model files' hashes.
+`summary.json` keeps `agent_status` and `artifact_status` apart; `status` is the worse of them,
+and `summary.md` names each failing or warning check in one line. A failing format lowers only
+the artifact status; the model and its other formats stay. After changing a run's model:
+
+    .venv/bin/python scripts/validate_run.py data/runs/NAME            # check again, update the summary
+    .venv/bin/python scripts/validate_run.py data/runs/NAME --status   # is validation.json current?
+
 Other options: `--out DIR`, `--name N`, `--viewer-out DIR`, `--glimmer`, `--sam api|open`,
 `--path auto|3d|planar`, `--rotate auto|0|90|180|270`, `--no-look`, `--no-design`,
 `--no-texture`; for a plain video on the 3D path `--focal-35mm F`, `--scale K`,

@@ -46,6 +46,7 @@ The commands by task, with examples: [docs/COMMANDS.md](../docs/COMMANDS.md).
 | `eval_plain_video.py` | A model fitted on MapAnything depth (the LiDAR run's own tracks refitted on a capture of its RGB) scored against the LiDAR fit: link sizes, base thickness, hinge axis and offset, opening per frame; box size; drawer travel |
 | `check_sam_open.py`, `check_fast_mask.py`, `smoke_test.py` | Backend checks: open-weights SAM, the mask decoder, one cheap call per API |
 | `check_exports.py` | Loads exported models (model.zip) as a user would: MuJoCo (MJCF and URDF), PyBullet, yourdfpy, Drake; one row per model per loader |
+| `validate_run.py` | Those checks on a `video2urdf.py` run's final downloads again: refreshes `validation.json` and the summary's artifact status (`--status`: is it still about the model on disk?) |
 
 ## Viewer and demo
 | Script | What it does |
