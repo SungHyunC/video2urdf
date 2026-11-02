@@ -843,8 +843,8 @@ def main():
             ends = [("Pull the drawer out", q_start + 0.8 * (hi - q_start)), ("Push it back in", q_start + 0.02 * (hi - lo))]
         elif kind == "plate":
             # shut: the end of its range where the plate sits lowest (lid_ends). Closed to within 0.12 rad of
-            # it, or only as far as the hand holding the free edge clears the rest of the object: near shut the
-            # inner finger is caught between the lid and its base.
+            # it, or only as far as the robot holding the free edge clears the rest of the object and the
+            # pedestal (lid_close): near shut the inner finger is caught between the lid and its base.
             q_close, blocked = lid_close(q_start, shut + 0.12 * np.sign(q_start - shut))
             if blocked:
                 q_b, deep, part, err = blocked
