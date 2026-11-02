@@ -5,7 +5,8 @@ What the robot does depends on what was measured:
   video's reference frame had it if it rests there on its own; a side-view fit often measures the
   hinge friction only where the lid stood near balance, too little to hold it anywhere else, so
   otherwise it starts at the most open pose of its measured range where it does rest (against its
-  open limit, or held by that friction) and doesn't fall shut before the hand gets there;
+  open limit, or held by that friction) and doesn't fall shut before the hand gets there. The
+  fingers close on it and let go of it gradually;
 - a door (a plate on a vertical hinge: a microwave's): the robot stands in front of it; pinch the free
   edge at mid-height (fingers closing across the door), pull it open along its arc to most of its
   measured range, let go, then push it shut with the fingertips on its outer face. A model without a
@@ -448,6 +449,20 @@ def slerp_rot(a: np.ndarray, b: np.ndarray, u: float) -> np.ndarray:
     return Slerp([0.0, 1.0], Rotation.from_matrix(np.stack([a, b])))(float(np.clip(u, 0, 1))).as_matrix()
 
 
+def easing_shut(u: float) -> float:
+    """Gripper control over a segment that closes the fingers on a lid gradually. Stepped straight to CLOSED,
+    the stiffened servo drives the fingers in at ~0.8 m/s: they sink 5-6 mm into the lid's contacts (through a
+    4 mm lid: one finger ends up inside it, pushing with over a kilonewton) and spring the lid when they let go."""
+    return OPEN * (1 - smooth(u))
+
+
+def easing_open(u: float) -> float:
+    """Gripper control over a segment that lets go of a lid gradually: snapped open, the fingers kick it, and a
+    lid that only just rests where it was put back (near its balance, or held by a hinge friction barely above
+    its weight's pull) falls over."""
+    return OPEN * smooth(u)
+
+
 def lid_ends(model, data, joint: str, grasp: Grasp) -> tuple[float, float]:
     """A lid's shut end of its range (where the grasp point on its free edge sits lowest) and its open end."""
     lo, hi = (float(v) for v in model.jnt_range[model.joint(joint).id])
@@ -732,7 +747,7 @@ def main():
     pressing = set()  # segments that press on the object: their servo-error correction is kept small
     reach = [(2.0, lambda u: (hand0 + smooth(u) * (p0 + back - hand0), rot0), OPEN),
              (1.0, lambda u: (p0 + back * (1 - smooth(u)), rot0), OPEN),
-             (0.8, lambda u: (p0, rot0), CLOSED)]
+             (0.8, lambda u: (p0, rot0), easing_shut if kind == "plate" else CLOSED)]
     if kind == "static":
         up, aside = np.array([0, 0, 0.12]), np.array([0, 0.18, 0])
         t1, t2 = "Pick it up and put it down elsewhere", "Bring it back, turned a quarter"
@@ -800,7 +815,8 @@ def main():
         for title, q_to in ends:
             segments.append((title, 4.0, (lambda a, z: lambda u: grasp_pose(a + smooth(u) * (z - a)))(q_from, q_to), CLOSED))
             q_from = q_to
-        segments += [(ends[-1][0], 0.8, lambda u: grasp_pose(q_from), OPEN),
+        release = easing_open if kind == "plate" else OPEN
+        segments += [(ends[-1][0], 0.8, lambda u: grasp_pose(q_from), release),
                      (ends[-1][0], 1.5, (lambda qq: lambda u: (grasp_pose(qq)[0] + smooth(u) * -grasp_pose(qq)[1][:, 2] * 0.15,
                                                              grasp_pose(qq)[1]))(q_from), OPEN)]
 
@@ -845,7 +861,7 @@ def main():
             arm_q = arm_q + np.clip(ik.solve(arm_q, pos_t + bias, rot_t) - arm_q, -MAX_JOINT_STEP, MAX_JOINT_STEP)
             ik_err.append(ik.error)
             data.ctrl[:7] = arm_q
-            data.ctrl[7] = grip
+            data.ctrl[7] = grip(u) if callable(grip) else grip
             for _ in range(steps):
                 data.qfrc_applied[ik.dadr] = data.qfrc_bias[ik.dadr]  # gravity compensation, as the real Panda has
                 mujoco.mj_step(model, data)
