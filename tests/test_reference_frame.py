@@ -223,6 +223,31 @@ class ReferenceFrameTest(unittest.TestCase):
         for path in (root / "video2urdf" / "agent.py", root / "scripts" / "rbo_eval.py"):
             self.assertIn("lidar.fit_lidar_hinge(", path.read_text())  # one fit, so the benchmark scores the agent's
 
+    def test_a_given_reference_replaces_the_choice(self):
+        from video2urdf.lidar import fit_lidar_hinge
+        calls, tracked = [], {"base": {7, 8}, "plate": {7}}
+
+        class CaptureStub:
+            n, ref, moving_camera, by = 10, 0, False, {}
+            world = np.tile(np.eye(4), (10, 1, 1))
+            def drop_where_same(self, *args): return 0
+            def drop_open_base_overlap(self, *args): return 0
+            def ref_with(self, *args): calls.append("ref_with"); return 3
+            def set_ref(self, t): calls.append(("set_ref", t)); self.ref = t
+            def follow(self, *args, **kwargs): return {"frames": 0}
+            def has(self, part, t): return t in tracked.get(part, set())
+
+        roles = Roles("floor", "base", "plate", "back", "keyboard")
+        lines = []
+        with patch("video2urdf.lidar.fit_hinge", return_value={"fitted": True}):
+            _, references = fit_lidar_hinge(CaptureStub(), roles, log=lines.append, reference=7)
+        self.assertEqual((calls, references), ([("set_ref", 7)], [7]))  # ref_with isn't asked
+        self.assertIn("reference frame 7: given", lines)
+        for frame in (8, 12):  # no plate there / past the video's end
+            with patch("video2urdf.lidar.fit_hinge", return_value={}), \
+                    self.assertRaisesRegex(ValueError, f"given reference frame {frame} doesn't show both"):
+                fit_lidar_hinge(CaptureStub(), roles, log=lines.append, reference=frame)
+
     def test_hinge_requires_actual_plate_mask_at_reference(self):
         from types import SimpleNamespace
         from video2urdf.lidar import fit_hinge
