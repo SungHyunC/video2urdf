@@ -223,10 +223,12 @@ class Capture:
 
     @classmethod
     def from_stray(cls, video: Path, capture: Path, track_dir: Path, ref: int = 0) -> "Capture":
-        """An iPhone capture: the scene's motion comes from ARKit odometry."""
+        """An iPhone capture: the scene's motion comes from ARKit odometry. A capture written by
+        pseudo_depth (mapanything.json beside rgb.mp4) has estimated depth and poses instead."""
         cap = stray.load(capture)
         c = cls(video, track_dir, cap, stray.ref_to_frame_poses(capture, len(cap.depth), ref), ref)
         c.source = capture
+        c.estimated_depth = (stray.find_capture(capture) / "mapanything.json").exists()
         return c
 
     @classmethod
@@ -238,11 +240,25 @@ class Capture:
 
     moving_camera = True  # ARKit odometry drifts and gets levelled against the floor
     source: Path | None = None  # the Stray Scanner capture, when there is one
+    estimated_depth = False  # depth and poses estimated from RGB (MapAnything), not measured
 
     @property
     def up(self) -> np.ndarray | None:
-        """Gravity's up in reference-camera coordinates, from ARKit (None without odometry)."""
-        return stray.gravity_up(self.source, self.ref) if self.source is not None else None
+        """Gravity's up in reference-camera coordinates, from ARKit (None without odometry). An
+        estimated capture has no gravity: its world's up is a guess from the first frame's planes
+        (34-166 deg off on the LiDAR captures' own videos), so callers use the floor's plane."""
+        if self.source is None or self.estimated_depth:
+            return None
+        return stray.gravity_up(self.source, self.ref)
+
+    @property
+    def focal_known(self) -> bool:
+        """An estimated capture whose focal length was given (by the user or the video's metadata)
+        rather than estimated by the depth model."""
+        if not self.estimated_depth:
+            return False
+        meta = json.loads((stray.find_capture(self.source) / "mapanything.json").read_text())
+        return bool(meta.get("focal_given"))
 
     def set_ref(self, t: int):
         """Use frame t as the reference: the scene's motion is re-expressed from it."""

@@ -199,11 +199,12 @@ def base_points(c, base: str, ref: int, candidates: int = 60) -> tuple[np.ndarra
     return best, t_best, n_near
 
 
-def floor_plane(c, floor: str | None, ref: int, up: np.ndarray, rng, search: int = 300):
+def floor_plane(c, floor: str | None, ref: int, up: np.ndarray | None, rng, search: int = 300):
     """The floor's plane as (unit normal along ``up``, offset d with n.x = d, frame): fitted on the
     frame nearest the reference that shows it with depth and level (within 15 deg of gravity: a
     tilted fit is the track on another surface there). None when no frame of the ``search``
-    nearest does."""
+    nearest does. ``up`` None (no gravity: estimated depth): the first plane fitted, its normal
+    turned toward the camera, which looks at the floor from above."""
     if not floor:
         return None
     for t in sorted(c.by.get(floor, {}), key=lambda t: abs(t - ref))[:search]:
@@ -211,6 +212,9 @@ def floor_plane(c, floor: str | None, ref: int, up: np.ndarray, rng, search: int
         if len(pts) <= 100:
             continue
         nf, df, _ = fit_plane(pts, rng)
+        if up is None:
+            cam = np.linalg.inv(c.world[t])[:3, 3]  # frame t's camera centre, reference coordinates
+            return (nf, float(df), t) if nf @ cam > df else (-nf, -float(df), t)
         if nf @ up < 0:
             nf, df = -nf, -df
         if np.rad2deg(np.arccos(np.clip(nf @ up, -1, 1))) < 15:
@@ -392,9 +396,10 @@ def fit_chain(c, base: str, chain: list[str], floor: str | None = None, log=prin
     raw = stray.load(c.source, min_confidence=0).depth if c.source is not None else c.cap.depth
     ref = c.ref
     rng = np.random.default_rng(0)
-    # Up: gravity, or the floor's plane when it is level with it.
+    # Up: gravity, or the floor's plane when it is level with it (estimated depth has no gravity:
+    # the floor's plane itself).
     up = c.up if c.up is not None else np.array([0, -1.0, 0])
-    plane = floor_plane(c, floor, ref, up, rng)
+    plane = floor_plane(c, floor, ref, None if getattr(c, "estimated_depth", False) else up, rng)
     if plane is not None:
         up = plane[0]
     anchor, base_cloud, t_base = None, np.zeros((0, 3)), None
