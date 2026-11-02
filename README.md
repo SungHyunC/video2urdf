@@ -259,8 +259,8 @@ to check the downloads in MuJoCo, PyBullet, yourdfpy and Drake: [docs/COMMANDS.m
 ## The agent
 
 Muse Spark runs the pipeline as a tool-calling agent (`video2urdf/agent.py`,
-`scripts/run_agent.py`): 14 tools, a budget of 22 turns and at most 3 track calls. It gets the
-whole video first, then frames spread over it. Every turn and every image it saw is logged in
+`scripts/run_agent.py`): 14 tools and a budget of 22 turns; its instructions allow at most 3
+track calls. It gets the whole video first, then frames spread over it. Every turn and every image it saw is logged in
 `agent/log.md`; the viewer shows that log for each model.
 
 | Tool | What Spark uses it for |
