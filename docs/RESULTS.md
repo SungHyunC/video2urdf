@@ -287,7 +287,7 @@ base) is left out. The check: release the model in MuJoCo at the held angles for
 |---|---|---|---|
 | 13" MacBook Pro, LiDAR | base 0.90 kg + lid 0.50 kg (spec: 1.4 kg in all) | lid hinge 0.284 N·m, measured | moves 0.1 deg (11.5 deg without it) |
 | Laptop, 2D side view | 0.95 + 0.45 kg | 0.038 N·m, measured (held only near upright: a lower bound) | 0.0 deg (76 deg without) |
-| Monitor stand, 2D | base 0.45, arms 0.075 / 0.09 kg | 0.028 / 0.122 N·m, measured | 0.0 / 3.4 deg (21 / 56 deg without) |
+| Monitor stand, 2D | base 0.45, arms 0.075 / 0.09 kg | 0.110 / 0.122 N·m, measured | 0.0 / 0.3 deg (21 / 82 deg without) |
 | Pedestal drawer, LiDAR | cabinet 13 kg, drawer 2.5 kg | 0.98 N, estimated (gravity doesn't load a horizontal slide) | |
 
 `scripts/physics_demo.py` renders the check: the model let go at a held angle, with the
