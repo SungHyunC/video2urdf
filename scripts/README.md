@@ -37,6 +37,7 @@ usage. Run them with the project's environment: `.venv/bin/python scripts/<name>
 | `spark_alone.py` | The "just ask an AI" baseline: the same Muse Spark asked plainly for a URDF of each video, no tools; scored by URDF Doctor and motion capture |
 | `make_synth.py`, `eval_tracks.py`, `fit3d.py` | Synthetic videos with known joints, and scoring against them |
 | `eval_pseudo_depth.py`, `compare_hinges.py` | MapAnything depth and hinge fits against the LiDAR capture |
+| `eval_plain_video.py` | A model fitted on MapAnything depth (the LiDAR run's own tracks refitted on a capture of its RGB) scored against the LiDAR fit: link sizes, base thickness, hinge axis and offset, opening per frame; box size; drawer travel |
 | `check_sam_open.py`, `check_fast_mask.py`, `smoke_test.py` | Backend checks: open-weights SAM, the mask decoder, one cheap call per API |
 | `check_exports.py` | Loads exported models (model.zip) as a user would: MuJoCo (MJCF and URDF), PyBullet, yourdfpy, Drake; one row per model per loader |
 
