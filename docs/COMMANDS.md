@@ -183,7 +183,12 @@ the front measured, the hidden depth bounded by the video, the rest estimated by
 ([what it gave](RESULTS.md#the-parts-the-camera-never-saw)). Without `--force` it only acts on
 runs whose body is known to be partial.
 
-`scripts/complete_body.py RUN --remove` restores the measured-only model.
+```bash
+.venv/bin/python scripts/complete_body.py RUN VIDEO [--capture DIR] [--check | --remove] \
+    [--force] [--open-weights] [--prompt NOUN] [--no-spark] [--note TEXT]
+```
+
+`scripts/complete_body.py RUN VIDEO --remove` restores the measured-only model.
 
 ## Realistic link meshes (SAM 3D Objects)
 

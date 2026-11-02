@@ -378,7 +378,7 @@ every estimate labelled with its source.
 
 When neither the video nor Spark gives a size, a typical size for the category is used and marked
 as such. Bodies the video already measured (the laptop, the drawer, the lamp, the mouse) are left
-untouched. `scripts/complete_body.py RUN --remove` restores the measured-only model.
+untouched. `scripts/complete_body.py RUN VIDEO --remove` restores the measured-only model.
 
 ## The robot works the object: grasp, open, close, carry
 
