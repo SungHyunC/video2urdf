@@ -3,21 +3,25 @@
 **One short video of a real articulated object in, a measured URDF/MJCF out, and a MuJoCo
 replay over the video that shows the model moves like the real thing.**
 
+- **Live site and viewer:** https://sunghyunc.github.io/video2urdf/ (the phone video, the MuJoCo
+  replay over it, the robot demo, and the measured model in 3D with its URDF/MJCF)
+- **Demo video (2:55, narrated):** https://sunghyunc.github.io/video2urdf/demo.mp4 · [docs/demo.mp4](docs/demo.mp4)
+- **In depth:** [Results](docs/RESULTS.md) · [How it works](docs/HOW_IT_WORKS.md) · [Commands](docs/COMMANDS.md)
+
 ![An iPhone LiDAR video of a laptop being closed, next to the measured model replayed over the same frames; then a simulated Franka Panda closing the measured laptop](docs/media/hero.gif)
+
+Built solo for the Meta Global AI Developer Hackathon (Oct 26 - Nov 4 2026). All code in this
+repository was written during the hackathon; see [Built on](#built-on) for what it uses.
+
+## What it does
 
 Robotics developers who need a simulation model of a real object (a laptop lid, a desk lamp,
 a drawer, a microwave door) usually model it by hand: guess the hinge, guess the limits, tweak until
 it looks right. Video2URDF measures it instead. Film the object being opened and closed; a
 Muse Spark agent finds the parts with SAM 3.1, tracks them, fits each joint by least squares,
 writes URDF and MJCF, replays the model in MuJoCo from the camera's own viewpoint and checks
-the overlay, frame by frame, before it reports.
-
-Built solo for the Meta Global AI Developer Hackathon (Oct 26 - Nov 4 2026). All code in this
-repository was written during the hackathon; see [Built on](#built-on) for what it uses.
-
-**Demo video (2:55, narrated):** [docs/demo.mp4](docs/demo.mp4) · https://sunghyunc.github.io/video2urdf/demo.mp4  
-**Live viewer:** https://sunghyunc.github.io/video2urdf/ (the phone video, the MuJoCo replay over it,
-the robot demo, and the measured model in 3D with its URDF/MJCF).
+the overlay, frame by frame, before it reports. A simulated Franka Panda then grasps and works
+the measured model, and URDF Doctor checks a URDF you already have against a video.
 
 **Where to look**
 - **The 3-minute demo** (link above): the pipeline on real objects, start to finish.
@@ -25,12 +29,14 @@ the robot demo, and the measured model in 3D with its URDF/MJCF).
   URDF/MJCF downloads and *How the Meta models built this model, turn by turn* (every turn and image).
 - **The agent correcting itself**: [the side-view laptop's turn log](https://sunghyunc.github.io/video2urdf/#notebook)
   (base lost on 89 of 408 frames: re-segmented, re-tracked, refit) and [the finish gate](#the-agent-cant-finish-over-its-own-warnings).
-- **Results**: [at a glance](#at-a-glance) · [RBO motion-capture benchmark](#benchmark-rbo-dataset-real-rgb-d-with-motion-capture) · [five fresh runs per object](#five-fresh-runs-per-object-and-three-objects-it-had-never-seen)
-- **Open weights only**: [the exact commands](#open-weights-only-for-the-open-weight-prize-check) and [what they gave](#open-weights-only).
+- **Results**: [at a glance](#at-a-glance) · [RBO motion-capture benchmark](docs/RESULTS.md#benchmark-rbo-dataset-real-rgb-d-with-motion-capture) · [five fresh runs per object](docs/RESULTS.md#five-fresh-runs-per-object-and-three-objects-it-had-never-seen) · [all results](docs/RESULTS.md)
+- **Open weights only**: [the exact commands](#open-weights-only-for-the-open-weight-prize-check) and [what they gave](docs/RESULTS.md#open-weights-only).
 - **Why not just ask an AI?** [The same Muse Spark asked plainly for a URDF](#why-not-just-ask-an-ai-for-the-urdf), no tools.
-- **URDF Doctor**: [checking an existing URDF against a video](#urdf-doctor-checking-an-existing-urdf-against-the-video).
+- **URDF Doctor**: [checking an existing URDF against a video](docs/RESULTS.md#urdf-doctor-checking-an-existing-urdf-against-the-video).
 
 ## At a glance
+
+<a id="benchmark-rbo-dataset-real-rgb-d-with-motion-capture"></a><a id="five-fresh-runs-per-object-and-three-objects-it-had-never-seen"></a>
 
 ```mermaid
 flowchart LR
@@ -62,25 +68,82 @@ Spark Open and SAM weights, `--glimmer` on Muse Glimmer 30B served by us.
 
 | Measured | Result | vs |
 |---|---|---|
-| RBO benchmark: 13 real RGB-D videos with motion capture, agent from scratch, scored on exactly the agent's fit | laptops and books 6 of 7: hinge axis 1.7 deg, position 23 mm, angle 3.3 deg (medians); box lids 2 of 6, angle 42 deg; the other 5 refused by the fit's own checks | motion capture |
-| Desk lamp seen obliquely, 2 hinges (synthetic, `fit_chain`) | axis 0.4 / 4.8 deg, angle 0.06 / 1.1 deg mean | ground truth |
-| 13" MacBook Pro, iPhone LiDAR | lid 309 x 205 mm; the model covers 95% / 94% of the video's masks | spec 304 x 212 |
-| Black mouse, phone circling it | 121 x 75 x 55 mm; the depth points seen on one frame lie 0.5 mm (median) from the SAM 3D mesh | spec 125 x 84 x 51 |
-| Office drawer, iPhone LiDAR | pulls out 248 mm | hand fit 253 |
-| LED desk lamp, iPhone LiDAR, 2 rods | Spark judged the pole's motion depth noise; refit with it fixed (our step): arm 380 mm, 2..89 deg | video |
-| Shape design, three Meta models per round | lamp: best of three 0.62 / 0.63 per round, Muse Spark alone 0.60 / 0.62 (mask F-score) | measured meshes 0.69 |
-| Robot tasks on the measured models | 8 of the viewer's 8: lids closed and reopened, drawer out 199 mm and back (cabinet collision on), microwave door pulled open to 46 deg and pushed shut (body collision on), lamp arms swung, mouse and AirPods case carried and turned | joint values reached in physics |
-| A drawer-opening policy learned on the measured drawer (PPO, trained on Modal) | 99/100 held-out placements; 19/20 unseen starts on the full Panda arm; 98% of the travel made pinching the handle | random actions 0/100 |
-| The unseen back of a microwave in a shelf | front measured (477 x 269 mm), depth bounded by the video (334-387 mm), the rest from Muse Spark (a Samsung 23 L): 477 x 365 x 269 mm with its cavity | measured front, video bound |
-| SAM tracking, 1385 frames, 4 parts | 520 s -> 285 s, masks IoU 0.97-0.995 | previous pipeline |
-| The downloads, loaded outside our own scripts (`scripts/check_exports.py`) | all 8 models' zips: the MJCF in MuJoCo, the URDF in PyBullet, yourdfpy and Drake, joints and limits equal to the fit's; MuJoCo's own URDF import runs 7 (the side-view laptop's lid overlaps its base 13 mm at the hinge, which only the MJCF can exclude) | the fit's records |
-| The same Muse Spark asked plainly for a URDF of each video, no tools (5 answers per object) | recalls the MacBook's spec (304 x 212 mm, 5 of 5); in 8 of 19 hinge answers the joint can't open as far as the video shows; every drawer gets the same 360-400 mm; 1 of 25 doesn't load | the measured model, motion capture |
-| Scale for plain video (MapAnything depth) | an ID-1 card: x0.75 on the side-view laptop, steady over 8 frames; the object's usual size: x1.01 on the laptop's RGB, already at LiDAR scale | 1.0 expected on the latter |
+| [RBO benchmark](docs/RESULTS.md#benchmark-rbo-dataset-real-rgb-d-with-motion-capture): 13 real RGB-D videos with motion capture, agent from scratch, scored on exactly the agent's fit | laptops and books 6 of 7: hinge axis 1.7 deg, position 23 mm, angle 3.3 deg (medians); box lids 2 of 6, angle 42 deg; the other 5 refused by the fit's own checks | motion capture |
+| [Desk lamp seen obliquely, 2 hinges](docs/RESULTS.md#rods-on-hinges-in-3d-and-objects-the-phone-walked-around) (synthetic, `fit_chain`) | axis 0.4 / 4.8 deg, angle 0.06 / 1.1 deg mean | ground truth |
+| [13" MacBook Pro, iPhone LiDAR](docs/RESULTS.md#real-objects-filmed-for-this-project) | lid 309 x 205 mm; the model covers 95% / 94% of the video's masks | spec 304 x 212 |
+| [Black mouse, phone circling it](docs/RESULTS.md#rods-on-hinges-in-3d-and-objects-the-phone-walked-around) | 121 x 75 x 55 mm; the depth points seen on one frame lie 0.5 mm (median) from the SAM 3D mesh | spec 125 x 84 x 51 |
+| [Office drawer, iPhone LiDAR](docs/RESULTS.md#real-objects-filmed-for-this-project) | pulls out 248 mm | hand fit 253 |
+| [LED desk lamp, iPhone LiDAR, 2 rods](docs/RESULTS.md#rods-on-hinges-in-3d-and-objects-the-phone-walked-around) | Spark judged the pole's motion depth noise; refit with it fixed (our step): arm 380 mm, 2..89 deg | video |
+| [Shape design, three Meta models per round](docs/RESULTS.md#the-model-looks-like-the-object-spark-designs-it-the-video-checks-it) | lamp: best of three 0.62 / 0.63 per round, Muse Spark alone 0.60 / 0.62 (mask F-score) | measured meshes 0.69 |
+| [Robot tasks on the measured models](docs/RESULTS.md#the-robot-works-the-object-grasp-open-close-carry) | 8 of the viewer's 8: lids closed and reopened, drawer out 199 mm and back (cabinet collision on), microwave door pulled open to 46 deg and pushed shut (body collision on), lamp arms swung, mouse and AirPods case carried and turned | joint values reached in physics |
+| [A drawer-opening policy learned on the measured drawer](docs/RESULTS.md#a-policy-learned-on-the-measured-drawer) (PPO, trained on Modal) | 99/100 held-out placements; 19/20 unseen starts on the full Panda arm; 98% of the travel made pinching the handle | random actions 0/100 |
+| [The unseen back of a microwave in a shelf](docs/RESULTS.md#the-parts-the-camera-never-saw) | front measured (477 x 269 mm), depth bounded by the video (334-387 mm), the rest from Muse Spark (a Samsung 23 L): 477 x 365 x 269 mm with its cavity | measured front, video bound |
+| [SAM tracking, 1385 frames, 4 parts](docs/RESULTS.md#faster-tracking-and-scale-without-a-reference) | 520 s -> 285 s, masks IoU 0.97-0.995 | previous pipeline |
+| [The downloads, loaded outside our own scripts](docs/RESULTS.md#the-downloads-loaded-outside-our-scripts) (`scripts/check_exports.py`) | all 8 models' zips: the MJCF in MuJoCo, the URDF in PyBullet, yourdfpy and Drake, joints and limits equal to the fit's; MuJoCo's own URDF import runs 7 (the side-view laptop's lid overlaps its base 13 mm at the hinge, which only the MJCF can exclude) | the fit's records |
+| [The same Muse Spark asked plainly for a URDF of each video, no tools](#why-not-just-ask-an-ai-for-the-urdf) (5 answers per object) | recalls the MacBook's spec (304 x 212 mm, 5 of 5); in 8 of 19 hinge answers the joint can't open as far as the video shows; every drawer gets the same 360-400 mm; 1 of 25 doesn't load | the measured model, motion capture |
+| [Scale for plain video (MapAnything depth)](docs/RESULTS.md#faster-tracking-and-scale-without-a-reference) | an ID-1 card: x0.75 on the side-view laptop, steady over 8 frames; the object's usual size: x1.01 on the laptop's RGB, already at LiDAR scale | 1.0 expected on the latter |
 
-## Reproduce it
+Everything else (synthetic ground truth, repeat runs, objects it had never seen and failed on,
+physics, open weights only): [docs/RESULTS.md](docs/RESULTS.md).
+
+## The Meta models, and what each one decides
+
+| Model | Runs on | What it decides |
+|---|---|---|
+| **Muse Spark** (`muse-spark-1.3-contributor`) | Meta Model API | Runs the pipeline as an agent (below); judges each link's material and mass; names the object and designs its clean visual; estimates the sizes of a body the camera never saw |
+| **SAM 3.1** (`sam-3.1`) | Meta Model API | Where each part is on every frame, from Spark's noun prompts |
+| **Muse Spark Open** (open weights) | Baseten, Fireworks | The same agent with `--open-weights`; in every shape-design round it proposes alongside Muse Spark |
+| **Muse Glimmer 30B** (open weights `meta-models/Muse-Glimmer-30B`) | our own Modal endpoint (SGLang) | The same agent with `--glimmer`, served by us; it works from frames (the endpoint drops video) |
+| **SAM 3.1 / SAM 3** (open weights `facebook/sam3.1`, `facebook/sam3`) | a Modal GPU | Segmentation (SAM 3.1 concept prompts) and box tracking (SAM 3's tracker) on open weights, in the hosted API's wire format |
+| **SAM 3D Objects** (open weights `facebook/sam-3d-objects`) | a Modal GPU | A realistic mesh of a link from one frame, its mask and our depth; kept as the visual only if it agrees with the measured depth and the video |
+| **MapAnything** (open weights `facebook/map-anything-apache`) | a Modal GPU | Depth, intrinsics and camera poses for a plain video without LiDAR (experimental) |
+
+What Muse Spark decides in a run (`video2urdf/agent.py`; Chat Completions with tool calls,
+images, video and structured output):
+
+- **What to look for**: the noun prompts for SAM 3.1, and the frames to find each part on.
+- **What each part is**: which tracked part is the fixed base, the moving part, the shut lid's
+  back, the floor.
+- **Which fit**: a hinged plate or door, drawers, a rod chain, a rigid object, or the 2D fit for
+  a side view.
+- **Whether the fit is right**: it watches the model replayed over the video, then re-segments,
+  re-tracks or refits.
+- **Physics**: each link's material and mass, and when a part stood still with no hand on it;
+  those spans are where joint friction is measured (`set_physics`; `scripts/add_physics.py` for
+  older runs).
+- **The report**: which numbers were measured and which were estimated.
+- **The look**: after the fit it names the object and rebuilds each link from primitives,
+  scored over the video and revised for up to 3 rounds (`video2urdf/designer.py`).
+- **What the camera never saw**: the hidden sizes of a partly seen body, inside the bound the
+  video gives (`video2urdf/completion.py`).
+
+SAM 3.1 finds each part from those prompts on key frames, then one box-anchored video request
+tracks all parts with stable IDs (`video2urdf/sam.py`); it also gives the whole-object masks for
+completing an unseen body and finds an ID-1 card for scale. Switching between the Meta API and
+open weights is one flag. The same table with the code behind each model, and how the tracking
+works: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#which-meta-model-decides-what).
+
+### Why not just ask an AI for the URDF?
+
+We asked the same Muse Spark (`muse-spark-1.3-contributor`) for a URDF of each video, plainly:
+the video, three frames and one request, no tools (5 answers per object). It recognises products
+and recalls their specs: the MacBook's lid came out at the spec's 304 x 212 mm in all five
+answers. It can't measure the object: in 8 of 19 hinge answers the joint can't open as far as the
+video shows, all three of the pedestal's drawers get the same 360-400 mm of travel, 1 of 25
+answers doesn't load in MuJoCo, and nothing in an answer says which of its numbers are right.
+With tools, the same model measures those numbers and checks them against the video. Its prior
+for where a laptop's hinge sits is better than our fit's position, a prior we could add. Details:
+[docs/RESULTS.md](docs/RESULTS.md#why-not-just-ask-an-ai-for-the-urdf); table, caveats and all
+30 answers: [docs/spark_alone.md](docs/spark_alone.md).
+
+## Run it
 
 Mac or Linux, no local GPU: the heavy models run on the Meta Model API or on your own Modal
-account. The sample is the iPhone LiDAR laptop capture behind this README's numbers.
+account. You need [uv](https://docs.astral.sh/uv/) and ffmpeg.
+
+### Reproduce it
+
+The sample is the iPhone LiDAR laptop capture behind this README's numbers.
 
 ```bash
 git clone https://github.com/SungHyunC/video2urdf && cd video2urdf
@@ -107,488 +170,6 @@ Baseten, SAM weights on Modal, shape design included), gave a lid of 306 x 213 m
 `needs_review`: the screen track slid onto the lid's back as it shut, which that version of the
 checks flagged; that case has been an informational line since, so a run today can also end
 `checks_passed`. Runs vary; three Meta API runs gave lids of 304 to 316 mm.
-
-## What it does
-
-```
-phone video (or iPhone LiDAR capture)
-  -> Muse Spark watches the video, names the parts, prompts SAM 3.1   (agent, tool calls)
-  -> SAM 3.1 finds each part on key frames and tracks it through the video
-  -> joint fit: hinge or slide, axis, position, limits, from the parts' relative motion
-  -> link geometry: each part's silhouette (2D) or depth (LiDAR), painted with the video
-  -> URDF + MJCF
-  -> MuJoCo replay rendered from the camera, scored against the video (coverage per frame);
-     the fit tool names a wrong part choice (a base that holds the lid, a lid track that
-     slid onto the closed lid's back)
-  -> Muse Spark watches the replay, re-segments / re-tracks / refits
-  -> physics: Spark judges materials and masses; joint friction measured where a part
-     stands still with no hand on it, checked by letting the model go in MuJoCo
-  -> report with the measured sizes and what is uncertain
-```
-
-The model is then used: a Franka Panda in MuJoCo grasps the measured object and works it (closes
-and reopens a lid, pulls a drawer out by its handle and pushes it back, swings a lamp's arm,
-carries a mouse; `scripts/robot_tasks.py`).
-
-Two capture paths:
-
-| | 2D (any phone) | 3D (iPhone LiDAR via Stray Scanner, or any RGB-D camera) |
-|---|---|---|
-| View | tripod, camera roughly facing the motion plane | any angle, handheld is fine |
-| Scale | an ID-1 card (85.6 x 54 mm) in view; use a loyalty card, never a payment card | metric depth, no card |
-| Joint fit | planar: least-squares hinge centre / slide direction from relative poses | 3D: plate planes per frame, hinge = where plate and base planes cross; slides by ICP |
-| Geometry | voted silhouettes extruded to meshes | sizes from depth (lid outline, base thickness, ...) |
-
-How this differs from research on articulated-object models:
-
-- Ditto (CVPR 2022) and PARIS (ICCV 2023) reconstruct an object's parts and joint from
-  observations of two static states.
-- URDFormer (RSS 2024) predicts a URDF's structure from a single image and fills it with template
-  parts. Articulate-Anything (2024) has a vision-language model write the articulation from text,
-  images or video, with part meshes retrieved from a dataset.
-- Video2URDF takes one casual video of the real object being worked. It measures each joint's
-  axis, position and limits in metres from the parts' tracked motion, and replays the model over
-  the same video to check it. It says which numbers were measured and which were estimated. URDF
-  Doctor runs the same measurement against a URDF you already have.
-
-## Meta models, and what each does
-
-| Model | Where | Role |
-|---|---|---|
-| **Muse Spark** (`muse-spark-1.3-contributor`, Meta Model API) | `video2urdf/agent.py`, `scripts/add_physics.py` | The agent: watches the whole video (mp4 input), looks at frames, chooses noun prompts for SAM, picks the parts' roles, calls track / fit / fit_lidar, watches the replay (the model drawn over the video) to judge the fit over time, refits, then judges each link's material and mass and finds when a part stood still with no hand on it (`set_physics`), and writes the report. After the fit it names the object and designs its clean visual from primitives, checking each design over the video (`video2urdf/designer.py`). Chat Completions with tool calls, images, video and structured output. |
-| **SAM 3.1** (`sam-3.1`, Meta Model API) | `video2urdf/sam.py`, `scripts/track_video.py` | Concept prompts on key frames find each part; one box-anchored video request tracks all parts with stable IDs. |
-| **Muse Spark Open** (open weights, Baseten) | `run_agent.py --open-weights` | The same agent on open weights (it takes video too). |
-| **Muse Glimmer 30B** (open weights `meta-models/Muse-Glimmer-30B`, our own Modal Dedicated Endpoint, SGLang) | `run_agent.py --glimmer` | The same agent on a 30B dense open model we serve ourselves: tool calls and images (the endpoint drops video, so it works from frames). |
-| **SAM 3.1 / SAM 3** (open weights `facebook/sam3.1`, `facebook/sam3`, on a Modal GPU) | `modal_apps/sam3_open.py`, `video2urdf/sam_open.py` | Open-weights segmentation (SAM 3.1 concept prompts) and box tracking (SAM 3's tracker), answering in the hosted API's wire format so the rest of the pipeline is unchanged. |
-| **SAM 3D Objects** (open weights `facebook/sam-3d-objects`, on a Modal GPU) | `modal_apps/sam3d.py`, `scripts/sam3d_meshes.py` | A realistic, coloured mesh of each link from one frame and its SAM 3.1 mask, laid out in metres by our LiDAR depth (given as its pointmap), checked against the measured depth points; it becomes the link's visual, the measured shape stays its collision. |
-| **MapAnything** (open weights `facebook/map-anything-apache`, on a Modal GPU) | `modal_apps/mapanything_open.py`, `video2urdf/pseudo_depth.py` | Metric depth, intrinsics and camera poses from a plain RGB video, written as a LiDAR-style capture so the 3D path runs without LiDAR (experimental, see below). |
-
-Every model called at runtime is a Meta model. Switching between the Meta API and open
-weights is one flag.
-
-## Results
-
-### Synthetic (MuJoCo-rendered videos with known joints)
-
-| Case | Joint type | Axis / position error | Angle error |
-|---|---|---|---|
-| Lamp, 2 hinges, 2D | correct tree and types | hinge position 1.7 / 2.5 mm | 0.08 / 0.38 deg mean |
-| Drawer, 2D | prismatic | direction 0.00 deg, position 3.2 mm | |
-| Lamp seen obliquely, handheld wobble, 3D | | shoulder 0.5-0.85 deg / 4 mm, elbow 1.4-1.6 deg / 8 mm | 0.1 / 0.9 deg |
-| Drawer sliding toward the camera, 3D | prismatic | direction 0.24 deg | travel 0.17 mm |
-
-### Real objects, filmed for this project
-
-- **13" MacBook Pro, iPhone LiDAR, no card**, agent from scratch: lid 309 x 205 mm (spec
-  304 x 212), base 14 mm, lid 3.8 mm, opening 0..117 deg, hinge drawn on the real hinge;
-  the replayed model covers 95% (lid) and 94% (base) of SAM's masks over the 923 frames, while
-  the phone moves. The Panda then closes it to within 1 deg of its measured limit. (These are the
-  agent's tracks refit with the later fit_lidar; the agent's own fit that day read 304 x 215 mm.)
-- **Office pedestal drawer, iPhone LiDAR**, agent from scratch: it finds which of three
-  look-alike drawers moves (the tool warns when a "fixed" part stands out like a drawer),
-  measures how far the drawer's front stands out of the cabinet's front in every frame (camera
-  drift cancels), and builds a cabinet carcass with a slot and the drawer as an open tray:
-  pulls out 248 mm; the replay sits on the drawer shut and open.
-- Laptop, 2D side view: one hinge, 0-77 deg, fit residual 1.7 mm. Spark saw its first fit was
-  wrong (base tracked on 319/408 frames, 25 deg range), re-segmented on other frames and
-  re-tracked: 408/408 frames.
-- Monitor stand, 2D: base -> lower arm (0-30 deg) -> upper arm (-81-0 deg), residuals
-  1.0 / 0.9 mm.
-
-### The agent can't finish over its own warnings
-
-The fit tools flag part choices the numbers contradict (a plate track that slid onto the shut
-lid, a base mask that holds the plate, a replay covering under half its mask, a "fixed" drawer
-front that stands out). `finish` refuses once while the last fit's warnings are unresolved, and
-every run ends with a status in `agent/status.json` and the report's first line:
-`checks_passed`, `needs_review` or `failed` (no model). It refuses only once, so estimated
-masses or hidden sides can't loop. Passing the checks means none objected, not that the model
-was verified against the real object.
-
-On the never-seen microwave (10/31) Spark's first fit came out wrong: a door 795 x 506 mm and a
-body 30 mm tall that the replay didn't cover at all. It watched the replay, re-tracked the floor
-and the body, and fitted again: the door on a vertical hinge 1.3 deg off vertical, 361 x 255 mm,
-the replay covering 82% of the door and 89% of the body. A laptop run whose screen mask lay on
-the base on 204 open frames was refused once and finished `needs_review`, saying so. The first
-version of these checks also flagged every laptop (a screen's track is meant to fall onto the shut
-lid's back as it closes); that case is now an informational line, and a WARNING only when the
-plate sits on the closed surface while the object is open: fresh laptop runs pass (lid
-306 x 208 mm, replay 88% / 95%).
-
-### Why not just ask an AI for the URDF?
-
-We asked the same Muse Spark that drives Video2URDF (`muse-spark-1.3-contributor`) for a URDF of
-each video, plainly: the video, three frames and one request, no tools (5 answers per object,
-`scripts/spark_alone.py`). Each answer was placed on the measured model by URDF Doctor and, on the
-RBO laptops, scored against motion capture.
-
-![Left: the measured model over the video, the lid open 117 deg. Right: Muse Spark's own URDF placed where it fits best, stopped at its 110 deg limit](docs/media/spark_alone_laptop.jpg)
-
-- **It recognises products and recalls their specs.** The MacBook's lid came out at the spec's
-  304 x 212 mm in all five answers. On the RBO laptops, placed on our measured geometry, its hinge
-  along the back edge of the base is as close to motion capture as our fit in direction on two
-  of the three (1.9 / 1.0 deg against our 2.1 / 0.9; 6.5 against 1.8 on the third), and closer in
-  position (8-19 mm against our 20-32 mm).
-- **It can't measure this object.** In 8 of 19 hinge answers the joint range is shorter than the
-  opening the video shows, so the model can't reach a pose the real object reaches (above: the lid
-  opens 117 deg, Spark's model stops at its 110 deg limit). It gave all three of the pedestal's
-  drawers the same 360-400 mm of travel, whatever the video shows (the one in the video was
-  pulled out 248 mm; its full travel wasn't measured). Answers vary from run to run (joint ranges
-  90-120 deg), 1 of 25 doesn't load in MuJoCo (impossible inertia), and nothing in an answer says
-  which of its numbers are right.
-- **With tools, the same model measures those numbers and checks them against the video.** Its
-  prior for where a laptop's hinge sits is better than our fit's position, a prior we could add.
-
-Table, caveats and all 30 answers: [docs/spark_alone.md](docs/spark_alone.md).
-
-### Five fresh runs per object, and three objects it had never seen
-
-Every LiDAR capture again, from scratch, five times each (10/31: Muse Spark on the Meta API, SAM
-weights on Modal, code fixed at one commit; `data/repeat5`, not committed):
-
-| Object | Status (5 runs) | Measured, across the runs | Reference |
-|---|---|---|---|
-| 13" MacBook Pro | needs_review x5 | lid 304-306 x 208-212 mm; replay lid 86-93%, base 83-96% | spec 304 x 212 |
-| Office drawer | needs_review x5 | travel 242, 243, 243, 244 mm; one run 20 mm (wrong front, replay 15%) | hand fit 253 |
-| Black mouse | checks_passed x5 | 121-122 x 75 x 55 mm; replay 88% | spec 125 x 84 x 51 |
-| LED desk lamp | checks_passed x5 | Spark fixed the pole itself every time; arm 377-381 mm, 76-91 deg; pole 241-366 mm | arm 380, pole 351 (our refit) |
-
-Every laptop run was refused once at `finish` for the same reason (the screen track slides onto
-the lid's back as it shuts, an expected case the check flagged then; it is now informational, and
-the same tracks refit pass in 3 of 5, the other 2 keeping other warnings). The drawer run that measured
-the wrong front ended `needs_review`, not passed. The lamp passes with the arm's replay covering
-only 19-34% of its thin mask, and the pole's length varies: the rod-chain fit had no coverage
-warning then, a gap in the checks (it now warns under 25%, see below).
-
-Then three captures filmed after the code was fixed, never used in development, run once each
-with that same code: a microwave, a step trash bin and an AirPods case. **None gave a usable
-model, and all three ended `needs_review` rather than passing:**
-
-- Microwave: its door swings about a *vertical* hinge, and `fit_lidar` assumes the hinge lies in
-  the base's top plane (true for lids, not for doors), so it drew the hinge along the top; the
-  glossy black body also came back from SAM in fragments (replay 6% / 26%). Spark's report: timing
-  right, geometry unreliable, don't use it for grasping.
-- Trash bin: the base candidate was the whole bin, lid included; the hinge came out on the side
-  wall. Lid 123 x 156 mm, replay 82% for the lid, 27% for the base. Spark asked for a reshoot.
-- AirPods case: it never opened in the video, so it is a rigid object; the static fit found too
-  few depth points on the small white case, and Spark then forced a hinge fit on it (flagged,
-  replay 14-18%).
-
-After those runs we fixed what they exposed, then ran the same three captures again (10/31).
-The code changed after seeing them, so these are development results, not blind tests:
-
-- `fit_lidar` now tells a door from a lid (its axis lies along the base's normal) and places the
-  hinge on the shut door's plane, where the open frames' door points stay equidistant (the
-  door's planes alone put it ~10 cm off: the open black glass door returns depth on only 0-10%
-  of its mask). Three fresh agent runs all built a door model: hinge 1.3-6.0 deg off vertical
-  and within 1-2.5 cm of the real hinge edge in the image, door 361-390 x 255-267 mm, replay
-  82-87% of the door; one `checks_passed`, two `needs_review`. The opening reads 52-57 deg. By eye
-  the door looks wider open, because the phone sat about 35 cm from its free edge with a wide
-  lens. We checked the angle by drawing the model door over the video at every opening from 0 to
-  120 deg: it fits the door's mask best at 51 deg on the held-open frames, and a door at 90 deg
-  would leave the frame. The body is modelled only as the control-panel column (completed
-  afterwards: [The parts the camera never saw](#the-parts-the-camera-never-saw)).
-- The static fit picks a reference frame where depth sees the object: the AirPods case now
-  passes, 66.8 x 52.5 x 37 mm, replay 91%.
-- The prompt names the body wall or rim as a lidded bin's base: on one rerun the trash bin's
-  hinge lay along the top rear edge (replay 60% / 72%, open lid misaligned, `needs_review`), but
-  two further fresh runs gave no usable model: SAM never returned a body mask without the lid.
-- The rod-chain fit now warns when a rod's replay covers under 25% of its mask.
-
-### Benchmark: RBO dataset (real RGB-D with motion capture)
-
-The [RBO dataset](https://zenodo.org/records/1036660) (TU Berlin, CC BY 4.0) has Kinect RGB-D
-videos of people operating articulated objects, with motion-captured rigid bodies. The agent
-runs each sequence from scratch (same prompts and tools as on our own videos); the result is
-scored against the plate's motion relative to the base from motion capture. The operators
-often push the whole object around while opening it (up to 15 cm and 47 deg), so the base is
-followed too.
-
-The scorer runs the agent's own fit (`lidar.fit_lidar_hinge`, the steps `fit_lidar` takes), so
-it scores exactly what the agent produced. Re-scored 10/31 with the current code on the agent's
-tracks from 10/28:
-
-| Sequence | Axis direction | Axis position | Angle error, median | Angle error, p90 | Frames measured |
-|---|---|---|---|---|---|
-| laptop01 | 1.8 deg | 25 mm | 1.9 deg | 38.7 deg | 146/186 |
-| laptop02 | 2.1 deg | 32 mm | 3.5 deg | 8.3 deg | 201/205 |
-| laptop04 | 0.9 deg | 15 mm | 2.3 deg | 5.4 deg | 162/192 |
-| laptop05 | 0.9 deg | 20 mm | 3.1 deg | 5.6 deg | 158/185 |
-| book03 | 1.5 deg | 17 mm | 3.7 deg | 4.4 deg | 187/329 |
-| book05 | 2.2 deg | 52 mm | 9.6 deg | 13.6 deg | 172/256 |
-| cardboardbox02 | 1.9 deg | 46 mm | 67.8 deg | 133.4 deg | 202/220 |
-| treasurebox02 | 2.1 deg | 131 mm | 16.4 deg | 27.5 deg | 200/263 |
-| book13, cardboardbox03, cardboardbox06, treasurebox03, treasurebox05 | refused: no reference frame where base, cover/lid and open indicator are all measured | | | | |
-| **median of the 8 fitted** | **1.9 deg** | **29 mm** | **3.6 deg** | **10.9 deg** | |
-
-Laptops and books are measured to a few degrees. Box lids are where it fails: in these 640 x 480
-videos SAM loses the lid (and often the box) on most frames, so the fit either refuses or guesses
-the open/closed state from the whole box. Angle errors are taken modulo 360 deg. The table we
-published on 10/29 (all 13 fitted, median 2.5 deg / 47 mm / 3.3 deg) came from earlier code:
-two later checks (no closed-surface fallback on open frames where the base shows; no reference
-frame where the base is mostly hidden) refuse five of these tracks now, and on book05 dropped 44
-frames the old fit had mis-measured by ~54 deg that had happened to steady its hinge (1.4 deg
-then, 9.6 deg now). Neither check changes the LiDAR laptop runs. Per-sequence results:
-`scripts/rbo_bench.py` writes `data/rbo/results/summary.md`.
-
-### Open weights only
-
-`run_agent.py --open-weights` (Muse Spark Open on Baseten + SAM 3.1 / SAM 3 on Modal):
-
-- SAM box tracking on the synthetic lamp: 120/120 frames, IoU against the hosted API 0.970 /
-  0.952, arm against ground truth 0.942 (hosted 0.960).
-- Muse Spark Open driving the LiDAR laptop (SAM via the API): lid 312 x 208 mm, base 13 mm,
-  0..117 deg, hinge on the real hinge, 9 turns.
-- **Everything on open weights** (Muse Spark Open + SAM on Modal), LiDAR laptop from scratch,
-  18 turns: lid 305 x 209 mm (13" MacBook: 304 x 212), opening 3..122 deg following the
-  video (closes, then reopens), lid replay covering 91% of its masks. The base was segmented in
-  fragments (keyboard, trackpad), so its thickness could not be measured; the pipeline and
-  Spark's report both flag it instead of passing on a wrong number.
-- **The new captures, everything on open weights** (10/30, Muse Spark Open on Baseten + SAM on
-  Modal; shape design by Spark Open on Baseten and on Fireworks; `data/archive/tracks_open2`):
-  the black mouse came out 121.5 x 75.1 x 54.5 mm (the Meta API run: 121.3 x 75.2 x 54.7), 0.14 kg,
-  named "ergonomic computer mouse" and redesigned (mask F-score 0.90 vs 0.94 measured). The LED
-  desk lamp: Spark Open's first fit missed the rods (the replay covered 6% / 4% of their masks);
-  it watched the replay, re-tracked the pole and refit: pole 332 mm, arm 371 mm (0..75 deg),
-  replay 73% / 42%, joint friction measured on still spans (let go in MuJoCo: 0.0-0.1 deg),
-  redesigned as an "LED desk lamp".
-- **From a fresh clone** (10/31), the README's open-weights command on the sample capture:
-  lid 306 x 213 mm, base 10 mm, replay 96% / 93%. `finish` refused once; Spark Open then
-  finished with a report starting "NEEDS REVIEW:" that names the frames measured from the closed
-  lid's back (status `needs_review`). The shape design ran on Spark Open too.
-- **Everything on open weights, served by us**: Muse Glimmer 30B on our own Modal endpoint +
-  SAM on Modal (`--open-weights --glimmer`), LiDAR laptop from scratch, through to physics:
-  lid 307 x 201 mm, opening 0..108 deg, lid replay 87%; it set masses (base 1.1 kg, lid
-  0.45 kg) and the lid hinge's friction was measured at 0.164 N·m from the lid held open with
-  no hand on it (released in MuJoCo: 0.1 deg). Its base candidate was the whole laptop, so the
-  base replay is low (5%), which its report notes. A first try spent all its turns collecting
-  candidates; the turn note now says to track once half the budget is gone.
-- **Muse Glimmer on the newer captures** (10/31, same setup, one run each): the mouse
-  `checks_passed`, 121.5 x 75.1 x 54.5 mm (the Meta API run: 121.3 x 75.2 x 54.7); the drawer
-  `needs_review`: it took all three fronts as moving drawers, so two barely move and the replay
-  covers 12% / 0% / 0%, which its report says plainly; the desk lamp came out `checks_passed` but
-  with the fixed pole fit as a joint and the rods' replay covering 18% / 22%: the rod-chain fit
-  didn't warn about low coverage then, so the automatic checks passed it (it now warns under 25%).
-- **The RBO benchmark on open weights only** (10/31, Muse Spark Open + SAM weights, one run per
-  sequence, scored like the Meta API set): laptops and books 7 of 7, hinge axis 2.8 deg, position
-  33 mm, angle 2.8 deg (medians; the Meta API run: 6 of 7, 1.7 deg / 23 mm / 3.3 deg); box lids
-  4 of 6 fitted but poor (angle 48 deg median), 2 never got a model. `scripts/rbo_bench.py
-  --open-weights` keeps these runs apart from the Meta API ones.
-
-### The model looks like the object: Spark designs it, the video checks it
-
-The measured meshes have the right sizes but read as blobs: silhouettes voted over the video,
-or depth points. After the fit, Muse Spark watches the video, names the object and each link's
-real part, and rebuilds every link from a few primitives (boxes, rounded boxes, cylinders,
-spheres, bars) in that link's frame, sized from the measured extents; sides the camera never
-saw get proportions typical for that object, listed as assumptions. Every design is rendered
-from the recorded camera at the recorded joint values over the video and scored against the
-SAM masks (F-score counting pixels within 1% of the frame, fair to thin parts); Spark sees that
-overlay, three views of its design over the measured meshes and the per-axis size differences,
-and revises (up to 3 rounds). Each round three Meta models answer in parallel (Muse Spark on the
-Meta API, Muse Spark Open on Baseten and on Fireworks) and the design that scores best over the
-video carries on: on the LiDAR lamp Muse Spark alone scored 0.60 and 0.62 in the two rounds, the best of the three 0.62 and 0.63. The best design becomes the visual if it scores within 0.10 of the
-measured meshes and Spark judges the measurement consistent with the object; collisions,
-joints and physics stay measured (MJCF group 3 / URDF `<collision>`).
-`design/log.md` keeps every overlay Spark saw.
-
-| Capture | Spark's identification | Primitives | Score: design / measured |
-|---|---|---|---|
-| iPhone LiDAR laptop | Apple MacBook laptop (silver): body, lid, display, keyboard, trackpad, hinge barrel, logo | 7 | 0.88 / 0.89 |
-| iPhone LiDAR drawer | light beech office pedestal cabinet with three drawers: carcass, fronts, handles, lock | 13 | 0.50 / 0.49 |
-| iPhone LiDAR desk lamp (new, 10/30) | LED desk/task lamp: base with control panel, pole, LED bar arm, pivots | 12 | 0.62 / 0.69 (the thin arm: 0.39 / 0.42) |
-| iPhone LiDAR mouse (new, 10/30) | ergonomic wireless mouse, Logitech MX Master style (shown: SAM 3D's mesh, see below) | 8 | 0.89 / 0.94 |
-| 2D lamp video (`stand_2`) | white foldable LED desk lamp: base with control panel, pole, LED housing and diffuser, pivots | 11 | 0.70 / 0.71 |
-
-Round 2 on the lamp: Spark saw its first arms were too thick against the masks and thinned
-them (0.66 -> 0.70). When the measurement itself is wrong (an RGB-only capture without a
-reference whose fitted box is a 2.6 m slab lying flat) Spark says so, and the design is not
-applied; it also flags a scale far from the object's usual size.
-
-```bash
-.venv/bin/python scripts/design_shape.py data/tracks/my_video my_video.mov   # run_agent.py does this by default
-.venv/bin/python scripts/design_shape.py data/tracks/my_video --remove        # back to the measured visuals
-```
-
-### Physics: masses, inertia, and joint friction measured from the video
-
-A model a robot can push needs mass and friction, not just a shape. Muse Spark watches the
-video and judges each link's material and mass from what the object is (the tool returns the
-density that mass implies over the measured solid, as a check); inertia follows from the link's
-measured mesh. Joint friction is measured where the video allows it: when a part stands still
-with **no hand on it** (Spark finds those spans in the video), the hinge alone is holding it
-against gravity, so its friction is at least the gravity torque at those angles (MuJoCo
-computes it; the model gets 1.25x the largest). The resting end (a closed lid lying on its
-base) is left out. The check: release the model in MuJoCo at the held angles for 2 s.
-
-| Model | Masses (Spark) | Joint friction | Released at the held angles, 2 s |
-|---|---|---|---|
-| 13" MacBook Pro, LiDAR | base 0.90 kg + lid 0.50 kg (spec: 1.4 kg in all) | lid hinge 0.284 N·m, measured | moves 0.1 deg (11.5 deg without it) |
-| Laptop, 2D side view | 0.95 + 0.45 kg | 0.038 N·m, measured (held only near upright: a lower bound) | 0.0 deg (76 deg without) |
-| Monitor stand, 2D | base 0.45, arms 0.075 / 0.09 kg | 0.028 / 0.122 N·m, measured | 0.0 / 3.4 deg (21 / 56 deg without) |
-| Pedestal drawer, LiDAR | cabinet 13 kg, drawer 2.5 kg | 0.98 N, estimated (gravity doesn't load a horizontal slide) | |
-
-`scripts/physics_demo.py` renders the check: the model let go at a held angle, with the
-measured friction and without, side by side (viewer tab "Physics check"; laptop +0.1 vs
-+11.5 deg in 3 s, stand +0.0 vs +20.3 deg).
-
-URDF gets `<inertial>` and `<dynamics>`, MJCF explicit inertials, `frictionloss` (stiffened:
-MuJoCo's default soft friction lets a loaded hinge creep 7 deg in 2 s) and contact friction.
-The robot demo uses them. Damping is not measured (the hand drives every motion we see).
-
-### URDF Doctor: checking an existing URDF against the video
-
-Given a URDF written some other way (by hand, from CAD, by a vendor; any frame convention),
-`scripts/urdf_doctor.py` registers its base to the measured base by geometry, finds which of
-its joint values reproduces each opening seen in the video, and reports what disagrees. Test
-on the LiDAR laptop with URDFs in `examples/doctor/` (bugs injected on purpose):
-
-| URDF under test | Doctor's verdict |
-|---|---|
-| `laptop_spec.urdf`, from the published 13" MacBook Pro dimensions | consistent: axis 2.3 deg / 8 mm from the measured hinge, +q opens, limits cover the 1..117 deg seen |
-| `laptop_buggy.urdf`: hinge moved 25 mm, axis tilted 6 deg, upper limit 90 deg | 3 problems: axis 7.6 deg off, hinge 18 mm off, limits stop at 90 but the video needs 127 |
-| spec + `joint_log_flipped.csv` (encoder sign reversed) | log = -1.00 x expected: sign flip |
-| spec + `joint_log_offset.csv` (12 deg zero offset) | log offset by 11.3 deg |
-
-The axis's turn *within* the base's top plane is only as sure as the measured base outline
-(a few degrees on this capture); tilts out of that plane, positions, signs, offsets and limits
-are what it checks reliably.
-
-### The parts the camera never saw
-
-A microwave in a shelf can't be filmed from behind, so its fit held only the door and the strip of
-buttons SAM tracked: a door and a floating panel a robot could reach straight through. When a body
-is known to be partial, `scripts/complete_body.py` (`video2urdf/completion.py`) builds the rest:
-measured where the video saw it, bounded by what the video rules out, and estimated otherwise,
-every estimate labelled with its source.
-
-| | Microwave (never seen in development) |
-|---|---|
-| Measured: the front, from LiDAR inside SAM 3.1 masks of the whole object | 477 x 269 mm |
-| Bounded by the video: the depth | 334-387 mm (the cavity's back wall seen through the open door; a wall seen just behind its top) |
-| Estimated by Muse Spark | recognised a Samsung 23 L (MS23K series, ~489 x 275 x 374 mm); depth 365 mm, cavity width and height, walls, 10 kg |
-| Completed body | 477 x 365 x 269 mm with a cavity behind the door; the whole object's masks covered 50% -> 85% |
-| Collision | a probe pushed into the back, the top or the open door stops on the body (it used to pass through) |
-
-When neither the video nor Spark gives a size, a typical size for the category is used and marked
-as such. Bodies the video already measured (the laptop, the drawer, the lamp, the mouse) are left
-untouched. `scripts/complete_body.py RUN --remove` restores the measured-only model.
-
-### A policy learned on the measured drawer
-
-The drawer measured from video is also a training environment (`video2urdf/rl_drawer.py`): a
-Panda hand on a force-limited mount, the measured drawer and cabinet colliding, and a reward that
-counts drawer travel only while both fingers pinch the handle (pressing along their closing
-direction, each at least 7 mm open on the 18 mm handle). Earlier attempts found loopholes
-(ramming through the drawer front, crushing the fingers past their joint limit to hook the
-handle, a mount pushing with 2 kN); each was closed before this run. PPO with 32 environments on
-Modal CPUs (5M steps, 45 min; about $4 of Modal credit for everything):
-
-| | Held-out placements (sim hand) | Full Panda arm, unseen starts |
-|---|---|---|
-| Opened >= 150 mm while pinching | 99 / 100 (random actions: 0 / 100) | 19 / 20 |
-| Drawer travel made while pinching | 98.2% | 98.4% |
-| Finger opening while holding | >= 7.3 mm | >= 8.6 mm |
-| Deepest contact with anything but the handle | 0.37 mm | 0.41 mm |
-
-The arm follows the policy under Cartesian impedance (the training mount's stiffness, damping and
-60 N cap, within the Panda's joint torque limits); through `robot_tasks.py`'s joint servos it
-doesn't work honestly. The arm's one failure: the hand caught the cabinet's slot edge and tilted
-31 deg. One-step force spikes come from the simulated gripper snapping shut much faster than a
-real Franka hand. Simulation only.
-
-```bash
-uv sync --extra rl
-.venv/bin/modal run modal_apps/rl_drawer_train.py::main --steps 5000000 --envs 32 --name drawer_ppo_honest
-.venv/bin/modal run modal_apps/rl_drawer_train.py::arm --name drawer_ppo_honest --seeds 20
-.venv/bin/python scripts/run_drawer_policy.py data/tracks_design/drawer2_lidar --seed 20012   # the arm video
-```
-
-### More results
-
-- **Repeatability**: three fresh Muse Spark runs on the LiDAR laptop gave lids of 316 x 216,
-  304 x 215 and 304 x 214 mm (spec 304 x 212); which part the agent takes as the base still
-  varies between runs, and the fit tool flags it.
-- **Rods and static objects**: a desk lamp's rods are fit as 3D lines from raw LiDAR depth
-  (synthetic oblique lamp: axis 0.4 / 4.8 deg); a mouse the phone circled is carved from 48 views
-  and capped by depth: 121 x 75 x 55 mm (MX Master 3S: 125 x 84 x 51).
-- **The robot uses the model**: a Franka Panda in MuJoCo physics closes and reopens the laptop
-  lid (87 deg), pulls the drawer out by its handle with the cabinet's measured collision on
-  (199 mm) and pushes it back, swings the lamp's arm (40 deg), and carries and turns the mouse
-  and the AirPods case. It pinches the microwave door's free edge, pulls it open to 46 deg (85% of
-  the measured range) and pushes it shut, against the completed body's collision.
-- **Speed and scale**: SAM tracking of 1385 frames went from 520 s to 285 s (both passes at
-  once, strided on fast video); plain videos get a metric scale from an ID-1 card or from the
-  object's usual size.
-- **Texture**: each flat face of a link takes the video frame that saw it largest and most
-  head-on.
-
-Details, numbers and commands for each: [docs/DETAILS.md](docs/DETAILS.md).
-
-## Run it
-
-Requires macOS or Linux, [uv](https://docs.astral.sh/uv/), ffmpeg. No local GPU.
-
-```bash
-uv sync                                  # Python 3.12 environment in .venv
-cp .env.example .env                     # then fill in the keys you have
-.venv/bin/python scripts/smoke_test.py   # one cheap call per backend
-```
-
-### Any capture, one command
-
-```bash
-.venv/bin/python scripts/video2urdf.py INPUT [--robot] [--open-weights]   # -> data/runs/<name>/
-.venv/bin/python scripts/video2urdf.py INPUT --check-only                   # what it would do, nothing billed but one look
-```
-
-`INPUT` can be a Stray Scanner zip or folder (iPhone LiDAR), any phone video (iPhone MOV with
-HEVC, HDR, rotation or variable frame rate; Android MP4; 60 or 120 fps), an RGB-D folder, a photo
-folder, or a zip of any of these; the type is read from the content. Plain video is turned
-upright, tone-mapped to SDR and brought to a steady 30 fps or less; depth captures keep their
-frames aligned with their depth. A quick capture check prints reshoot tips. A depth capture
-takes the 3D path; a plain video goes 3D through MapAnything when the camera moves or looks down
-at an angle, and the planar path when a still camera faces the motion (`--path` overrides).
-Then the agent, physics, textures, Spark's shape design, completing an unseen body, the robot
-tasks (`--robot`) and a viewer folder, with `summary.md` saying what was measured, what was
-estimated and the status. If no joint is found it still writes a rigid model, marked
-`needs_review`. Tried on the laptop, microwave and AirPods-case captures, a side-view MOV, the same
-MOV turned 90 deg and cut to 60 fps, and an RGB-only video: all seven produced a model (six passed
-the checks; the RGB-only laptop came out 321 x 195 mm against LiDAR's 306 x 210 and needs review).
-The simulated robot worked three of the seven; the door task was added after this test (on the
-published microwave it pulls the door open to 46 deg and pushes it shut), the side-view lids
-still fail.
-
-The sections below run the steps one at a time.
-
-### A 2D phone video
-
-Film on a tripod, camera facing the plane the part moves in, an ID-1 sized card in view,
-open and close the object slowly.
-
-```bash
-.venv/bin/python scripts/run_agent.py my_video.mov --out data/tracks
-open data/tracks/my_video/replay.mp4               # the model over the video
-cat  data/tracks/my_video/agent/report.md          # Spark's report
-ls   data/tracks/my_video/{model.urdf,model.xml}
-```
-
-Without the agent: `scripts/track_video.py VIDEO "laptop lid" "laptop keyboard"`, then
-`scripts/fit_model.py VIDEO --ref "laptop lid=0.212"` (a known length instead of a card).
-
-### An iPhone LiDAR capture
-
-Record with [Stray Scanner](https://apps.apple.com/app/stray-scanner/id1557051662), export
-the folder, then:
-
-```bash
-.venv/bin/python scripts/run_agent.py data/real/laptop_lidar --out data/tracks_agent
-open data/tracks_agent/laptop_lidar/replay3d.mp4   # the model rendered from the phone's pose
-```
-
-The agent ends with `set_physics` (masses, friction). For a run made without it:
-`.venv/bin/python scripts/add_physics.py data/tracks_agent/laptop_lidar` (Spark watches the
-video once, structured output; `--reuse` re-applies the saved estimate).
 
 ### Open weights only (for the Open Weight prize check)
 
@@ -651,37 +232,121 @@ export LOCAL_KEY=none AGENT_API_KEY_ENV=LOCAL_KEY AGENT_BASE_URL=http://localhos
 endpoint does). With `BASETEN_API_KEY` or `FIREWORKS_API_KEY` set, the shape design (here and with
 `--glimmer`) also asks Spark Open there; add `--no-design` to keep every call on your own server.
 
-### Check the downloads
+What these runs gave (from a fresh clone, from scratch on the new captures, Glimmer through to
+physics, the RBO benchmark): [docs/RESULTS.md](docs/RESULTS.md#open-weights-only).
 
-The viewer's "Download model" zip holds `model.urdf`, `model.xml` and their meshes. To check
-them the way a user loads them (MuJoCo for both files, PyBullet, yourdfpy, Drake):
+### Your own capture
+
+Film the object being opened and closed, slowly. With iPhone LiDAR
+([Stray Scanner](https://apps.apple.com/app/stray-scanner/id1557051662)) any angle works and
+handheld is fine. With a plain phone video, use a tripod, face the plane the part moves in and
+keep an ID-1 sized card in view (85.6 x 54 mm; a loyalty card, never a payment card).
 
 ```bash
-uv run --no-project --python 3.12 --with pybullet --with yourdfpy --with mujoco --with drake \
-    python scripts/check_exports.py docs/models     # one row per model per loader
+.venv/bin/python scripts/video2urdf.py INPUT [--robot] [--open-weights]   # -> data/runs/<name>/
+.venv/bin/python scripts/video2urdf.py INPUT --check-only                   # what it would do, nothing billed but one look
 ```
 
-On Apple Silicon pybullet has no wheel, so uv builds it from source the first time (a few
-minutes). Simulate the MJCF in MuJoCo (it carries the contact exclusions a URDF can't); ROS
-users need to rewrite the mesh paths as `package://`.
+`INPUT` can be a Stray Scanner zip or folder, any phone video, an RGB-D folder, a photo folder,
+or a zip of any of these; the type is read from the content. The run folder holds the model
+(`model/model.urdf`, `model/model.xml`), the replay over the video, the agent's log, a viewer
+folder and `summary.md`: what was measured, what was estimated, and the status.
 
-### More commands
+<a id="check-the-downloads"></a>Step by step (a 2D video, a LiDAR capture, plain video through
+MapAnything, the robot tasks, the viewer, SAM 3D meshes, URDF Doctor, the RBO benchmark) and how
+to check the downloads in MuJoCo, PyBullet, yourdfpy and Drake: [docs/COMMANDS.md](docs/COMMANDS.md).
 
-Plain video without LiDAR (MapAnything), the robot tasks and the viewer, SAM 3D link meshes,
-URDF Doctor and the RBO benchmark: [docs/DETAILS.md](docs/DETAILS.md#more-commands).
+## The agent
+
+Muse Spark runs the pipeline as a tool-calling agent (`video2urdf/agent.py`,
+`scripts/run_agent.py`): 14 tools, a budget of 22 turns and at most 3 track calls. It gets the
+whole video first, then frames spread over it. Every turn and every image it saw is logged in
+`agent/log.md`; the viewer shows that log for each model.
+
+| Tool | What Spark uses it for |
+|---|---|
+| `watch` | Watch the source video, or the latest replay (the model drawn over the video), whole or a span |
+| `look` | See up to 4 frames at full resolution |
+| `segment` | Run SAM 3.1 with one noun prompt on one frame; get candidates and an annotated image |
+| `measure_scale` | Metric scale from a segmented ID-1 card (2D videos) |
+| `track` | Track the chosen candidates through the whole video; a part can take candidates on several frames, so tracking picks it up again after it disappears |
+| `combine_tracks` | Join separately tracked regions of one rigid part (a keyboard and a trackpad) |
+| `retrack_part` | Re-track one part from new anchors, keeping the other tracks |
+| `fit` | The 2D fit: joints, kinematic tree, URDF/MJCF and the replay |
+| `fit_lidar` | One hinged plate (a lid, a door, a flap) or one slide, in 3D from depth |
+| `fit_drawers` | Drawers sliding out of a cabinet, from depth |
+| `fit_chain` | Thin rods on hinges in a chain (a lamp's pole and arm), from raw depth |
+| `fit_static` | An object with no joints, as a box or an upright cylinder |
+| `set_physics` | Each link's material, mass and friction, and the spans where a part stands still with no hand on it |
+| `finish` | End with the report |
+
+Each fit writes the model and returns its numbers, its warnings and the model drawn over the
+video at its worst frames. A tool error goes back to Spark as text (the traceback goes to the
+log), so one bad call doesn't end the run. Muse Spark Open runs the same loop; Muse Glimmer does
+too, from frames, without `watch`.
+
+### The agent can't finish over its own warnings
+
+The fit tools flag part choices the numbers contradict (a plate track that slid onto the shut
+lid, a base mask that holds the plate, a replay covering under half its mask, a "fixed" drawer
+front that stands out). `finish` refuses once while the last fit's warnings are unresolved, and
+every run ends with a status in `agent/status.json` and the report's first line:
+`checks_passed`, `needs_review` or `failed` (no model). It refuses only once, so estimated
+masses or hidden sides can't loop. Passing the checks means none objected, not that the model
+was verified against the real object.
+
+On the never-seen microwave (10/31) Spark's first fit came out wrong: a door 795 x 506 mm and a
+body 30 mm tall that the replay didn't cover at all. It watched the replay, re-tracked the floor
+and the body, and fitted again: the door on a vertical hinge 1.3 deg off vertical, 361 x 255 mm,
+the replay covering 82% of the door and 89% of the body. A laptop run whose screen mask lay on
+the base on 204 open frames was refused once and finished `needs_review`, saying so. The first
+version of these checks also flagged every laptop (a screen's track is meant to fall onto the shut
+lid's back as it closes); that case is now an informational line, and a WARNING only when the
+plate sits on the closed surface while the object is open: fresh laptop runs pass (lid
+306 x 208 mm, replay 88% / 95%).
 
 ## Limitations
 
-- v1 handles 1-3 joints. The 3D path (`fit_lidar`) handles one hinged plate or one slide.
-- Thin parts make replay IoU harsh; book covers and box lids track poorly (see the benchmark).
+- v1 handles 1-3 joints. The 3D path (`fit_lidar`) handles one hinged plate or one slide;
+  drawers (`fit_drawers`) and rod chains (`fit_chain`) have their own fits. A joint that turns
+  about two axes (a swivel plus a hinge) and parallelogram arms are not modelled.
+- Thin parts make replay IoU harsh; book covers and box lids track poorly
+  ([the benchmark](docs/RESULTS.md#benchmark-rbo-dataset-real-rgb-d-with-motion-capture): in its
+  640 x 480 videos SAM loses box lids on most frames; 2 of 6 boxes got a fit).
 - A 2D side view cannot measure the width across the motion plane; it is assumed or set.
 - Floor levelling removes ARKit drift in height and tilt, not along the floor.
 - Doors on vertical hinges: the hinge is placed within a few cm. The body behind a door is only
   what the camera saw until `complete_body.py` completes it, partly from estimates (labelled).
   A lidded bin whose body SAM can't separate from its lid gives no usable model.
-- The learned drawer policy is simulation only, run on the arm under Cartesian impedance control.
+- Plain video without LiDAR (MapAnything) is experimental: it needs a scale (a card, the object's
+  usual size or one known length), local depth errors remain and the base thickness is not
+  measurable (the laptop's RGB alone gave a lid of 321 x 195 mm against LiDAR's 306 x 210).
+- Masses are Muse Spark's estimates. Joint friction is measured only where a part stood still with
+  no hand on it; damping is not measured.
+- `checks_passed` means none of the automatic checks objected, not that the model was verified
+  against the real object. Runs vary: which part the agent takes as the base still varies
+  between runs.
+- The robot tasks fail on fresh side-view lid models (the lid starts at its limit and the hand
+  never reaches it). The learned drawer policy is simulation only, run on the arm under Cartesian
+  impedance control.
+- SAM 3D Objects inflates the unseen side of flat, thin parts: on the laptop and the drawer its
+  meshes were rejected and the measured visuals stay.
 
-## Built on
+## Built during the hackathon
+
+All code in this repository was written solo during the hackathon (Oct 26 - Nov 4 2026), in
+small commits.
+
+What we built on top: the agent and its tools, the SAM tracking strategy (key-frame concept
+prompts, then multi-anchor box tracking forward and over a reversed clip, both passes at once,
+strided on fast video), the 2D and 3D joint fits (plates, slides, drawers, rods on hinges from raw
+depth, visual hulls for static objects), link geometry, URDF/MJCF emission, the camera-pose MuJoCo
+replay and its scoring, Spark's shape design loop judged over the video with three Meta models per
+round, SAM 3D placement and checks, automatic scale for plain video, physics from still spans, the
+robot tasks (grasp planning on the measured geometry), URDF Doctor, the viewer with its
+turn-by-turn logs, and the RBO benchmark harness.
+
+### Built on
 
 Models: Muse Spark, Muse Spark Open, Muse Glimmer, SAM 3.1, SAM 3, SAM 3D Objects,
 DINOv2 (used inside SAM 3D Objects), MapAnything (Meta).
@@ -705,11 +370,28 @@ DINOv2 (used inside SAM 3D Objects), MapAnything (Meta).
 | OpenCV, NumPy, SciPy, numba, OpenAI Python SDK (as the OpenAI-compatible client), Modal | various OSS | |
 | [Stray Scanner](https://github.com/strayrobots/scanner) | app | recording iPhone LiDAR captures |
 
-What we built on top: the agent and its tools, the SAM tracking strategy (key-frame concept
-prompts, then multi-anchor box tracking forward and over a reversed clip, both passes at once,
-strided on fast video), the 2D and 3D joint fits (plates, slides, drawers, rods on hinges from raw
-depth, visual hulls for static objects), link geometry, URDF/MJCF emission, the camera-pose MuJoCo
-replay and its scoring, Spark's shape design loop judged over the video with three Meta models per
-round, SAM 3D placement and checks, automatic scale for plain video, physics from still spans, the
-robot tasks (grasp planning on the measured geometry), URDF Doctor, the viewer with its
-turn-by-turn logs, and the RBO benchmark harness.
+## Repository layout
+
+```
+video2urdf/     the library: the agent, SAM clients, joint fits, URDF/MJCF, replay, physics, design
+scripts/        command-line entry points, listed by purpose in scripts/README.md
+modal_apps/     GPU apps on Modal: SAM 3.1 / SAM 3 and SAM 3D Objects weights, MapAnything, RL training
+tests/          unit tests
+docs/           the GitHub Pages site and viewer (index.html, models/), the demo video,
+                RESULTS.md, HOW_IT_WORKS.md, COMMANDS.md, spark_alone.md
+examples/       URDFs and joint logs with bugs injected for URDF Doctor; three of Spark's no-tools URDFs
+promo/          the promo video's Remotion source
+LICENSES/       the SAM License, for video2urdf/fast_mask.py
+CLAUDE.md       working notes and the day-by-day status log
+```
+
+Captures, runs and the downloaded Franka Panda live in `data/` and `third_party/`, which are not
+committed. Which module does what: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#code-map).
+
+## License
+
+No license has been chosen yet for this repository's own code. `video2urdf/fast_mask.py` is a
+numba port of meta-sam-parser's decoder and is under the SAM License
+([LICENSES/SAM_LICENSE](LICENSES/SAM_LICENSE)). The models, libraries and data it uses keep their
+own licenses ([Built on](#built-on)); the Franka Panda and the RBO sequences are downloaded by
+scripts, not redistributed.
