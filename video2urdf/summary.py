@@ -242,6 +242,11 @@ def write_summary(run_dir: Path, s: dict) -> None:
         lines += ["", "## Robot (simulated Franka Panda)", "",
                   f"{robot.get('kind') or ''}: " + "; ".join(f"{t['task']} -> {t['ended']}" for t in robot["tasks"])
                   + " (relative to the start; check the video: the simulation running doesn't mean the task worked)"]
+        lines += [""] * bool(robot.get("notes") or robot.get("deepest_hand_contact"))
+        lines += [f"- {n}" for n in robot.get("notes", [])]
+        if robot.get("deepest_hand_contact"):
+            lines.append(f"- Deepest hand contact per part (the held part includes the grip): "
+                         f"{robot['deepest_hand_contact']}")
     if s.get("measured_vs_estimated"):
         lines += ["", "## Measured vs estimated", ""] + [f"- {x}" for x in s["measured_vs_estimated"]]
     if s.get("steps"):

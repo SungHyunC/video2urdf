@@ -450,18 +450,30 @@ class Run:
 
 def robot_results(log_path: Path) -> dict | None:
     """What scripts/robot_tasks.py reports per task: the joint (or object) where each task left it,
-    relative to the start. Its exit code only says the simulation ran, not that the task worked."""
+    relative to the start; its notes on a lid's or door's start and how far it was worked; and the hand's
+    deepest contact per part. Its exit code only says the simulation ran, not that the task worked."""
     if not log_path.exists():
         return None
     tasks: dict[str, str] = {}
-    kind = None
+    kind, notes, contact = None, [], None
     for line in log_path.read_text(errors="replace").splitlines():
         m = re.match(r"\s*after '(.+)': (.+)$", line)
         if m:
             tasks[m.group(1)] = m.group(2).strip()  # the last line per task is where it ended
-        elif re.match(r"^(plate|rod|drawer|static) \(", line):
+        elif re.match(r"^(plate|rod|door|drawer|static) \(", line):
             kind = line.split(";")[0]
-    return {"kind": kind, "tasks": [{"task": k, "ended": v} for k, v in tasks.items()]} if tasks else None
+        elif re.match(r"^\s+(lid|door): ", line):
+            notes.append(line.strip())
+        elif m := re.match(r"^\s+deepest hand contact per part \(.*?\): (.+)$", line):
+            contact = m.group(1).strip()
+    if not tasks:
+        return None
+    out = {"kind": kind, "tasks": [{"task": k, "ended": v} for k, v in tasks.items()]}
+    if notes:
+        out["notes"] = notes
+    if contact:
+        out["deepest_hand_contact"] = contact
+    return out
 
 
 def run(source: Path, opt: Options) -> dict:
