@@ -37,10 +37,13 @@ The commands by task, with examples: [docs/COMMANDS.md](../docs/COMMANDS.md).
 |---|---|
 | `reproduce.py` | The published LiDAR laptop's numbers again from its saved tracks and Spark's saved decisions: offline, no API keys, no GPU (`docs/REPRODUCE.md`); `make_reproduce_bundle.py` builds that bundle |
 | `rbo_download.py`, `rbo_bench.py`, `rbo_eval.py` | The RBO motion-capture benchmark: download, run the agent, score exactly the agent's fit |
-| `refit_lidar.py`, `refit_chain.py` | Re-run the agent's LiDAR hinge fit or rod-chain fit on saved tracks, in a copy (regression checks) |
+| `refit_lidar.py` | Re-run the agent's LiDAR fit (hinged plate, drawers or static object) on saved tracks, in a copy (regression checks; also on a MapAnything capture of the same video) |
+| `refit_chain.py` | Re-run the agent's rod-chain fit on saved tracks, in a copy (regression checks) |
 | `spark_alone.py` | The "just ask an AI" baseline: the same Muse Spark asked plainly for a URDF of each video, no tools; scored by URDF Doctor and motion capture |
 | `make_synth.py`, `eval_tracks.py`, `fit3d.py` | Synthetic videos with known joints, and scoring against them |
 | `eval_pseudo_depth.py`, `compare_hinges.py` | MapAnything depth and hinge fits against the LiDAR capture |
+| `scale_by_usual_size.py` | The object-prior scale of a MapAnything capture from saved tracks and a given usual size (repeatable benchmark scale) |
+| `eval_plain_video.py` | A model fitted on MapAnything depth (the LiDAR run's own tracks refitted on a capture of its RGB) scored against the LiDAR fit: link sizes, base thickness, hinge axis and offset, opening per frame; box size; drawer travel |
 | `check_sam_open.py`, `check_fast_mask.py`, `smoke_test.py` | Backend checks: open-weights SAM, the mask decoder, one cheap call per API |
 | `check_exports.py` | Loads exported models (model.zip) as a user would: MuJoCo (MJCF and URDF), PyBullet, yourdfpy, Drake; one row per model per loader |
 

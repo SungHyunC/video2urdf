@@ -461,30 +461,58 @@ MapAnything (Meta, Apache-2.0 weights) predicts metric depth, intrinsics and cam
 RGB alone, so the 3D path can run on a plain phone video (experimental;
 [commands](COMMANDS.md#any-phone-video-no-lidar-mapanything-experimental)).
 
-Checked against the LiDAR laptop by running its RGB alone (`scripts/eval_pseudo_depth.py`,
-`scripts/compare_hinges.py`, same SAM tracks): MapAnything's metric scale was 3.6x too large on
-this close top-down shot, but steady over the video (p10-p90 within +-4%), so one known length
-can correct the overall scale. It does not eliminate local depth or camera errors. After that,
-depth is within 5% of the LiDAR (median), camera rotation within 2 deg of
-ARKit (median), and the hinge axis direction within 2.0-2.3 deg of the LiDAR fit; the opening
-angle is off by 8-12 deg (median) and the base thickness is not measurable. It can provide an
-approximate hinge estimate when the reconstruction is good; use measured depth for more reliable
-dimensions. Film obliquely, as for LiDAR: on a
+Checked against the LiDAR captures by running their RGB alone through MapAnything and refitting
+the LiDAR runs' own SAM tracks on it, so tracking is not a variable (`scripts/eval_plain_video.py`;
+the LiDAR fit of the same tracks is the reference). What MapAnything gets wrong on these close
+tabletop shots, and what the 3D path does about it on an estimated capture (`mapanything.json`):
+
+- **Scale** is 3-20x off but steady over a video: one factor, from a card or the object's usual
+  size (Muse Spark), sets it.
+- **Focal length**: its own estimate was 24-43% long on these videos. iPhone camera videos record
+  theirs (`com.apple.quicktime.camera.focal_length.35mm_equivalent`, 25 mm on every MOV we have),
+  and it is now given to MapAnything (`--focal-35mm` overrides). The Stray Scanner videos used for
+  this check don't carry the tag, so the "known focal" runs below were given the 25 mm by hand.
+- **Up**: the capture's "gravity" is a guess from the first frame's planes, 34-166 deg off ARKit's
+  on these videos; on an estimated capture the tools take up from the tracked floor's plane.
+- **Objects stand proud of their support**: the laptop's base top sat 5-7 cm above the floor right
+  next to it (LiDAR: about 1 cm), so its 12 mm base read 55-104 mm thick. With a known focal length
+  the base's thickness is measured by parallax between frames instead (`video2urdf/parallax.py`:
+  the floor's homography between the reference frame and frames where the camera moved, decomposed
+  with the focal; the base's top points' parallax off it is their height): 11-13 mm. Without a
+  known focal it is a 12 mm placeholder, marked not measured.
+- **Surface tilts** are off by 10-15 deg per frame, differently from frame to frame, so the lid's
+  opening on the reference frame was misread and every shut frame read 25-30 deg past closed; the
+  opening is now measured from the frames shown shut (a shut lid lies on its base). Likewise a
+  shut drawer read 95-165 mm out of its cabinet; its travel is now measured from its shut reading.
+
+End to end on the laptop (the object's usual size from Spark sets the scale, focal 25 mm): lid
+310 x 188 mm (LiDAR fit of the same tracks 311 x 208), base 13 mm (12), hinge axis 1.0 deg off,
+opening error 6 deg median (19 before), automatic checks passed; before these changes the base
+read 76 mm, the axis 5.9 deg off and the fit warned the hinge over-closes by 29 deg. Without the
+focal: base 12 mm (placeholder), axis 5.9 deg, opening error 6.8 deg median, needs review. At the
+LiDAR's own scale the mouse's box reads 121 x 83 x 64 mm (LiDAR 121 x 75 x 55; it read
+86 x 64 x 123 before, its length taken for its height). Still off: the drawer's travel (210 mm
+with the known focal, 188 without, for 248; its axis 19-25 deg off), the lid's depth from its hinge
+(10-13% short) and the open lid (about 15 deg too open with a known focal); the object's usual size
+reads a rounded object's length about 20% short even on LiDAR depth, so the mouse comes out 22-42%
+large end to end. All five published LiDAR models refit byte-identical with these changes. Use
+measured depth for reliable dimensions. Film obliquely, as for LiDAR: on a
 side view (`notebook_2.MOV`, no LiDAR) the agent put the hinge on the real hinge, but the lid is
 seen edge-on, its plane fits were poor (replay covers 13% of the lid) and Spark said so and
 asked for a reshoot; side views go through the 2D path instead.
 
-These are aggregate results for earlier fits, not a guarantee for each region. A later
-same-video experiment found opposite local depth errors on the floor and laptop base, with
-a resulting 78 mm base thickness and badly undersized lid despite global scale adjustment.
-See [validation details](appearance_validation.md) before relying on RGB-only dimensions.
+These are results on three LiDAR captures' own videos, not a guarantee for other scenes. An
+earlier same-video experiment found the same opposite depth errors on the floor and the laptop's
+base (a 78 mm base and an undersized lid after global scaling); see the
+[validation details](appearance_validation.md) before relying on RGB-only dimensions.
 
 ## One command on seven inputs
 
 `scripts/video2urdf.py` ([how to run it](COMMANDS.md#any-capture-one-command)) was tried on the
 laptop, microwave and AirPods-case captures, a side-view MOV, the same
 MOV turned 90 deg and cut to 60 fps, and an RGB-only video: all seven produced a model (six passed
-the checks; the RGB-only laptop came out 321 x 195 mm against LiDAR's 306 x 210 and needs review).
+the checks; the RGB-only laptop came out 321 x 195 mm against LiDAR's 306 x 210 and needs review;
+that was before the plain-video fixes above).
 The simulated robot worked three of the seven at the time; the door task was added after this
 test (on the published microwave it pulls the door open to 46 deg and pushes it shut). The two
 side-view lids failed because their measured hinge friction was too small to hold the lid at the

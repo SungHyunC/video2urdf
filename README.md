@@ -318,9 +318,14 @@ plate sits on the closed surface while the object is open: fresh laptop runs pas
 - Doors on vertical hinges: the hinge is placed within a few cm. The body behind a door is only
   what the camera saw until `complete_body.py` completes it, partly from estimates (labelled).
   A lidded bin whose body SAM can't separate from its lid gives no usable model.
-- Plain video without LiDAR (MapAnything) is experimental: it needs a scale (a card, the object's
-  usual size or one known length), local depth errors remain and the base thickness is not
-  measurable (the laptop's RGB alone gave a lid of 321 x 195 mm against LiDAR's 306 x 210).
+- Plain video without LiDAR (MapAnything) is experimental. Its depth misplaces objects along the
+  line of sight and tilts surfaces 10-15 deg per frame, so the fit takes up from the floor, measures
+  a lid's opening and a drawer's travel from the shut state, and a base's thickness by parallax when
+  the focal length is known (iPhone videos record it). On the laptop's video alone (focal 25 mm,
+  scale from the object's usual size): hinge axis 1.0 deg off, base 13 mm (LiDAR 12), median opening
+  error 6 deg. Still off: the lid's depth reads 10-13% short and the open lid ~15 deg too open, a
+  drawer's travel 15-25% short, and the usual-size scale made a rounded mouse 22-42% too large.
+  Use LiDAR or one known length for dimensions ([details](docs/RESULTS.md#plain-video-without-lidar-mapanything)).
 - Masses are Muse Spark's estimates. Joint friction is measured only where a part stood still with
   no hand on it; damping is not measured.
 - `checks_passed` means none of the automatic checks objected, not that the model was verified
