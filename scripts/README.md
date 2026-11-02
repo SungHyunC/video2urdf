@@ -35,6 +35,7 @@ The commands by task, with examples: [docs/COMMANDS.md](../docs/COMMANDS.md).
 ## Benchmarks and checks
 | Script | What it does |
 |---|---|
+| `reproduce.py` | The published LiDAR laptop's numbers again from its saved tracks and Spark's saved decisions: offline, no API keys, no GPU (`docs/REPRODUCE.md`); `make_reproduce_bundle.py` builds that bundle |
 | `rbo_download.py`, `rbo_bench.py`, `rbo_eval.py` | The RBO motion-capture benchmark: download, run the agent, score exactly the agent's fit |
 | `refit_lidar.py`, `refit_chain.py` | Re-run the agent's LiDAR hinge fit or rod-chain fit on saved tracks, in a copy (regression checks) |
 | `spark_alone.py` | The "just ask an AI" baseline: the same Muse Spark asked plainly for a URDF of each video, no tools; scored by URDF Doctor and motion capture |

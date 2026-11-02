@@ -322,6 +322,18 @@ def apply(track_dir: Path, parts: dict[str, dict], released: dict[str, list[tupl
     return report
 
 
+def apply_estimate(track_dir: Path, estimate: dict, fps: float, log=print) -> dict:
+    """apply() with a saved estimate (physics_estimate.json as scripts/add_physics.py writes it:
+    Spark's ``parts`` and the ``released`` spans in seconds), without asking Spark again."""
+    parts = {p["link"]: {k: p[k] for k in ("material", "mass_kg", "friction", "why") if k in p}
+             for p in estimate["parts"]}
+    windows: dict[str, list] = {}
+    for s in estimate["released"]:
+        name = s["joint"] if s["joint"].endswith("_joint") else f"{s['joint']}_joint"
+        windows.setdefault(name, []).append((int(s["start_s"] * fps), int(s["end_s"] * fps)))
+    return apply(track_dir, parts, windows, fps, log=log)
+
+
 def _fmt(x) -> str:
     return " ".join(f"{float(v):.6g}" for v in x)
 
