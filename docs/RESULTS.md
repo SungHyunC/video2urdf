@@ -27,7 +27,7 @@ How to run each step: [COMMANDS.md](COMMANDS.md).
 - **13" MacBook Pro, iPhone LiDAR, no card**, agent from scratch: lid 309 x 205 mm (spec
   304 x 212), base 14 mm, lid 3.8 mm, opening 0..117 deg, hinge drawn on the real hinge;
   the replayed model covers 95% (lid) and 94% (base) of SAM's masks over the 923 frames, while
-  the phone moves. The Panda then closes it to within 1 deg of its measured limit. (These are the
+  the phone moves (the share of each mask covered, one way: a self-consistency check, not IoU). The Panda then closes it to within 1 deg of its measured limit. (These are the
   agent's tracks refit with the later fit_lidar; the agent's own fit that day read 304 x 215 mm.)
 - **Office pedestal drawer, iPhone LiDAR**, agent from scratch: it finds which of three
   look-alike drawers moves (the tool warns when a "fixed" part stands out like a drawer),

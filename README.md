@@ -341,7 +341,12 @@ plate sits on the closed surface while the object is open: fresh laptop runs pas
   drawer's travel 15-25% short, and the usual-size scale made a rounded mouse 22-42% too large.
   Use LiDAR or one known length for dimensions ([details](docs/RESULTS.md#plain-video-without-lidar-mapanything)).
 - Masses are Muse Spark's estimates. Joint friction is measured only where a part stood still with
-  no hand on it; damping is not measured.
+  no hand on it, as 1.25 x the largest gravity torque seen held at those masses: a lower bound with a
+  margin, not an identified friction law; damping is not measured.
+- Replay coverage (for example 95% / 94% on the laptop) is the share of each SAM mask the replayed
+  model covers, scored against the same SAM masks the fit used: a self-consistency check that a
+  model drawn too large also passes, not accuracy against ground truth. The ground-truth numbers are
+  the RBO benchmark (motion capture), the synthetic scenes and the makers' specs.
 - `checks_passed` means none of the automatic checks objected, not that the model was verified
   against the real object. Runs vary: which part the agent takes as the base still varies
   between runs.

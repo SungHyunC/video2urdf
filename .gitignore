@@ -5,3 +5,5 @@ data/
 .DS_Store
 third_party/
 MUJOCO_LOG.TXT
+# local demo-narration helper (not part of the pipeline; its TTS model is not a Meta model)
+scripts/narrate_demo.py
