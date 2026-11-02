@@ -929,6 +929,9 @@ def main():
                         and model.body(b2 if b1 in hand_bodies else b1).name.startswith("obj_"):
                     other = model.body(b2 if b1 in hand_bodies else b1).name[4:]
                     deepest[other] = max(deepest.get(other, 0.0), -c.dist)
+                elif (b1 in hand_bodies) != (b2 in hand_bodies) and "pedestal" in (model.geom(c.geom1).name,
+                                                                                   model.geom(c.geom2).name):
+                    deepest["pedestal"] = max(deepest.get("pedestal", 0.0), -c.dist)  # the hand driven into the table
                 if DEBUG and (b1 in robot_bodies) != (b2 in robot_bodies):
                     pair = (model.body(b1).name, model.body(b2).name)
                     if any(n.startswith("obj_") for n in pair):
