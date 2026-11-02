@@ -23,8 +23,8 @@ It downloads two release assets into `data/reproduce/downloads/` and checks them
 | `laptop_lidar_stray.zip` | `sample-data-v1` | 39 MB | the Stray Scanner capture behind the README's laptop, as published (sha256 `0ee98f44...`) |
 | `laptop_lidar_tracks.zip` | `sample-data-v2` | 1.9 MB | the saved model decisions for that capture (sha256 `962b9b4a...`) |
 
-**The saved tracks need the `sample-data-v2` release.** Until it is published the command stops
-right away:
+Both releases are published. If a download fails (no network, a moved file), the command stops
+right away and says what to do, for example:
 
 ```
 Stopped: the saved tracks aren't published yet: https://github.com/SungHyunC/video2urdf/releases/download/sample-data-v2/laptop_lidar_tracks.zip answered HTTP 404 (the sample-data-v2 release doesn't exist yet). If you have laptop_lidar_tracks.zip, pass it with --bundle PATH.
