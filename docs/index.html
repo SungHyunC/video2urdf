@@ -798,8 +798,8 @@ async function show(entry, ticket) {
   const vt = $("videoTabs");
   vt.innerHTML = "";
   const hasCompletedVisual = spec.shape_inference?.active === true && spec.shape_inference?.inferred_visuals?.length > 0;
-  const labels = { phone: "Phone video", replay: spec.replay_experimental ? "Experimental model over video" : hasCompletedVisual ? "Fitted model over video" : "Model over video", robot: "Robot uses it", policy: "Learned policy (PPO)", physics: "Physics check" };
-  const order = ["phone", "replay", "robot", "policy", "physics"].filter((k) => spec.videos[k]);
+  const labels = { phone: "Phone video", replay: spec.replay_experimental ? "Experimental model over video" : hasCompletedVisual ? "Fitted model over video" : "Model over video", robot: "Robot uses it", physics: "Physics check" };
+  const order = ["phone", "replay", "robot", "physics"].filter((k) => spec.videos[k]);
   for (const k of order) {
     const b = document.createElement("button");
     b.textContent = labels[k];
@@ -931,7 +931,7 @@ function physicsFacts(p, provenance) {
 
 let current = null;
 let wantPlay = false;   // the viewer's video plays while it's on screen (paused off screen, resumed on return)
-const ownTime = new Set(["robot", "policy", "physics"]);  // simulation clips: not on the phone video's clock
+const ownTime = new Set(["robot", "physics"]);  // simulation clips: not on the phone video's clock
 function showVideo(key, base) {
   current = key;
   for (const b of $("videoTabs").children) b.setAttribute("aria-pressed", String(b.dataset.key === key));
