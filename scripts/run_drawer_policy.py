@@ -1,5 +1,8 @@
 """Run a trained drawer policy on the full Franka Panda arm, in MuJoCo physics.
 
+Experiment outside the Video2URDF pipeline, kept for reference: the product (scripts/video2urdf.py,
+the agent, the viewer) never imports or runs it, and it is not part of the hackathon submission.
+
 The policy was trained with a Panda hand on a force-limited mount (video2urdf/rl_drawer.py).
 Here the same observations come from the arm's hand, and each action moves the hand's target,
 which the arm follows through IK (as in scripts/robot_tasks.py): the joint setpoints slide to

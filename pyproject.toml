@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-rl = [
+rl = [  # the drawer RL experiment only (scripts/train_drawer_policy.py); outside the pipeline
     "gymnasium>=1.0",
     "stable-baselines3>=2.4",
 ]

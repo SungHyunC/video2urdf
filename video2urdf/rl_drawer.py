@@ -1,5 +1,8 @@
 """A drawer-opening task for reinforcement learning, built on a drawer measured from video.
 
+Experiment outside the Video2URDF pipeline, kept for reference: the product (scripts/video2urdf.py,
+the agent, the viewer) never imports or runs it, and it is not part of the hackathon submission.
+
 The cabinet and drawer are the fitted model with their measured collision on, as in
 scripts/robot_tasks.py: the slotted carcass and the drawer's front and tray collide with the
 hand, and the handle Shape design drew collides too (it is what the fingers hold). The robot is
