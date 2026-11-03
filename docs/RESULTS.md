@@ -529,6 +529,12 @@ and the first move knocks it down 26 deg.
 
 The viewer's "Download model" zip of each of the 8 published models was loaded the way a user
 would (`scripts/check_exports.py`): the MJCF in MuJoCo, the URDF in PyBullet, yourdfpy and
-Drake, with joints and limits equal to the fit's records. MuJoCo's own URDF import runs 7 of
-the 8: the side-view laptop's lid overlaps its base 13 mm at the hinge, which only the MJCF can
-exclude. [How to run the check](COMMANDS.md#check-the-downloads).
+Drake, with joints and limits equal to the fit's records. MuJoCo's own URDF import runs all 8.
+It can't exclude contacts between a part and the root it is jointed to, and the side-view laptop's
+lid started 13 mm inside its base at the hinge (and dipped up to 5 mm into the base's top at its
+most closed), which threw it 65 deg. The export now trims that base's URDF collision where the lid
+swings through it, 0.5 mm clear over the whole measured range (`video2urdf/joint_clearance.py`):
+302 of its 1758 mm^2 side profile: the 15 mm stub behind the hinge (51 mm^2) and a wedge off the
+top of its rear 80 mm, under the closed lid (251 mm^2, at most 5.4 mm deep). Visuals, inertials,
+joints and model.xml keep the measured shapes.
+[How to run the check](COMMANDS.md#check-the-downloads).
