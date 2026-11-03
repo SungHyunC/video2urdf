@@ -45,6 +45,7 @@ The commands by task, with examples: [docs/COMMANDS.md](../docs/COMMANDS.md).
 | `scale_by_usual_size.py` | The object-prior scale of a MapAnything capture from saved tracks and a given usual size (repeatable benchmark scale) |
 | `eval_plain_video.py` | A model fitted on MapAnything depth (the LiDAR run's own tracks refitted on a capture of its RGB) scored against the LiDAR fit: link sizes, base thickness, hinge axis and offset, opening per frame; box size; drawer travel |
 | `check_sam_open.py`, `check_fast_mask.py`, `smoke_test.py` | Backend checks: open-weights SAM, the mask decoder, one cheap call per API |
+| `gapfill_check.py` | Checks silhouette gap filling (`video2urdf/gapfill.py`, replay3d's `gap_fill`, off by default) on a published 3D run: held-out measured frames filled by silhouette vs interpolation, and the silhouette IoU on the real gaps |
 | `check_exports.py` | Loads exported models (model.zip) as a user would: MuJoCo (MJCF and URDF), PyBullet, yourdfpy, Drake; one row per model per loader |
 | `validate_run.py` | Those checks on a `video2urdf.py` run's final downloads again: refreshes `validation.json` and the summary's artifact status (`--status`: is it still about the model on disk?) |
 
