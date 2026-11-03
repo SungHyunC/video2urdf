@@ -6,8 +6,11 @@
      Collisions are the measured geometry; visuals may be the design, video texture or SAM 3D mesh.
      PyBullet: loadURDF(path, useFixedBase=True, flags=URDF_USE_INERTIA_FROM_FILE).
        PyBullet doesn't apply <dynamics friction>: set VELOCITY_CONTROL, targetVelocity=0,
-       force=friction on each joint. MuJoCo 3.2.5+: simulate model.xml, which excludes contacts
-       between parts joined by a joint (they overlap there); MuJoCo's URDF import can't.
+       force=friction on each joint.
+     The collision of "base" (pieces named *_clear_*) is its measured shape trimmed where the
+       part jointed to it swings through it over the measured range, so loaders that collide a
+       part with the root (MuJoCo's URDF import) don't push it away; inertials are unchanged.
+       MuJoCo 3.2.5+: model.xml keeps the untrimmed shapes and excludes those contacts.
      The <mujoco> element only keeps mesh paths for MuJoCo's URDF import; other parsers ignore it.
      ROS: mesh paths must become package://<your_package>/meshes/... for RViz and Gazebo. -->
 <robot name="notebook_2">
@@ -56,10 +59,22 @@
       <mass value="0.95" />
       <inertia ixx="0.00863463" ixy="0" ixz="0" iyy="0.0071381" iyz="0" izz="0.00152273" />
     </inertial>
-    <collision>
+    <collision name="base_clear_0">
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="meshes/base.obj" />
+        <mesh filename="meshes/base_clear_0.obj" />
+      </geometry>
+    </collision>
+    <collision name="base_clear_1">
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/base_clear_1.obj" />
+      </geometry>
+    </collision>
+    <collision name="base_clear_2">
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/base_clear_2.obj" />
       </geometry>
     </collision>
   </link>
