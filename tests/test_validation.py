@@ -197,12 +197,15 @@ class PublishedModelsTest(unittest.TestCase):
         self.assertFalse((target / "validation.json").exists())
         return v, {r["check"]: r["status"] for r in v["rows"]}
 
-    def test_notebook_urdf_fails_mujoco_import_while_mjcf_passes(self):
+    def test_notebook_urdf_loads_in_mujoco_after_the_root_trim(self):
+        # The side-view laptop's URDF used to fail MuJoCo's URDF import (the lid started 13 mm inside
+        # the base); video2urdf/joint_clearance.py now trims the root's URDF collision. A failing
+        # format lowering the status is covered with a fake checker in test_run_pipeline.py.
         v, st = self.check("notebook")
-        self.assertEqual(st["urdf:mujoco"], "fail")
+        self.assertEqual(st["urdf:mujoco"], "pass")
         self.assertEqual(st["mjcf:mujoco"], "pass")
-        self.assertEqual(v["artifact_status"], "needs_review")
-        self.assertTrue(any(r.startswith("urdf:mujoco failed") for r in v["reasons"]))
+        self.assertNotIn("fail", st.values())
+        self.assertEqual(v["artifact_status"], "checks_passed")
 
     def test_laptop_passes_or_warns_only(self):
         v, st = self.check("laptop_lidar")
