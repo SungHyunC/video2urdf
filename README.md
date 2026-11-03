@@ -78,7 +78,6 @@ Spark Open and SAM weights, `--glimmer` on Muse Glimmer 30B served by us.
 | [LED desk lamp, iPhone LiDAR, 2 rods](docs/RESULTS.md#rods-on-hinges-in-3d-and-objects-the-phone-walked-around) | Spark judged the pole's motion depth noise; refit with it fixed (our step): arm 380 mm, 2..89 deg | video |
 | [Shape design, three Meta models per round](docs/RESULTS.md#the-model-looks-like-the-object-spark-designs-it-the-video-checks-it) | lamp: best of three 0.62 / 0.63 per round, Muse Spark alone 0.60 / 0.62 (mask F-score) | measured meshes 0.69 |
 | [Robot tasks on the measured models](docs/RESULTS.md#the-robot-works-the-object-grasp-open-close-carry) | 8 of the viewer's 8: lids closed and reopened, drawer out 199 mm and back (cabinet collision on), microwave door pulled open to 46 deg and pushed shut (body collision on), lamp arms swung, mouse and AirPods case carried and turned | joint values reached in physics |
-| [A drawer-opening policy learned on the measured drawer](docs/RESULTS.md#a-policy-learned-on-the-measured-drawer) (PPO, trained on Modal) | 99/100 held-out placements; 19/20 unseen starts on the full Panda arm; 98% of the travel made pinching the handle | random actions 0/100 |
 | [The unseen back of a microwave in a shelf](docs/RESULTS.md#the-parts-the-camera-never-saw) | front measured (477 x 269 mm), depth bounded by the video (334-387 mm), the rest from Muse Spark (a Samsung 23 L): 477 x 365 x 269 mm with its cavity | measured front, video bound |
 | [SAM tracking, 1385 frames, 4 parts](docs/RESULTS.md#faster-tracking-and-scale-without-a-reference) | 520 s -> 285 s, masks IoU 0.97-0.995 | previous pipeline |
 | [The downloads, loaded outside our own scripts](docs/RESULTS.md#the-downloads-loaded-outside-our-scripts) (`scripts/check_exports.py`) | all 8 models' zips: the MJCF in MuJoCo, the URDF in PyBullet, yourdfpy and Drake, joints and limits equal to the fit's; MuJoCo's own URDF import runs all 8 (it can't exclude a part's contacts with the root, so the side-view laptop's URDF base collision is trimmed where its lid swings through it; the lid had started 13 mm inside it) | the fit's records |
@@ -363,7 +362,7 @@ a clean clone (11/2) passed with no refusal (lid 305 x 214 mm, replay 92% / 92%)
   between runs.
 - The robot works every published model and the side-view lids from the one command, but not the
   side-view lamp from that test: its tall arm stands where the hand starts. Everything the robot
-  does is in simulation; the learned drawer policy runs on the arm under Cartesian impedance control.
+  does is in simulation.
 - SAM 3D Objects inflates the unseen side of flat, thin parts: on the laptop and the drawer its
   meshes were rejected and the measured visuals stay.
 
@@ -380,6 +379,11 @@ replay and its scoring, Spark's shape design loop judged over the video with thr
 round, SAM 3D placement and checks, automatic scale for plain video, physics from still spans, the
 robot tasks (grasp planning on the measured geometry), URDF Doctor, the viewer with its
 turn-by-turn logs, and the RBO benchmark harness.
+
+Also in the repository, outside the pipeline: a drawer-opening policy trained with PPO on the
+measured drawer ([the experiment](docs/RESULTS.md#not-part-of-video2urdf-a-drawer-policy-experiment)).
+It is a self-trained network, so under the hackathon's runtime rule it is not part of the
+submission: `scripts/video2urdf.py`, the agent and the viewer never load or run it.
 
 ### Built on
 
@@ -403,14 +407,15 @@ DINOv2 (used inside SAM 3D Objects), MapAnything (Meta).
 | [mapbox-earcut](https://github.com/skogler/mapbox_earcut_python) | ISC | triangulating mesh caps |
 | [PyBullet](https://github.com/bulletphysics/bullet3), [yourdfpy](https://github.com/clemense/yourdfpy), [Drake](https://github.com/RobotLocomotion/drake) | zlib, MIT, BSD-3-Clause | checking the downloads (`scripts/check_exports.py`, fetched by `uv run --with`, not a dependency) |
 | OpenCV, NumPy, SciPy, numba, OpenAI Python SDK (as the OpenAI-compatible client), Modal | various OSS | |
-| [Stray Scanner](https://github.com/strayrobots/scanner) | app | recording iPhone LiDAR captures |
+| [Stray Scanner](https://github.com/strayrobots/scanner) | app | recording iPhone LiDAR captures || [Gymnasium](https://github.com/Farama-Foundation/Gymnasium), [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) | MIT | the drawer RL experiment only (`uv sync --extra rl`), outside the pipeline |
 
 ## Repository layout
 
 ```
 video2urdf/     the library: the agent, SAM clients, joint fits, URDF/MJCF, replay, physics, design
 scripts/        command-line entry points, listed by purpose in scripts/README.md
-modal_apps/     GPU apps on Modal: SAM 3.1 / SAM 3 and SAM 3D Objects weights, MapAnything, RL training
+modal_apps/     GPU apps on Modal: SAM 3.1 / SAM 3 and SAM 3D Objects weights, MapAnything; and the
+                training of the drawer RL experiment, which is not part of the pipeline
 tests/          unit tests
 docs/           the GitHub Pages site and viewer (index.html, models/), the demo video,
                 RESULTS.md, HOW_IT_WORKS.md, COMMANDS.md, spark_alone.md

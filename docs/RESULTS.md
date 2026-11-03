@@ -16,11 +16,12 @@ How to run each step: [COMMANDS.md](COMMANDS.md).
 - [Physics: masses, inertia, and joint friction](#physics-masses-inertia-and-joint-friction-measured-from-the-video)
 - [The model looks like the object: Spark's shape design](#the-model-looks-like-the-object-spark-designs-it-the-video-checks-it), [video texture](#the-model-looks-like-the-object-painted-with-its-own-video), [SAM 3D Objects meshes](#realistic-meshes-sam-3d-objects)
 - [The parts the camera never saw](#the-parts-the-camera-never-saw)
-- [The robot works the object](#the-robot-works-the-object-grasp-open-close-carry), and [a policy learned on the measured drawer](#a-policy-learned-on-the-measured-drawer)
+- [The robot works the object](#the-robot-works-the-object-grasp-open-close-carry)
 - [Faster tracking, and scale without a reference](#faster-tracking-and-scale-without-a-reference)
 - [Plain video without LiDAR (MapAnything)](#plain-video-without-lidar-mapanything)
 - [One command on seven inputs](#one-command-on-seven-inputs)
 - [The downloads, loaded outside our scripts](#the-downloads-loaded-outside-our-scripts)
+- Outside the pipeline: [a drawer policy experiment](#not-part-of-video2urdf-a-drawer-policy-experiment) (not part of the submission)
 
 ## Real objects, filmed for this project
 
@@ -406,36 +407,6 @@ worked from the front: the Panda pinches the microwave door's free edge, pulls i
 (85% of the measured range) and pushes it shut, against the completed body's collision. In all,
 the robot works 8 of the viewer's 8 models.
 
-## A policy learned on the measured drawer
-
-The drawer measured from video is also a training environment (`video2urdf/rl_drawer.py`): a
-Panda hand on a force-limited mount, the measured drawer and cabinet colliding, and a reward that
-counts drawer travel only while both fingers pinch the handle (pressing along their closing
-direction, each at least 7 mm open on the 18 mm handle). Earlier attempts found loopholes
-(ramming through the drawer front, crushing the fingers past their joint limit to hook the
-handle, a mount pushing with 2 kN); each was closed before this run. PPO with 32 environments on
-Modal CPUs (5M steps, 45 min; about $4 of Modal credit for everything):
-
-| | Held-out placements (sim hand) | Full Panda arm, unseen starts |
-|---|---|---|
-| Opened >= 150 mm while pinching | 99 / 100 (random actions: 0 / 100) | 19 / 20 |
-| Drawer travel made while pinching | 98.2% | 98.4% |
-| Finger opening while holding | >= 7.3 mm | >= 8.6 mm |
-| Deepest contact with anything but the handle | 0.37 mm | 0.41 mm |
-
-The arm follows the policy under Cartesian impedance (the training mount's stiffness, damping and
-60 N cap, within the Panda's joint torque limits); through `robot_tasks.py`'s joint servos it
-doesn't work honestly. The arm's one failure: the hand caught the cabinet's slot edge and tilted
-31 deg. One-step force spikes come from the simulated gripper snapping shut much faster than a
-real Franka hand. Simulation only.
-
-```bash
-uv sync --extra rl
-.venv/bin/modal run modal_apps/rl_drawer_train.py::main --steps 5000000 --envs 32 --name drawer_ppo_honest
-.venv/bin/modal run modal_apps/rl_drawer_train.py::arm --name drawer_ppo_honest --seeds 20
-.venv/bin/python scripts/run_drawer_policy.py data/tracks_design/drawer2_lidar --seed 20012   # the arm video
-```
-
 ## Faster tracking, and scale without a reference
 
 - **SAM tracking ~1.8x faster.** The forward pass and the backward pass (a reversed clip) are
@@ -538,3 +509,38 @@ swings through it, 0.5 mm clear over the whole measured range (`video2urdf/joint
 top of its rear 80 mm, under the closed lid (251 mm^2, at most 5.4 mm deep). Visuals, inertials,
 joints and model.xml keep the measured shapes.
 [How to run the check](COMMANDS.md#check-the-downloads).
+
+## Not part of Video2URDF: a drawer policy experiment
+
+**An experiment outside the pipeline, kept for reference.** `scripts/video2urdf.py`, the agent
+and the viewer never load or run it. The policy is a network we trained ourselves, so under the
+hackathon's runtime rule (every model called at runtime is a Meta model) it is not part of the
+submission. The robot tasks above are scripted (`scripts/robot_tasks.py`: grasp planning and IK).
+
+The drawer measured from video is also a training environment (`video2urdf/rl_drawer.py`): a
+Panda hand on a force-limited mount, the measured drawer and cabinet colliding, and a reward that
+counts drawer travel only while both fingers pinch the handle (pressing along their closing
+direction, each at least 7 mm open on the 18 mm handle). Earlier attempts found loopholes
+(ramming through the drawer front, crushing the fingers past their joint limit to hook the
+handle, a mount pushing with 2 kN); each was closed before this run. PPO with 32 environments on
+Modal CPUs (5M steps, 45 min; about $4 of Modal credit for everything):
+
+| | Held-out placements (sim hand) | Full Panda arm, unseen starts |
+|---|---|---|
+| Opened >= 150 mm while pinching | 99 / 100 (random actions: 0 / 100) | 19 / 20 |
+| Drawer travel made while pinching | 98.2% | 98.4% |
+| Finger opening while holding | >= 7.3 mm | >= 8.6 mm |
+| Deepest contact with anything but the handle | 0.37 mm | 0.41 mm |
+
+The arm follows the policy under Cartesian impedance (the training mount's stiffness, damping and
+60 N cap, within the Panda's joint torque limits); through `robot_tasks.py`'s joint servos it
+doesn't work honestly. The arm's one failure: the hand caught the cabinet's slot edge and tilted
+31 deg. One-step force spikes come from the simulated gripper snapping shut much faster than a
+real Franka hand. Simulation only.
+
+```bash
+uv sync --extra rl
+.venv/bin/modal run modal_apps/rl_drawer_train.py::main --steps 5000000 --envs 32 --name drawer_ppo_honest
+.venv/bin/modal run modal_apps/rl_drawer_train.py::arm --name drawer_ppo_honest --seeds 20
+.venv/bin/python scripts/run_drawer_policy.py data/tracks_design/drawer2_lidar --seed 20012   # the arm video
+```
