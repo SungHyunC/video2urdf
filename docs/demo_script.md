@@ -1,6 +1,6 @@
 # Demo narration
 
-Total 175 s. Paced to a synthesized voice: each line starts at its time, after about 0.3 s of silence.
+Total 174 s. Paced to a synthesized voice: each line starts at its time, after about 0.3 s of silence.
 
 **0:00.0  Video2URDF**  
 Robots need simulation models of the objects they handle, and people build them by hand. Video2URDF measures them from one phone video, and a robot can use them right away.
@@ -30,16 +30,16 @@ Measured meshes have the right sizes but look like blobs, so Spark names the obj
 For a curved object, SAM 3D Objects builds a realistic mesh, placed by our LiDAR depth: the phone's depth points lie half a millimetre from it, at the median.
 
 **1:55.0  9  The robot uses it**  
-In MuJoCo, a reinforcement learning policy trained on the measured drawer pinches its handle and pulls it open, nineteen times in twenty on the full arm. The Panda also opens and shuts the microwave door and carries the mouse. Spark judges masses; joint friction is measured where a part stands alone.
+In MuJoCo, a Franka Panda grasps the measured drawer by its handle, pulls it out two hundred millimetres and pushes it back, with the cabinet colliding. It also opens and shuts the microwave door and carries the mouse. Spark judges masses; joint friction is measured where a part stands alone.
 
-**2:13.6  10  Benchmark**  
+**2:12.6  10  Benchmark**  
 On the RBO motion-capture benchmark, laptops and books get a median hinge axis error under two degrees, under three on open weights; box lids still fail.
 
-**2:24.5  11  URDF Doctor**  
+**2:23.5  11  URDF Doctor**  
 URDF Doctor checks the models you already have against a video. Three injected bugs and a joint log with its sign flipped: all found.
 
-**2:34.4  12  Open weights**  
+**2:33.4  12  Open weights**  
 Every model it calls is a Meta model, and it runs end to end on open weights, Muse Spark Open or Muse Glimmer on our own GPU, reproduced from a fresh clone.
 
-**2:45.5  Try it**  
+**2:44.5  Try it**  
 Everything is in the browser, with URDF downloads and every step the agent took. One video in, a model a robot can use out.

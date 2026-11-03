@@ -383,15 +383,17 @@ def microwave_scene():
 def scenes(baseline: bool = True, door_clip: Path | None = DOOR_ROBOT) -> list[Scene]:
     lamp_agent = LAMP / "agent"
     white, grey, blue, red = (240, 240, 240), (170, 170, 175), ACCENT, (255, 140, 120)
-    robots = [(DESIGN / "drawer2_lidar" / "robot_policy.mp4", "a learned policy opens the measured drawer")]
-    robot_line = ("In MuJoCo, a reinforcement learning policy trained on the measured drawer pinches its handle and "
-                  "pulls it open, nineteen times in twenty on the full arm. The Panda also carries the mouse.")
-    robot_caps = ["PPO policy trained on Modal on the measured drawer: 99/100 held-out, 19/20 on the arm",
-                  "98% of the drawer's travel made while pinching the handle; simulation only"]
+    # Scripted grasps planned on the measured geometry (scripts/robot_tasks.py). The PPO policy experiment is left
+    # out: the hackathon's runtime rule allows only Meta models, and a self-trained network is not one.
+    robots = [(ROOT / "docs" / "models" / "drawer" / "robot.mp4", "the Panda pulls the measured drawer out by its handle")]
+    robot_line = ("In MuJoCo, a Franka Panda grasps the measured drawer by its handle, pulls it out two hundred "
+                  "millimetres and pushes it back, with the cabinet colliding. It also carries the mouse.")
+    robot_caps = ["the Panda pulls the measured drawer out 199 mm by its handle and back, cabinet collision on",
+                  "grasps planned on the measured geometry; simulation only"]
     if door_clip:  # at twice its speed, ending with the line that names it
         robots.append((door_clip, "the completed microwave's door, opened and shut (2x)", 2.0))
-        robot_line = robot_line.replace("The Panda also carries the mouse.",
-                                        "The Panda also opens and shuts the microwave door and carries the mouse.")
+        robot_line = robot_line.replace("It also carries the mouse.",
+                                        "It also opens and shuts the microwave door and carries the mouse.")
         robot_caps.append("the Panda pulls the measured door open to 46 deg and pushes it shut, body collision on")
     robots.append((MOUSE / "robot_demo.mp4", "the measured mouse, carried and turned"))
     fits = (ASSETS / "mw_first_fit.jpg", ASSETS / "mw_refit.jpg",
@@ -400,7 +402,8 @@ def scenes(baseline: bool = True, door_clip: Path | None = DOOR_ROBOT) -> list[S
         Scene("Video2URDF",
               "Robots need simulation models of the objects they handle, and people build them by hand. "
               "Video2URDF measures them from one phone video, and a robot can use them right away.",
-              ["One phone video in. A model a robot can use out.",
+              ["Everything shown was built from scratch during the hackathon (Oct 26 - Nov 4 2026)",
+               "One phone video in. A model a robot can use out.",
                "a Franka Panda in MuJoCo works four objects, each measured from one video"],
               video_scene(ASSETS / "robot_grid.mp4"), numbered=False),
         Scene("Capture",
@@ -410,8 +413,8 @@ def scenes(baseline: bool = True, door_clip: Path | None = DOOR_ROBOT) -> list[S
         Scene("Agent",
               "Muse Spark runs the pipeline as an agent. It watches the video, prompts SAM 3.1 with nouns, picks the "
               "fitter, and judges what it sees: for this desk lamp, it decided the pole never moves.",
-              ["Muse Spark watches the video and looks at frames",
-               "it prompts SAM 3.1: 'silver metal rod'",
+              ["Muse Spark (muse-spark-1.3-contributor) watches the video and looks at frames",
+               "it prompts SAM 3.1 with a noun: 'silver metal rod'",
                "it picks fit_chain: two rods on hinges, fitted in 3D from their depth"],
               stills([lamp_agent / "step009.jpg", lamp_agent / "step016.jpg", lamp_agent / "step032.jpg"],
                      ["look", "segment 'silver metal rod'", "fit_chain: the model over the video"])),
@@ -517,7 +520,8 @@ def scenes(baseline: bool = True, door_clip: Path | None = DOOR_ROBOT) -> list[S
         Scene("Try it",
               "Everything is in the browser, with URDF downloads and every step the agent took. One video in, "
               "a model a robot can use out.",
-              ["sunghyunc.github.io/video2urdf   |   github.com/SungHyunC/video2urdf"],
+              ["sunghyunc.github.io/video2urdf   |   github.com/SungHyunC/video2urdf",
+               "Narration: Kokoro-82M text-to-speech (Apache-2.0), used only to voice this video"],
               stills([ASSETS / "viewer_trace.jpg"]), numbered=False, hold=0.5),
     ]
     return number(sc)
