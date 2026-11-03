@@ -25,8 +25,9 @@ Checks:
   joints         names, types, axes, anchors and limits: URDF == MJCF == the fit's records
                  (model3d.json, chain.json, slides.json, joints.json, the viewer's joint tracks)
   collision      each link's URDF <collision> is its measured geometry (the MJCF's colliding
-                 geoms, bounds within 1 mm); no design primitive collides; visuals where
-                 model.xml's visible geoms are
+                 geoms, bounds within 1 mm; a collision trimmed at a joint, pieces *_clear_*,
+                 only inside them); no design primitive collides; visuals where model.xml's
+                 visible geoms are
   mjcf:mujoco    model.xml compiles; 2 s under gravity: finite, inside the joint ranges, nothing
                  flies off; how far each joint drifts (measured friction should hold it); each
                  joint swept through its range: where the model's own parts interpenetrate
@@ -51,6 +52,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -486,6 +488,8 @@ def declared_points(t: Target, robot: uc.Robot, which: str, frame: str = "link")
 
 def check_collision(t: Target, robot: uc.Robot, mj) -> Row:
     problems, warns, notes = [], [], []
+    trimmed = [n for n, link in robot.links.items()
+               if any(re.search(r"_clear_\d+$", g.name or "") for g in link.collisions)]
     for name, link in robot.links.items():
         for g in link.collisions:
             stem = Path(g.filename).stem if g.filename else ""
@@ -502,10 +506,19 @@ def check_collision(t: Target, robot: uc.Robot, mj) -> Row:
                 problems.append(f"{name}: collides in model.xml but has no URDF <collision>")
             elif name not in mjc:
                 problems.append(f"{name}: URDF <collision> but nothing collides in model.xml")
+            elif name in trimmed:
+                # Trimmed for loaders that collide a part with the root (joint_clearance.py): it
+                # may only lose material, never reach past model.xml's colliding geoms.
+                out = max(float((mjc[name].min(0) - col[name].min(0)).max()),
+                          float((col[name].max(0) - mjc[name].max(0)).max()))
+                if out > BOUNDS_M:
+                    problems.append(f"{name}: trimmed collision reaches {1000 * out:.1f} mm past model.xml's colliding geoms")
             elif _bounds_gap(col[name], mjc[name]) > BOUNDS_M:
                 problems.append(f"{name}: collision bounds {1000 * _bounds_gap(col[name], mjc[name]):.1f} mm "
                                 "from model.xml's colliding geoms")
-        notes.append("URDF <collision> == model.xml's colliding geoms (bounds within 1 mm)")
+        notes.append("URDF <collision> == model.xml's colliding geoms (bounds within 1 mm)" if not trimmed else
+                     f"URDF <collision> == model.xml's colliding geoms (bounds within 1 mm), except {', '.join(trimmed)}: "
+                     "trimmed where the part jointed to it swings through it (inside model.xml's)")
         # The visuals a URDF user sees vs what MuJoCo's viewer shows by default (groups 0-2).
         vis = declared_points(t, robot, "visuals")
         mjv = mj_geom_points(mj, lambda g: mj.geom_group[g] <= 2 and int(mj.geom_type[g]) != int(mujoco.mjtGeom.mjGEOM_PLANE))

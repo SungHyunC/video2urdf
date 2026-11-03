@@ -7,10 +7,15 @@ What a downloaded URDF needs that the pipeline's own tools don't:
   (the emitters write it for new runs; ``portable_urdf`` adds it to older ones).
 - Drake reads OBJ, VTK and glTF meshes, not STL. An exported URDF names an OBJ twin of each
   STL: the same triangles, written out vertex for vertex (model.xml keeps the STL).
+- model.xml excludes contacts between parts joined by a joint, which overlap at the hinge; a
+  URDF can't, and MuJoCo's URDF import collides a part with the root it is jointed to. A planar
+  part jointed to the root gets URDF collision shapes trimmed to clear over its measured range
+  (joint_clearance.py; only when they overlap, only in the URDF).
 - A header comment says what the file is, where its meshes are, and the loader settings that
   matter: PyBullet's inertia flag and joint friction, MuJoCo's parent-child contacts, ROS paths.
 
-Nothing here changes a measured value: sizes, axes, limits and masses are copied as written.
+Nothing here changes a measured value: axes, limits, masses and inertials are copied as written;
+the only shapes changed are those trimmed URDF collisions (visuals and model.xml keep them all).
 """
 
 from __future__ import annotations
@@ -214,7 +219,17 @@ def header(name: str, robot: ET.Element, root_height: float | None, kind: str) -
         lines += [f"Units: metres, kilograms, radians. Fix the root link \"{root}\"{where}.",
                   "Collisions are the measured geometry; visuals may be the design, video texture or SAM 3D mesh.",
                   "PyBullet: loadURDF(path, useFixedBase=True, flags=URDF_USE_INERTIA_FROM_FILE)."]
-        if moving:
+        from .joint_clearance import trimmed_links
+        trimmed = trimmed_links(robot)
+        if moving and trimmed:
+            names = ", ".join(f"\"{n}\"" for n in trimmed)
+            lines += ["  PyBullet doesn't apply <dynamics friction>: set VELOCITY_CONTROL, targetVelocity=0,",
+                      "  force=friction on each joint.",
+                      f"The collision of {names} (pieces named *_clear_*) is its measured shape trimmed where the",
+                      "  part jointed to it swings through it over the measured range, so loaders that collide a",
+                      "  part with the root (MuJoCo's URDF import) don't push it away; inertials are unchanged.",
+                      "  MuJoCo 3.2.5+: model.xml keeps the untrimmed shapes and excludes those contacts."]
+        elif moving:
             lines += ["  PyBullet doesn't apply <dynamics friction>: set VELOCITY_CONTROL, targetVelocity=0,",
                       "  force=friction on each joint. MuJoCo 3.2.5+: simulate model.xml, which excludes contacts",
                       "  between parts joined by a joint (they overlap there); MuJoCo's URDF import can't."]
@@ -278,9 +293,14 @@ def urdf_stl_meshes(text: str) -> list[str]:
 
 def make_portable(folder: Path, name: str) -> dict:
     """Rewrite folder/model.urdf and folder/model.xml for download (writing OBJ twins next to the
-    STLs the URDF names). Returns {"twins": {stl: obj}, "files": [new files], "inertial_fixed": [links]}."""
+    STLs the URDF names, and trimmed collision pieces where a planar part overlaps the root it is
+    jointed to). Returns {"twins": {stl: obj}, "files": [new files], "inertial_fixed": [links],
+    "trimmed": [one line per trimmed link]}."""
+    from .joint_clearance import clear_urdf
     urdf, mjcf = folder / "model.urdf", folder / "model.xml"
-    text = urdf.read_text()
+    # Planar parts jointed to the root overlap it (model.xml excludes those contacts, a URDF
+    # can't): their URDF collision is trimmed to clear over the measured range.
+    text, trims, trimmed_files = clear_urdf(folder, _strip_header(urdf.read_text()))
     twins = {}
     for stl in urdf_stl_meshes(text):
         rel = twin_name(stl, lambda n: (folder / n).exists() and not is_twin(folder / n))
@@ -298,7 +318,8 @@ def make_portable(folder: Path, name: str) -> dict:
     urdf.write_text(new)
     if mjcf_text is not None:
         mjcf.write_text(portable_mjcf(mjcf_text, name))
-    return {"twins": twins, "files": sorted(set(twins.values()) | set(rewritten)), "inertial_fixed": fixed}
+    return {"twins": twins, "files": sorted(set(twins.values()) | set(rewritten) | set(trimmed_files)),
+            "inertial_fixed": fixed, "trimmed": [t.summary() for t in trims]}
 
 
 def repack(folder: Path, name: str | None = None) -> dict:

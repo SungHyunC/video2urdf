@@ -266,6 +266,8 @@ def export(name: str, run: Path, video: Path, out: Path) -> dict:
     portable = make_portable(dst, name)
     if portable["inertial_fixed"]:
         print(f"{name}: URDF inertial frames rewritten from model.xml for {portable['inertial_fixed']}")
+    for line in portable["trimmed"]:
+        print(f"{name}: URDF collision {line}")
     _, n, fps = video_info(video)
     videos = {}
     experimental_replay = run / "experimental_replay.mp4"
@@ -381,7 +383,9 @@ def main():
     if args.repack:
         for folder in args.repack:
             done = repack(folder)
-            print(f"{folder}: {len(done['files'])} OBJ twins written, inertial frames fixed: {done['inertial_fixed'] or 'none'}")
+            print(f"{folder}: {len(done['files'])} mesh files written (OBJ twins, trimmed collisions), inertial frames fixed: {done['inertial_fixed'] or 'none'}")
+            for line in done["trimmed"]:
+                print(f"{folder}: URDF collision {line}")
         return
     if not args.runs:
         ap.error("give name:run_dir:video, or --repack VIEWER_DIR")
