@@ -1,5 +1,8 @@
 """Train the drawer-opening PPO policy (scripts/train_drawer_policy.py) on Modal CPUs.
 
+Experiment outside the Video2URDF pipeline, kept for reference: the product (scripts/video2urdf.py,
+the agent, the viewer) never imports or runs it, and it is not part of the hackathon submission.
+
 CPU only: the policy is a small MLP and the cost is MuJoCo stepping, one environment per core.
 The image carries only what training reads: video2urdf/, the two robot scripts it imports, the
 trainer, the measured drawer (model.xml, design.json, meshes/) and Menagerie's Panda

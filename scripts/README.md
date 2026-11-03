@@ -27,7 +27,6 @@ The commands by task, with examples: [docs/COMMANDS.md](../docs/COMMANDS.md).
 | Script | What it does |
 |---|---|
 | `robot_tasks.py` | A Franka Panda grasps and works the measured object in MuJoCo (close / open, pull a drawer, swing an arm, carry) |
-| `train_drawer_policy.py`, `run_drawer_policy.py` | PPO policy on the measured drawer (trained on Modal: `modal_apps/rl_drawer_train.py`) and its run on the full arm |
 | `urdf_doctor.py` | Checks an existing URDF's joint against the motion measured from video |
 | `physics_demo.py`, `turntable.py` | Videos: the measured friction holding a joint; a camera circling the model |
 | `robot_demo.py` | The earlier push-only robot demo (kept for the old videos) |
@@ -66,3 +65,11 @@ The commands by task, with examples: [docs/COMMANDS.md](../docs/COMMANDS.md).
 | `fit_lidar_hinge.py`, `build_lidar_model.py` | The LiDAR hinge fit and model build, step by step |
 | `experimental_drawer_collision.py`, `experimental_laptop_align.py`, `render_experimental_replay.py` | Review-only experiments on copies of a run |
 | `fetch_assets.sh` | Downloads the Franka Panda (MuJoCo Menagerie) into `third_party/` |
+
+## Outside the pipeline (not part of the submission)
+
+An experiment kept for reference: `video2urdf.py`, the agent and the viewer never load or run it.
+
+| Script | What it does |
+|---|---|
+| `train_drawer_policy.py`, `run_drawer_policy.py` | PPO policy on the measured drawer (trained on Modal: `modal_apps/rl_drawer_train.py`) and its run on the full arm |

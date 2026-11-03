@@ -1,5 +1,8 @@
 """Train a drawer-opening policy with PPO on a drawer measured from video, then test it.
 
+Experiment outside the Video2URDF pipeline, kept for reference: the product (scripts/video2urdf.py,
+the agent, the viewer) never imports or runs it, and it is not part of the hackathon submission.
+
 The environment (video2urdf/rl_drawer.py) is the fitted cabinet and drawer, with their measured
 collision on, and a Panda hand on a force-limited mount; every episode moves and turns the
 cabinet and rescales the drawer's measured friction. After training, the policy runs 100 test

@@ -20,7 +20,7 @@ gave: [RESULTS.md](RESULTS.md).
 - [Experimental: object-aware appearance completion](#experimental-object-aware-appearance-completion)
 - [URDF Doctor](#urdf-doctor)
 - [The RBO benchmark](#the-rbo-benchmark)
-- [The drawer policy](#the-drawer-policy)
+- [Outside the pipeline: the drawer policy experiment](#outside-the-pipeline-the-drawer-policy-experiment)
 - [The no-tools baseline](#the-no-tools-baseline)
 - [Check the downloads](#check-the-downloads)
 - [Tests](#tests)
@@ -346,10 +346,12 @@ cat data/rbo/results/summary.md
 `scripts/rbo_bench.py --open-weights` runs the agent on Muse Spark Open + SAM weights and keeps
 those runs apart from the Meta API ones.
 
-## The drawer policy
+## Outside the pipeline: the drawer policy experiment
 
-PPO on the measured drawer, trained on Modal CPUs
-([what it learned](RESULTS.md#a-policy-learned-on-the-measured-drawer)):
+An experiment, not part of Video2URDF: `scripts/video2urdf.py`, the agent and the viewer never
+load or run it, and under the hackathon's runtime rule (only Meta models at runtime) it is not part
+of the submission. Kept for reference. PPO on the measured drawer, trained on Modal CPUs
+([what it learned](RESULTS.md#not-part-of-video2urdf-a-drawer-policy-experiment)):
 
 ```bash
 uv sync --extra rl

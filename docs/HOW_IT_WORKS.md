@@ -82,7 +82,8 @@ weights is one flag.
 | Depth fits (LiDAR, RGB-D, MapAnything) | `stray.py` (Stray Scanner captures), `lidar.py` (hinged plates, doors, slides, drawers), `chain3d.py` (rods on hinges), `static_shape.py` (rigid objects), `lift3d.py` (3D joints from video plus depth), `emit3d.py` (3D URDF/MJCF), `pseudo_depth.py` and `autoscale.py` (MapAnything depth and its scale), `calibration.py` (scale from a known length) |
 | Checking the model against the video | `replay.py` (MuJoCo replay over the video, scored per frame) |
 | Making the model usable | `physics.py` (mass, inertia, joint friction), `texture.py` (painted with the video), `design.py` and `designer.py` (Spark's shape design), `completion.py` (the hidden body of a partly seen object), `portable.py` and `urdf_checks.py` (downloads that load in other simulators) |
-| Evaluation and uses | `synth.py` (synthetic videos with known joints), `rbo.py` (the RBO benchmark), `doctor.py` (URDF Doctor), `spark_alone.py` (the no-tools baseline), `rl_drawer.py` (the drawer RL task) |
+| Evaluation and uses | `synth.py` (synthetic videos with known joints), `rbo.py` (the RBO benchmark), `doctor.py` (URDF Doctor), `spark_alone.py` (the no-tools baseline) |
+| Outside the pipeline (not part of the submission) | `rl_drawer.py` (a drawer RL experiment; nothing in the pipeline imports it; [details](RESULTS.md#not-part-of-video2urdf-a-drawer-policy-experiment)) |
 | Experimental appearance completion | `appearance.py`, `appearance_check.py`, `assessment.py`, `planar_check.py`, `planar_shape.py`, `texture_transfer.py` ([log](appearance_validation.md)) |
 
 ## How this differs from research on articulated-object models
