@@ -5,7 +5,7 @@ replay over the video that shows the model moves like the real thing.**
 
 - **Live site and viewer:** https://sunghyunc.github.io/video2urdf/ (the phone video, the MuJoCo
   replay over it, the robot demo, and the measured model in 3D with its URDF/MJCF)
-- **Demo video (2:55, narrated):** https://sunghyunc.github.io/video2urdf/demo.mp4 · [docs/demo.mp4](docs/demo.mp4)
+- **Demo video (2:54, narrated):** https://sunghyunc.github.io/video2urdf/demo.mp4 · [docs/demo.mp4](docs/demo.mp4)
   (the narration is synthesized with Kokoro-82M, Apache-2.0, used only to voice the video; it is not
   part of the project or its runtime)
 - **In depth:** [Results](docs/RESULTS.md) · [How it works](docs/HOW_IT_WORKS.md) · [Commands](docs/COMMANDS.md)
