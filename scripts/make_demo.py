@@ -380,7 +380,11 @@ def microwave_scene():
     return draw
 
 
-def scenes(baseline: bool = True, door_clip: Path | None = DOOR_ROBOT) -> list[Scene]:
+KOKORO_CREDIT = "Narration: Kokoro-82M text-to-speech (Apache-2.0), used only to voice this video"
+
+
+def scenes(baseline: bool = True, door_clip: Path | None = DOOR_ROBOT,
+           credit: str | None = KOKORO_CREDIT) -> list[Scene]:
     lamp_agent = LAMP / "agent"
     white, grey, blue, red = (240, 240, 240), (170, 170, 175), ACCENT, (255, 140, 120)
     # Scripted grasps planned on the measured geometry (scripts/robot_tasks.py). The PPO policy experiment is left
@@ -521,7 +525,7 @@ def scenes(baseline: bool = True, door_clip: Path | None = DOOR_ROBOT) -> list[S
               "Everything is in the browser, with URDF downloads and every step the agent took. One video in, "
               "a model a robot can use out.",
               ["sunghyunc.github.io/video2urdf   |   github.com/SungHyunC/video2urdf",
-               "Narration: Kokoro-82M text-to-speech (Apache-2.0), used only to voice this video"],
+               *([credit] if credit else [])],
               stills([ASSETS / "viewer_trace.jpg"]), numbered=False, hold=0.5),
     ]
     return number(sc)
@@ -585,6 +589,7 @@ def narration_track(sc, clips, sr, frames, total_s: float, wav_out: Path) -> lis
 
 
 def main():
+    global LEAD, TAIL
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=ROOT / "docs" / "demo.mp4")
     ap.add_argument("--script-out", type=Path,
@@ -599,8 +604,14 @@ def main():
                     help="the robot clip opening and shutting the microwave door (robot scene)")
     ap.add_argument("--no-door", action="store_true", help="leave the door clip out of the robot scene")
     ap.add_argument("--max-seconds", type=float, default=MAX_SECONDS)
+    ap.add_argument("--credit", default=KOKORO_CREDIT,
+                    help="closing caption naming the voice ('' for none, e.g. a recorded human voice)")
+    ap.add_argument("--lead", type=float, default=LEAD, help="s of silence before each voiced line")
+    ap.add_argument("--tail", type=float, default=TAIL, help="s of silence after each voiced line")
     args = ap.parse_args()
-    sc = scenes(baseline=not args.no_baseline, door_clip=None if args.no_door else args.door_clip)
+    LEAD, TAIL = args.lead, args.tail  # a slower human read fits 3:00 with shorter pauses between lines
+    sc = scenes(baseline=not args.no_baseline, door_clip=None if args.no_door else args.door_clip,
+                credit=args.credit or None)
     if args.lines:
         args.lines.write_text(json.dumps([{"section": s.section, "narration": s.narration} for s in sc], indent=1))
         print(f"{len(sc)} lines -> {args.lines}")
@@ -617,7 +628,7 @@ def main():
 
     script_out = args.script_out or (args.out.parent / "demo_script.md" if args.out.parent == ROOT / "docs"
                                      else args.out.with_name(args.out.stem + "_script.md"))
-    pace_note = (f"Paced to a synthesized voice: each line starts at its time, after about {LEAD:.1f} s of silence."
+    pace_note = (f"Paced to the voiced lines: each line starts at its time, after about {LEAD:.1f} s of silence."
                  if args.voice_dir else "Read at a calm pace; each line starts at its time.")
     script = ["# Demo narration", "", f"Total {total:.0f} s. {pace_note}", ""]
     for s, (f0, _) in zip(sc, frames):
