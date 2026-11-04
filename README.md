@@ -5,9 +5,7 @@ replay over the video that shows the model moves like the real thing.**
 
 - **Live site and viewer:** https://sunghyunc.github.io/video2urdf/ (the phone video, the MuJoCo
   replay over it, the robot demo, and the measured model in 3D with its URDF/MJCF)
-- **Demo video (2:54, narrated):** https://youtu.be/5pRiu8zG2qI (YouTube) · also as an MP4: https://sunghyunc.github.io/video2urdf/demo.mp4 · [docs/demo.mp4](docs/demo.mp4)
-  (the narration is synthesized with Kokoro-82M, Apache-2.0, used only to voice the video; it is not
-  part of the project or its runtime)
+- **Demo video (2:59, narrated by the developer):** https://youtu.be/aK_csSIU24c (YouTube) · also as an MP4: https://sunghyunc.github.io/video2urdf/demo.mp4 · [docs/demo.mp4](docs/demo.mp4)
 - **In depth:** [Results](docs/RESULTS.md) · [How it works](docs/HOW_IT_WORKS.md) · [Commands](docs/COMMANDS.md)
 
 ![An iPhone LiDAR video of a laptop being closed, next to the measured model replayed over the same frames; then a simulated Franka Panda closing the measured laptop](docs/media/hero.gif)
@@ -411,7 +409,7 @@ DINOv2 (used inside SAM 3D Objects), MapAnything (Meta).
 | [PyBullet](https://github.com/bulletphysics/bullet3), [yourdfpy](https://github.com/clemense/yourdfpy), [Drake](https://github.com/RobotLocomotion/drake) | zlib, MIT, BSD-3-Clause | checking the downloads (`scripts/check_exports.py`, fetched by `uv run --with`, not a dependency) |
 | OpenCV, NumPy, SciPy, numba, OpenAI Python SDK (as the OpenAI-compatible client), Modal | various OSS | |
 | [Stray Scanner](https://github.com/strayrobots/scanner) | app | recording iPhone LiDAR captures |
-| [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) | Apache-2.0 | the demo video's narration (synthesized voice) only; not part of the project or its runtime || [Gymnasium](https://github.com/Farama-Foundation/Gymnasium), [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) | MIT | the drawer RL experiment only (`uv sync --extra rl`), outside the pipeline |
+| [Gymnasium](https://github.com/Farama-Foundation/Gymnasium), [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) | MIT | the drawer RL experiment only (`uv sync --extra rl`), outside the pipeline |
 
 ## Repository layout
 
