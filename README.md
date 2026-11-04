@@ -371,7 +371,8 @@ a clean clone (11/2) passed with no refusal (lid 305 x 214 mm, replay 92% / 92%)
 ## Built during the hackathon
 
 All code in this repository was written solo during the hackathon (Oct 26 - Nov 4 2026), in
-small commits.
+small commits. Nothing existed before the event: the first commit (`76823a3`, Oct 26 11:05 AM ET,
+before the kickoff ended) is empty, with no files; the first content is `6d5dd54` (Oct 27 1:00 AM ET).
 
 What we built on top: the agent and its tools, the SAM tracking strategy (key-frame concept
 prompts, then multi-anchor box tracking forward and over a reversed clip, both passes at once,
