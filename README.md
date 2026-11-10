@@ -3,6 +3,8 @@
 **One short video of a real articulated object in, a measured URDF/MJCF out, and a MuJoCo
 replay over the video that shows the model moves like the real thing.**
 
+🏆 **5th Place, Indie Developer Track ($25,000) at the [Meta Global AI Developer Hackathon](https://cerebralvalley.ai/e/meta-ai-developer-hackathon/hackathon/gallery/2050)** (winners announced Nov 9 2026; 5,367 projects submitted).
+
 - **Live site and viewer:** https://sunghyunc.github.io/video2urdf/ (the phone video, the MuJoCo
   replay over it, the robot demo, and the measured model in 3D with its URDF/MJCF)
 - **Demo video (2:59, narrated by the developer):** https://youtu.be/aK_csSIU24c (YouTube) · also as an MP4: https://sunghyunc.github.io/video2urdf/demo.mp4 · [docs/demo.mp4](docs/demo.mp4)
